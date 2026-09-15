@@ -8,12 +8,15 @@ Reality — последним, как самый дорогой).
 ## Phase 0 — Фундамент: frame-сессия + PQ + ротация (MVP)
 
 - [ ] `frame-session`: record-протокол, stream_table, ratchet, duplicate-window. Юнит-тесты на моках байндингов.
-- [ ] `crypto-core`: Noise-XX + `X25519MLKEM768` (Clatter; noise-protocol — только через форк), `XChaCha20-Poly1305`. KAT-векторы FIPS 203.
+- [ ] `crypto-core`: Noise_IK + `X25519MLKEM768` (Clatter; noise-protocol — только через форк), `XChaCha20-Poly1305`. KAT-векторы FIPS 203.
 - [ ] `key-coordinator`: mint/unwrap tickets, epoch keys, post-rotation re-key.
 - [ ] `transport-mux`: QUIC-байндинг (quinn), дефолт cubic.
 - [ ] **Интеграционный тест ротации** (главный риск проекта): сессия с 3 потоками, ротация
       N1→N2 по ticket, проверка: 0 потерянных записей, continuity по seq, старый узел не читает
-      пост-ротационный трафик (re-key), duplicate-window ≤ 1 RTT.
+      пост-ротационный трафик (свежий DH), duplicate-window ≤ 1 RTT.
+- [ ] **Негативные тесты ротации:** украденный ticket без валидной `sig_client` → `RESUME_NAK bad_pop`;
+      повтор того же ticket → `RESUME_NAK replay`; подмена `eph_node` без `sig_node` → канал не подтверждён;
+      узел упал между RESUME и ACK → откат на старый канал без разрыва сессии.
 - [ ] `session-store` + `device-adapter` (Linux TUN первым) + `policy-engine` (fake-ip).
 - **Exit:** PQ-безопасный, rotation-safe однохоповый туннель. Это уже закрывает SnowVPN-баг —
       но теперь с доказательством, а не заявлением.
@@ -23,6 +26,8 @@ Reality — последним, как самый дорогой).
 - [ ] quinn: что реально поддерживает — TLS session resumption? 0-RTT early data? connection migration? BBR (экспериментальный) vs cubic на lossy-линке?
 - [ ] RustCrypto `ml-kem` + **Clatter**: собрать и протестировать гибрид NoisePQC++-паттерна
       (единственный готовый путь — `noise-protocol` KEM-токенов не имеет, см. DEPENDENCIES.md).
+- [ ] Проверить, есть ли `noise_hybrid_IK_*` в `handshakepattern`; если нет — собрать IK утилитами
+      модуля. Зафиксировать порядок токенов и транскрипт хендшейка (`02 §5`). Иначе паттерн пересматривается на KK.
 - Отложено **вне бюджета спайка**: форк `noise-protocol` под токены `ekem`/`skem` + KEM-трейт —
       только если Clatter не устроит по аудиту или interop. Цена: расширение паттерн-языка и
       поддержка форка, а не часы; решение принимается после результата спайка, а не в нём.
@@ -58,7 +63,7 @@ Reality — последним, как самый дорогой).
 
 ## Phase 4 — Харднинг и шип
 
-- [ ] Фаззинг Noise-XX + QUIC + байндингов; constant-time аудит.
+- [ ] Фаззинг Noise_IK + QUIC + байндингов; constant-time аудит.
 - [ ] Battery/CPU бюджет для on-device ML; адаптивный размер модели.
 - [ ] ECH/OHTTP (когда станут сквозными через quinn или появится серверная поддержка), CID-ротация, политика 0-RTT replay.
 - [ ] Multipath QUIC; платформенные GUI.
@@ -73,8 +78,10 @@ Reality — последним, как самый дорогой).
 | Classifier false-negative → блок | консервативные пороги; фолбэк на сильнейшую статичную обложку |
 | Classifier false-positive → батарея | rate-limit морфов; App Mirage off по умолчанию |
 | Reality слишком дорог в Rust | Go-sidecar или boring; не блокирует остальные обложки |
-| Replay/гонка ticket при ротации | proof-of-possession + consumed-set (см. drilldown) |
-| Узел не аутентифицируется клиенту | Noise_XX со статическими ключами узлов из подписки |
+| Replay/гонка ticket при ротации | PoP-подпись клиента + consumed-set эпохи (`02 §3.3`, `02 §3.6`) |
+| Узел не аутентифицируется клиенту | Noise_IK со статическими ключами узлов из манифеста подписки (`02 §5`) |
+| consumed-set теряется при рестарте узла | принято сознательно; короткие эпохи + `exp` (`02 §3.6`) |
+| Крана двух узлов на один ticket | разрешается на клиенте: первый валидный ACK, второй в quarantine (`02 §3.6`) |
 | PQ handshake trips middleboxes | едет на control-стриме поверх установленного QUIC, не в Initial — проблемы нет |
 | On-device ML тяжёл для слабых телефонов | HW-Aware NAS модель; lazy load |
 

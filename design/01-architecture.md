@@ -10,11 +10,11 @@ flowchart TB
     POL[PolicyEngine<br/>routing / fake-ip DNS]
     MORPH[MorphController<br/>Liquid Tunnel FSM + on-device DPI classifier]
     FS[FrameSession<br/>cover-agnostic record protocol<br/>stream table + seq + re-key]
-    CRYPTO[CryptoCore<br/>Noise-XX hybrid PQ + XChaCha20-Poly1305]
+    CRYPTO[CryptoCore<br/>Noise_IK hybrid PQ + XChaCha20-Poly1305]
     COVER[CoverEngine<br/>App Mirage decoy synth]
     TM[TransportMux<br/>QUIC / MASQUE / Reality bindings]
     SC[SessionStore<br/>keyed (sub,UUID,sid) + tickets]
-    KEYM[KeyCoordinator<br/>fleet epoch keys + ticket mint]
+    KEYM[KeyCoordinator<br/>ticket store + PoP sign<br/>no mint, no epoch keys]
     TG[TelemetryGuard<br/>opt-in метрики]
   end
 
@@ -52,16 +52,17 @@ sequenceDiagram
   participant N1 as Node A
   participant N2 as Node B
   Note over C,N1: 1) Outer QUIC (standard TLS) к N1
-  Note over C,N1: 2) Noise-XX hybrid на control-стриме<br/>(X25519MLKEM768: клиент 32+1184 B, сервер 32+1088 B)
-  C->>N1: handshake -> K_session, session-id
-  C->>N1: [опционально] N1 минтит ticket = AEAD(TFK_epoch, {sid, K_session, exp})
-  Note over C,N2: 3) Ротация (make-before-break)
+  Note over C,N1: 2) Noise_IK hybrid на control-стриме<br/>(X25519MLKEM768: клиент 32+1184 B, сервер 32+1088 B)<br/>IK: статик узла из манифеста, статик клиента — в msg1
+  C->>N1: handshake -> K_session, session-id (cryptokey routing)
+  C->>N1: MINT_REQ -> N1 минтит ticket = AEAD(TFK_epoch, {sid, K_session, client_auth_pub, window, exp})
+  Note over C,N2: 3) Ротация (make-before-break), 1 RTT
   C->>N2: outer QUIC к N2 (новая обложка допустима)
-  C->>N2: Resume { ticket, last_seq }
-  N2->>C: ResumeAck { continuity_point }
-  Note over C: frame-слой продолжает с last_seq;<br/>дублирует записи на оба канала до ACK
+  C->>N2: ticket_blob ‖ sealed{K_resume}{last_seq, window, eph_client, nonce, sig_client}
+  Note over N2: unwrap ticket флотским TFK_epoch;<br/>проверка sig_client по client_auth_pub;<br/>consumed-set: повтор -> RESUME_NAK replay
+  N2->>C: sealed{K_resume}{continuity_point, window, eph_node, sig_node}
+  Note over C: frame-слой продолжает с last_seq;<br/>дублирует записи на оба канала до валидного ACK<br/>(T_morph = 2×SRTT, N ≤ 4096)
   C->>N1: teardown старого outer после подтверждения
-  Note over C,N2: 4) Post-rotation re-key (forward secrecy):<br/>K_session' = HKDF(K_session, "rotate", eph_N2)
+  Note over C,N2: 4) Post-rotation re-key (forward secrecy):<br/>K_session' = HKDF(DH(eph_client, eph_node) ‖ K_session)
 ```
 
 ## Поток данных (пакет → байты)
@@ -76,20 +77,23 @@ sequenceDiagram
    - QUIC-байндинг: `stream_id` ↔ QUIC stream (no-HOL бесплатно);
    - MASQUE-байндинг: records как UDP-полезная нагрузка CONNECT-UDP;
    - Reality/TCP-байндинг: length-prefixed frames поверх сплайснутого TLS (HOL — tradeoff, см. `02 §2.2`).
-7. Egress-узел терминирует байндинг, восстанавливает FrameSession из ticket при ротации,
+7. Egress-узел терминирует байндинг, при ротации разворачивает ticket флотским `TFK_epoch`,
+   проверяет PoP-подпись клиента и попадает в consumed-set, восстанавливает FrameSession,
    форвардит в интернет. Состояния, переживающего ротацию, нет; на время сессии узел
-   держит in-memory окно дедупликации.
+   держит in-memory окно дедупликации (4096) и consumed-set эпохи.
 8. **TelemetryGuard** — opt-in, без payload/destinations/identities.
 
 ## Почему эта схема корректна (ответ на аудит v1)
 
 - **Морфинг не рвёт сессию** потому, что сессия — это FrameSession (ключи, stream table, seq),
   а не транспортное соединение. Смена обложки = смена байндинга; overlap-window дублирует
-  records на старый+новый каналы до подтверждения (границы оверхеда — `02 §4`).
+  records на старый+новый каналы до подтверждения, таймер и бюджет окна — за FrameSession
+  (`02 §4`); исчерпание бюджета даёт MorphFailed и откат, не разрыв сессии.
 - **Ротация без состояния, переживающего ротацию**, потому что узел восстанавливает сессию из ticket,
-  завернутого под fleet-epoch ключом (паттерн TLS session tickets, RFC 8446 §2.2).
-  Компромисс (компрометация epoch-ключа вскрывает сессии эпохи) задокументирован и смягчён
-  короткими эпохами + post-rotation re-key (`02 §3`).
+  завернутого под fleet-epoch ключом (паттерн TLS session tickets, RFC 8446 §2.2). Ticket не даёт
+  сессии сам по себе: резюм проходит только с PoP-подписью клиента (`02 §3.3`).
+  Компромисс (компрометация epoch-ключа вскрывает сессии эпохи) — задокументированный tradeoff
+  флотского wrap, смягчён короткими эпохами и ротацией TFK (`02 §3.9`).
 - **PQ-семантика честная**: гибрид защищает сессию (payload); outer QUIC handshake —
   стандартный TLS 1.3 (классический), его роль — только транспорт. HNDL-безопасность
-  касается записей frame-слоя, зашифрованных ключами из Noise-XX гибрида.
+  касается записей frame-слоя, зашифрованных ключами из Noise_IK гибрида.

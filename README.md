@@ -36,8 +36,9 @@ vpn/
 1. **Liquid Tunnel** — on-device ML-классификатор определяет, какой DPI-моделью пользуется
    цензор, и морфит wire-format в реальном времени (research-grade, Phase 2).
 2. **Stateless Egress Core** — состояние сессии у клиента; узлы восстанавливают её из
-   ticket (паттерн TLS session tickets); ротация make-before-break (тест — Phase 0).
-3. **Hybrid PQ** — `X25519MLKEM768` через Noise-XX на control-стриме; `XChaCha20-Poly1305`
+   ticket (паттерн TLS session tickets) с proof-of-possession клиента; ротация make-before-break
+   (тест — Phase 0).
+3. **Hybrid PQ** — `X25519MLKEM768` через Noise_IK на control-стриме; `XChaCha20-Poly1305`
    на данные; HNDL-safe для записей сессии.
 4. **Federated Egress Mesh** — 1–3 хопа с per-hop гибридом и ротацией звеньев.
 5. **App Mirage** — декой-трафик под TLS-отпечаток популярных приложений (research-grade).
@@ -64,7 +65,7 @@ crate-feasibility → anti-air-audit → mechanism-drilldown (по WEAK/AIR пу
 | `impl-phase-driver` | проведение фазы roadmap end-to-end | дорогая |
 | `rotation-test-writer` | интеграционные тесты ротации (гл. риск) | средняя |
 
-Полные исходники скиллов — в `aether-freebuff-skills.md`.
+Полные исходники скиллов — в `aether-freebuff-skills-v2.md` (снапшот; живой источник — `.agents/skills/`).
 
 **Правила бюджета:** механические проверки — дешёвой моделью; рассуждения — дорогой.
 Скиллы подгружаются on-demand; кастомные субагенты — только для независимых фоновых задач

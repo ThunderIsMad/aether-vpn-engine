@@ -24,22 +24,26 @@ Rust-клиента RFC 9298 поверх quinn+h3.
 ### 1. frame-session — record-протокол, носитель сессии (NEW, критический путь)
 - **In:** app flows от PolicyEngine; морф/ротация события.
 - **Out:** records в активный байндинг; ACK/continuity события.
-- **State:** stream_table, seq, ratchet `K_record[n]`, duplicate-window.
-- **Контракт:** переживает смену байндинга и узла; ровно-once delivery на узле по (sid, seq).
+- **State:** stream_table, seq, ratchet `K_record[n]`, duplicate-window (4096 записей, bitmap 512 B).
+- **Контракт:** переживает смену байндинга и узла; **идемпотентный дедуп по (sid, seq),
+  at-most-once на выходе** (exactly-once не заявляется — см. `02 §3.5`).
+- **Владеет таймером** overlap-window и бюджетом дублирования (`02 §4`).
 
 ### 2. crypto-core
-- **In:** session-id, peer static, KEM selection.
+- **In:** session-id, свой и парный static (из манифеста подписки), KEM selection.
 - **Out:** `K_session`, seal/open записей.
-- **Impl:** Clatter (NoisePQC++ паттерн); constant-time; KEM registry. Путь через `noise-protocol`
+- **Impl:** Clatter (Noise_IK гибрид, `02 §5`); constant-time; KEM registry. Путь через `noise-protocol`
   требует форка: KEM-токенов в абстрактной реализации нет.
 - Тест: KAT-векторы на ML-KEM-768 (FIPS 203) + interop. У clatter собственное именование
   PQ-примитивов, поэтому interop-тесты против эталона обязательны, а не желательны.
 
-### 3. key-coordinator — fleet epoch keys + tickets (NEW)
-- **In:** subscription update (epoch keys), ticket requests.
-- **Out:** mint/unwrapped tickets для RESUME; re-key события.
-- **Impl:** AEAD-обёртка TLS-ticket-стиля (см. `02-protocols §3`); эпохи с TTL;
-  post-rotation re-key `HKDF(K_session, "rotate", eph)`.
+### 3. key-coordinator — ticket-обёртка и PoP на клиенте (NEW)
+- **In:** манифест подписки (только публичные ключи узлов и свои ключи), запросы mint.
+- **Out:** `RESUME` с PoP-подписью, `RESUME_ACK`-проверка, re-key события.
+- **Impl:** запрашивает mint **у узла** (сам не минтит и `TFK_epoch` не получает);
+  `sig_client` Ed25519 по `client_identity`; post-rotation re-key со свежим DH
+  `HKDF(HKDF-Extract(DH(eph_client, eph_node) ‖ K_session))` (`02 §3.3`).
+- **Не владеет:** epoch keys, wrap-ключами, состоянием дедупа.
 
 ### 4. transport-mux — байндинги
 - QUIC-байндинг (quinn; resumption/0-RTT — по результату Phase 0.5).
@@ -80,15 +84,22 @@ trait FrameSession {
     fn on_resume_ack(&mut self, continuity: Seq) -> DuplicateWindow;
 }
 
-trait Rotation {
-    fn mint_ticket(&self, epoch: EpochId) -> Ticket;
-    fn resume(&mut self, node: &Node, ticket: &Ticket) -> Result<Continuity, ResumeError>;
-    fn post_rotation_rekey(&mut self, eph: &[u8; 32]);
+trait Rotation {                       // клиентская сторона; mint здесь НЕТ
+    fn request_ticket(&mut self, node: &Node) -> Result<Ticket, MintError>;
+    fn resume(&mut self, node: &Node, ticket: &Ticket, eph: X25519Pub) -> Result<Continuity, ResumeError>;
+    fn post_rotation_rekey(&mut self, eph_node: &X25519Pub) -> Result<(), RekeyError>;
+}
+
+trait TicketMint {                     // сторона узла (fix #29: единственный владелец mint)
+    fn mint(&self, sid: SessionId, client_auth: Ed25519Pub, window: Window) -> TicketBlob;
+    fn unwrap_ticket(&self, blob: &TicketBlob) -> Result<TicketPlain, TicketError>;
+    fn verify_pop(&self, ticket: &TicketPlain, sig: &Signature, ctx: &ResumeCtx) -> bool;
 }
 
 trait CoverBinding {
-    fn send(&mut self, rec: &Record);
+    fn send(&mut self, rec: &Record) -> Result<(), BindingError>;  // синхронный отказ
     fn supports(&self) -> BindingCaps; // { NO_HOL, DATAGRAM, DPI_PROFILE }
+    fn on_failure(&mut self) -> Option<BindingFailure>;            // асинхронный отказ
 }
 
 trait Classifier {
@@ -100,4 +111,3 @@ trait Classifier {
 
 frame-session и crypto-core не зависят от транспортов (тестируются на моках байндингов).
 transport-mux зависит от frame-session (интерфейс CoverBinding). morph-controller — последний.
-```
