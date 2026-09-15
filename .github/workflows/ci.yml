@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skills:
+    name: Validate skills
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install validator dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/skill-venv"
+          "$RUNNER_TEMP/skill-venv/bin/pip" install --quiet --upgrade pip pyyaml
+
+      - name: Validate .agents/skills
+        run: |
+          "$RUNNER_TEMP/skill-venv/bin/python" scripts/validate_skills.py
+
+  rust:
+    name: Rust (test + clippy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect workspace
+        id: ws
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: No workspace yet
+        if: steps.ws.outputs.found == 'false'
+        run: echo "::notice title=Rust job skipped::No Cargo.toml at the repo root yet; the Phase 0 scaffold has not run, so cargo test/clippy are not enforced."
+
+      - name: Ensure clippy
+        if: steps.ws.outputs.found == 'true'
+        run: rustup component add clippy
+
+      - name: cargo test
+        if: steps.ws.outputs.found == 'true'
+        run: cargo test --workspace --all-targets
+
+      - name: cargo clippy
+        if: steps.ws.outputs.found == 'true'
+        run: cargo clippy --workspace --all-targets -- -D warnings
