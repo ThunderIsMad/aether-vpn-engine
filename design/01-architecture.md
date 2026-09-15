@@ -13,7 +13,7 @@ flowchart TB
     CRYPTO[CryptoCore<br/>Noise-XX hybrid PQ + XChaCha20-Poly1305]
     COVER[CoverEngine<br/>App Mirage decoy synth]
     TM[TransportMux<br/>QUIC / MASQUE / Reality bindings]
-    SC[SessionStore<br/>ключed (sub,UUID,sid) + tickets]
+    SC[SessionStore<br/>keyed (sub,UUID,sid) + tickets]
     KEYM[KeyCoordinator<br/>fleet epoch keys + ticket mint]
     TG[TelemetryGuard<br/>opt-in метрики]
   end
@@ -29,7 +29,7 @@ flowchart TB
   KEYM -.tickets.-> SC
   TG -.opt-in.-> MORPH
 
-  subgraph Mesh["Federated Egress Mesh (stateless)"]
+  subgraph Mesh["Federated Egress Mesh (no state across rotation)"]
     N1[Egress node A<br/>+ epoch key]
     N2[Egress node B<br/>+ epoch key]
     N3[Egress node C]
@@ -77,17 +77,18 @@ sequenceDiagram
    - MASQUE-байндинг: records как UDP-полезная нагрузка CONNECT-UDP;
    - Reality/TCP-байндинг: length-prefixed frames поверх сплайснутого TLS (HOL — tradeoff, см. `02 §2.2`).
 7. Egress-узел терминирует байндинг, восстанавливает FrameSession из ticket при ротации,
-   форвардит в интернет. Серверного per-session state нет.
+   форвардит в интернет. Состояния, переживающего ротацию, нет; на время сессии узел
+   держит in-memory окно дедупликации.
 8. **TelemetryGuard** — opt-in, без payload/destinations/identities.
 
 ## Почему эта схема корректна (ответ на аудит v1)
 
 - **Морфинг не рвёт сессию** потому, что сессия — это FrameSession (ключи, stream table, seq),
   а не транспортное соединение. Смена обложки = смена байндинга; overlap-window дублирует
-  records на старый+новый каналы до подтверждения (границы оверхеда — `02 §5`).
-- **Ротация без серверного state** потому, что узел восстанавливает сессию из ticket,
+  records на старый+новый каналы до подтверждения (границы оверхеда — `02 §4`).
+- **Ротация без состояния, переживающего ротацию**, потому что узел восстанавливает сессию из ticket,
   завернутого под fleet-epoch ключом (паттерн TLS session tickets, RFC 8446 §2.2).
-  Компромисс (epoch-key компромет exposes сессии эпохи) задокументирован и смягчён
+  Компромисс (компрометация epoch-ключа вскрывает сессии эпохи) задокументирован и смягчён
   короткими эпохами + post-rotation re-key (`02 §3`).
 - **PQ-семантика честная**: гибрид защищает сессию (payload); outer QUIC handshake —
   стандартный TLS 1.3 (классический), его роль — только транспорт. HNDL-безопасность

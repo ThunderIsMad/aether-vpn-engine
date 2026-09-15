@@ -34,7 +34,7 @@ Reality — последним, как самый дорогой).
 Порядок по возрастанию стоимости:
 
 - [ ] SS-2022/padded байндинг — чистый Rust, простой, базовый fallback.
-- [ ] MASQUE CONNECT-UDP (RFC 9298) — минимальный клиент на quinn+h3 (~1–2k LOC); masque-go как reference.
+- [ ] MASQUE CONNECT-UDP (RFC 9298) — минимальный клиент на quinn+h3 (оценка, уточняется в Phase 1); masque-go как reference.
 - [ ] Reality/VLESS — последний: либо Go-sidecar с xray-core, либо `boring` с контролем ClientHello.
       uTLS-эквивалента в Rust нет — это самый дорогой пункт Phase 1.
 - [ ] Ручной выбор обложки в UI; измерить pass-rate каждой на тестовой сети.
@@ -53,7 +53,7 @@ Reality — последним, как самый дорогой).
 ## Phase 3 — App Mirage + Mesh — research-grade
 
 - [ ] CoverEngine: FlowPaint-класс генератор, rate-limited.
-- [ ] Federated Egress Mesh: 2–3 хопа, per-hop гибрид, ротация звена цепочки.
+- [ ] Federated Egress Mesh: 2–3 хопа, per-hop гибрид, ротация звена цепочки (каркас в `02 §3.4`; статус — research-grade).
 - [ ] TelemetryGuard (opt-in) для улучшения классификатора по полевым исходам.
 
 ## Phase 4 — Харднинг и шип
@@ -73,6 +73,8 @@ Reality — последним, как самый дорогой).
 | Classifier false-negative → блок | консервативные пороги; фолбэк на сильнейшую статичную обложку |
 | Classifier false-positive → батарея | rate-limit морфов; App Mirage off по умолчанию |
 | Reality слишком дорог в Rust | Go-sidecar или boring; не блокирует остальные обложки |
+| Replay/гонка ticket при ротации | proof-of-possession + consumed-set (см. drilldown) |
+| Узел не аутентифицируется клиенту | Noise_XX со статическими ключами узлов из подписки |
 | PQ handshake trips middleboxes | едет на control-стриме поверх установленного QUIC, не в Initial — проблемы нет |
 | On-device ML тяжёл для слабых телефонов | HW-Aware NAS модель; lazy load |
 

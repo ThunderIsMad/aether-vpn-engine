@@ -58,7 +58,8 @@ ticket = AEAD_enc(TFK_epoch, { session_id, K_session_wrapped, exp, node_set_id }
 K_session_wrapped = K_session, завернутый под ключ, известный только узлу-минтеру и клиенту
 ```
 Минтит текущий узел по запросу клиента (или клиент заранее при handshake). Хранится
-только у клиента (SessionStore). Сервер не хранит ничего.
+только у клиента (SessionStore). У сервера нет состояния, переживающего ротацию; на время
+сессии узел держит in-memory окно дедупликации.
 
 ### 3.3 Протокол ротации (make-before-break)
 1. Клиент открывает outer QUIC к N2 (новая обложка допустима — байндинги независимы).
@@ -94,6 +95,8 @@ stateDiagram-v2
   QuicNative --> Masque: классификатор: non-browser QUIC
   QuicNative --> Reality: ECH/SNI-проблемы
   Masque --> Reality: классификатор: прокси-паттерн
+  Masque --> QuicNative: QUIC доступен
+  Reality --> QuicNative: QUIC доступен
   Reality --> Masque: probe-rate/RST spike
   Reality --> SsPadded: target-site дрейф
   SsPadded --> QuicNative: сеть чистая

@@ -43,7 +43,7 @@ Rust-клиента RFC 9298 поверх quinn+h3.
 
 ### 4. transport-mux — байндинги
 - QUIC-байндинг (quinn; resumption/0-RTT — по результату Phase 0.5).
-- MASQUE-байндинг: минимальный RFC 9298 CONNECT-UDP клиент на quinn+h3 (свой, ~1–2k LOC).
+- MASQUE-байндинг: минимальный RFC 9298 CONNECT-UDP клиент на quinn+h3 (свой; оценка, уточняется в Phase 1).
 - Reality/TCP-байндинг: length-prefixed frames; HOL tradeoff задокументирован.
 - SS-2022/padded байндинг (fallback, чистый Rust).
 
@@ -58,7 +58,8 @@ Rust-клиента RFC 9298 поверх quinn+h3.
 
 ### 7. session-store (клиент)
 - `(subscription_id, UUID, session_id)` + K_session + tickets + chain descriptor.
-- In-memory + OS secure store. Серверного состояния нет по построению.
+- In-memory + OS secure store. У сервера нет состояния, переживающего ротацию (на время
+  сессии — in-memory окно дедупликации).
 
 ### 8. policy-engine
 - Rule matcher + fake-ip DNS (198.18.0.0/16), Clash-стиль, split-tunnel.

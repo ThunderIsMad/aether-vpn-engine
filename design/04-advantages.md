@@ -12,17 +12,17 @@
 | Reconnect | ≈1 RTT (не 0-RTT) | ПРОЕКТНО | outer QUIC TLS resumption + RESUME frame по ticket (`02 §7`) |
 | 0-RTT early data | опционально, только идемпотентный контроль | ГИПОТЕЗА (зависит от стека, Phase 0.5) | |
 | No-HOL | per-stream изоляция потерь | ПРОЕКТНО | только для QUIC/MASQUE-байндингов; Reality/TCP — HOL tradeoff |
-| PQ handshake overhead | +15–45 мс, +~1.2 KB | ИЗМЕРЕНО (enterprise PQ VPN, 2025) | cyberpath (02 §1) |
+| PQ handshake overhead | +15–45 мс, +~1.2 KB | **ГИПОТЕЗА** — замерено на чужом стеке (enterprise PQ VPN, 2025), контекст RTT/loss не указан; свой замер — Phase 0 | cyberpath (02 §1) |
 | PQ steady-state | bandwidth +10–20%, CPU +15–40% | ИЗМЕРЕНО | cyberpath (02 §1) |
 | Оверхед двойной инкапсуляции (запись + outer QUIC) | до ~5–8% CPU | ГИПОТЕЗА | считать в Phase 0 бенчмарке |
-| Морфинг/ротация | ~1 RTT дублированного трафика | ПРОЕКТНО | overlap-window (`02 §3.3`, `02 §5`) |
+| Морфинг/ротация | ~1 RTT дублированного трафика | ПРОЕКТНО | overlap-window (`02 §3.3`, `02 §4`) |
 
 ## Приватность
 
 | Утверждение | Механизм | Статус |
 |-------------|----------|--------|
 | HNDL-safe (записи сессии) | hybrid `X25519+ML-KEM-768` | ПРОЕКТНО, примитивы стандартны |
-| Нет серверных логов сессий | узел stateless; ticket у клиента | ПРОЕКТНО; epoch-key компромисс задокументирован (`02 §3.5`) |
+| Нет серверных логов сессий | у узла нет состояния, переживающего ротацию; ticket у клиента | ПРОЕКТНО; epoch-key компромисс задокументирован (`02 §3.5`) |
 | Forward secrecy через узлы | post-rotation re-key | ПРОЕКТНО (Phase 0 тест) |
 | Метаданные | CID rotation; ECH | ECH **отложен** (Phase 4): сквозь quinn недоступен — клиентский ECH в rustls есть, серверный открыт |
 | Anti-fingerprint | морфинг обложек | research-grade (Phase 2) |

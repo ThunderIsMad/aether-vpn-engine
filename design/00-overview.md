@@ -12,7 +12,8 @@ Codename архитектуры: **Liquid Tunnel**.
    QUIC-in-TCP (обложка Reality) невозможен без HOL-проблем, поэтому сессия — это
    cover-агностичный record-протокол, который биндится к разным транспортам (см. `02-protocols §1`).
 2. **Ротация egress конкретизирована** — ticket-based resumption по образцу TLS session tickets
-   (RFC 8446 §2.2): узлы не хранят per-session state, клиент несёт ticket, завернутый под
+   (RFC 8446 §2.2): у узлов нет состояния, переживающего ротацию (на время сессии —
+   in-memory окно дедупликации), клиент несёт ticket, завернутый под
    fleet-epoch ключом. Make-before-break, forward secrecy через post-rotation re-key
    (`02-protocols §3`).
 3. **0-RTT переосмыслен.** Noise-XX не даёт 0-RTT; честная семантика: reconnect ≈ 1 RTT
@@ -29,10 +30,10 @@ Codename архитектуры: **Liquid Tunnel**.
 
 | # | Столп | Что делает | Статус после аудита | Источник |
 |---|-------|------------|---------------------|----------|
-| 1 | **Liquid Tunnel** | On-device классификатор следит за uplink и морфит внешнюю обложку | research-grade; механизм морфа описан (`02 §5`) | 05, 2509.23522 |
-| 2 | **Stateless Egress Core** | Сессия = ticket у клиента; узлы stateless; ротация make-before-break | спроектирован (`02 §3`), требует Phase 0 теста | 01 §3/§9 |
+| 1 | **Liquid Tunnel** | On-device классификатор следит за uplink и морфит внешнюю обложку | research-grade; механизм морфа описан (`02 §4`) | 05, 2509.23522 |
+| 2 | **Stateless Egress Core** | Сессия = ticket у клиента; у узлов нет состояния, переживающего ротацию; ротация make-before-break | спроектирован (`02 §3`), требует Phase 0 теста | 01 §3/§9 |
 | 3 | **Hybrid PQ crypto** | `X25519MLKEM768` (Noise-XX, стиль NoisePQC++) на control; `XChaCha20-Poly1305` на данные | реализуемо (Clatter / ml-kem) | 04, 2608.00954 |
-| 4 | **Federated Egress Mesh** | 1–3 хопа, per-hop handshake, chain rotation | спроектирован (`02 §3.4`) | 01 §6, 06 |
+| 4 | **Federated Egress Mesh** | 1–3 хопа, per-hop handshake, chain rotation | Phase 3, research-grade; каркас в `02 §3.4` | 01 §6, 06 |
 | 5 | **App Mirage** | Декой-трафик под TLS-отпечаток популярных приложений | research-grade (FlowPaint) | 05, 2606.22717 |
 | 6 | **QUIC-native transport** | QUIC-байндинг frame-слоя: streams, migration, no-HOL | реализуемо (quinn) | 06, 2002.05091 |
 
@@ -47,14 +48,14 @@ Codename архитектуры: **Liquid Tunnel**.
 | Multi-hop low latency | ✗ | ✗ (1 hop) | ✗ медленно | ✗ | Phase 3 |
 | App-fingerprint cover | ✗ | ✗ | ✗ | ✗ | Phase 3, research-grade |
 | 0-RTT / migration / no-HOL | ✗/✗/✗ | partial | ✗ | ✅/✅/✅ | resumption ≈1 RTT / ✅ / ✅ (QUIC-байндинг) |
-| Stateless server | ✗ | ✗ | partial | ✗ | ✅ (ticket-based) |
+| Stateless server | ✗ | ✗ | partial | ✗ | ✅ нет состояния, переживающего ротацию (ticket-based) |
 
 ## Review checklist (обновлён)
 
 - [x] Каждый novelty-claim трассируется в `../research/*`.
 - [x] Hybrid only, не pure PQ (04).
 - [x] Ротация: механизм описан до уровня сообщений (`02 §3`) — TLS-ticket паттерн.
-- [x] Морфинг: механизм описан до overlap-window и границ оверхеда (`02 §5`).
+- [x] Морфинг: механизм описан до overlap-window и границ оверхеда (`02 §4`).
 - [x] Крипто конкретна: `X25519MLKEM768` + Noise-XX + `XChaCha20-Poly1305`; байты сверены с FIPS 203.
 - [ ] **Открыто:** реализуемость 0-RTT early data в quinn — верификационный спайк (Phase 0.5).
 - [ ] **Открыто:** ECH сквозь quinn недоступен (клиентский ECH в rustls есть, серверный — открыт) — отложено в Phase 4, до этого полагаемся на MASQUE/Reality.
