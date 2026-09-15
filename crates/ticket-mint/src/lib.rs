@@ -108,7 +108,7 @@ mod tests {
     #[test]
     #[ignore = "контракт Phase 0: тело намеренно todo!() — тест начнёт проходить вместе с реализацией"]
     fn contract_mint_binds_client_pub_and_window() {
-        todo!("Phase 0: mint → AEAD(TFK_epoch, {sid, K_session_wrapped, client_auth, window, epoch_id, exp})")
+        todo!("Phase 0: mint → AEAD(TFK_epoch, {{sid, K_session_wrapped, client_auth, window, epoch_id, exp}})")
     }
 
     /// Контракт PoP: подделка или отсутствие `sig_client` → отказ, ticket не консумируется;

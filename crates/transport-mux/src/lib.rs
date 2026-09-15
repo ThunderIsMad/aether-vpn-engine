@@ -74,6 +74,6 @@ mod tests {
     #[test]
     #[ignore = "контракт Phase 0: тело намеренно todo!() — тест начнёт проходить вместе с реализацией"]
     fn contract_quic_binding_caps() {
-        todo!("Phase 0: QUIC-байндинг на quinn — caps { NO_HOL, DATAGRAM }; дефолт cubic")
+        todo!("Phase 0: QUIC-байндинг на quinn — caps {{ NO_HOL, DATAGRAM }}; дефолт cubic")
     }
 }
