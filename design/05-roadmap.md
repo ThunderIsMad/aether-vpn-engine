@@ -8,7 +8,7 @@ Reality — последним, как самый дорогой).
 ## Phase 0 — Фундамент: frame-сессия + PQ + ротация (MVP)
 
 - [ ] `frame-session`: record-протокол, stream_table, ratchet, duplicate-window. Юнит-тесты на моках байндингов.
-- [ ] `crypto-core`: Noise-XX + `X25519MLKEM768` (Clatter или noise-protocol+ml-kem), `XChaCha20-Poly1305`. KAT-векторы FIPS 203.
+- [ ] `crypto-core`: Noise-XX + `X25519MLKEM768` (Clatter; noise-protocol — только через форк), `XChaCha20-Poly1305`. KAT-векторы FIPS 203.
 - [ ] `key-coordinator`: mint/unwrap tickets, epoch keys, post-rotation re-key.
 - [ ] `transport-mux`: QUIC-байндинг (quinn), дефолт cubic.
 - [ ] **Интеграционный тест ротации** (главный риск проекта): сессия с 3 потоками, ротация
@@ -21,7 +21,11 @@ Reality — последним, как самый дорогой).
 ## Phase 0.5 — Верификационный спайк стека (1–2 дня, до Phase 1)
 
 - [ ] quinn: что реально поддерживает — TLS session resumption? 0-RTT early data? connection migration? BBR (экспериментальный) vs cubic на lossy-линке?
-- [ ] RustCrypto `ml-kem` + `noise-protocol`: собрать и протестировать гибрид NoisePQC++-паттерна; сравнить с Clatter.
+- [ ] RustCrypto `ml-kem` + **Clatter**: собрать и протестировать гибрид NoisePQC++-паттерна
+      (единственный готовый путь — `noise-protocol` KEM-токенов не имеет, см. DEPENDENCIES.md).
+- Отложено **вне бюджета спайка**: форк `noise-protocol` под токены `ekem`/`skem` + KEM-трейт —
+      только если Clatter не устроит по аудиту или interop. Цена: расширение паттерн-языка и
+      поддержка форка, а не часы; решение принимается после результата спайка, а не в нём.
 - [ ] Зафиксировать результаты в DEPENDENCIES.md: фича → статус → workaround → решение.
 - **Правило:** если фича не поддерживается — она исключается из клеймов Phase 1, а не «планируется».
 
@@ -56,7 +60,7 @@ Reality — последним, как самый дорогой).
 
 - [ ] Фаззинг Noise-XX + QUIC + байндингов; constant-time аудит.
 - [ ] Battery/CPU бюджет для on-device ML; адаптивный размер модели.
-- [ ] ECH/OHTTP (когда появятся в Rust-стеке), CID-ротация, политика 0-RTT replay.
+- [ ] ECH/OHTTP (когда станут сквозными через quinn или появится серверная поддержка), CID-ротация, политика 0-RTT replay.
 - [ ] Multipath QUIC; платформенные GUI.
 
 ## Риски и митигации (обновлено)

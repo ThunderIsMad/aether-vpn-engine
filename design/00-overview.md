@@ -18,10 +18,10 @@ Codename архитектуры: **Liquid Tunnel**.
 3. **0-RTT переосмыслен.** Noise-XX не даёт 0-RTT; честная семантика: reconnect ≈ 1 RTT
    (outer resumption + ticket resume), 0-RTT early data — только для идемпотентного контроля
    и только если стек поддерживает.
-4. **Стек исправлен:** `snow` не поддерживает ML-KEM-768 → Clatter (PQNoise) или
-   `noise-protocol` + RustCrypto `ml-kem`; BBR в quinn — экспериментальный (не «BBRv3»);
-   `masque-go` — Go, это reference, а не зависимость; ECH в quinn/rustls отсутствует →
-   перенесён в Phase 4.
+4. **Стек исправлен:** `snow` не поддерживает ML-KEM-768 → Clatter (PQNoise) — единственный
+   готовый путь (`noise-protocol` + RustCrypto `ml-kem` — только через форк); BBR в quinn —
+   экспериментальный и не сопровождается (не «BBRv3»); `masque-go` — Go, это reference, а не
+   зависимость; ECH сквозь quinn недоступен (в rustls клиентский ECH есть) → перенесён в Phase 4.
 5. **Отозван флаг аудита про 1184/1088 байт** — размеры в handshake корректны в TLS-стиле
    (клиент шлёт encapsulation key 1184 B, сервер — ciphertext 1088 B, FIPS 203). Ошибки не было.
 
@@ -57,7 +57,7 @@ Codename архитектуры: **Liquid Tunnel**.
 - [x] Морфинг: механизм описан до overlap-window и границ оверхеда (`02 §5`).
 - [x] Крипто конкретна: `X25519MLKEM768` + Noise-XX + `XChaCha20-Poly1305`; байты сверены с FIPS 203.
 - [ ] **Открыто:** реализуемость 0-RTT early data в quinn — верификационный спайк (Phase 0.5).
-- [ ] **Открыто:** ECH в Rust-стеке отсутствует — отложено в Phase 4, до этого полагаемся на MASQUE/Reality.
+- [ ] **Открыто:** ECH сквозь quinn недоступен (клиентский ECH в rustls есть, серверный — открыт) — отложено в Phase 4, до этого полагаемся на MASQUE/Reality.
 - [ ] **Открыто:** Reality-обложка поверх TCP даёт HOL на frame-слое — задокументированный tradeoff (`02 §2.2`).
 
 > **Честные ограничения:** это дизайн, не код. Критический путь — Phase 0 тест ротации

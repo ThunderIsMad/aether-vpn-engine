@@ -8,12 +8,12 @@
 
 | Назначение | Крейт | Примечание |
 |------------|-------|------------|
-| QUIC | `quinn` | BBR там **экспериментальный** (BBRv1-класс, «use at your own risk») — дефолт cubic, BBR за флагом с бенчмарком |
+| QUIC | `quinn` | BBR там **экспериментальный и не сопровождается** (BBRv1-класс, «use at your own risk», issue #2156: отстаёт от upstream BBR) — дефолт cubic, BBR за флагом с бенчмарком |
 | HTTP/3 | `h3` + `quinn` | для MASQUE CONNECT-UDP |
-| Noise PQ | `clatter` (PQNoise, ML-KEM-768) либо `noise-protocol` + RustCrypto `ml-kem` | `snow` не подходит — только Kyber1024 round-3 |
+| Noise PQ | `clatter` (PQNoise, ML-KEM-768) — единственный готовый путь; `noise-protocol` + RustCrypto `ml-kem` **не композиция**: в `noise-protocol` трейты только DH/Cipher/Hash, KEM-токенов нет → форк | `snow` не подходит — только Kyber1024 round-3 (закрытый enum); `clatter` без формального аудита, своё именование PQ-примитивов → interop не гарантирован |
 | AEAD | `chacha20poly1305`, `x25519-dalek` | |
-| Reality-обложка | xray-core (Go) как **reference**; Rust-путь: `boring` (BoringSSL) c контролем ClientHello | uTLS-эквивалента в Rust нет — самый дорогой cover, делать после остальных |
-| ML-классификатор | `ort` (ONNX Runtime) / TFLite | |
+| Reality-обложка | xray-core (Go) как **reference**; Rust-путь: `boring` (BoringSSL) c контролем ClientHello | TLS-слойного uTLS-эквивалента в Rust нет (`impersonate-rs` есть, но он HTTP-уровня) — самый дорогой cover, делать после остальных. Риск: два libcrypto в одном дереве рядом с rustls |
+| ML-классификатор | `ort` (ONNX Runtime) / TFLite | `ort` 2.0 — release candidate (2.0.0-rc.13): нужен план отката на 1.x |
 | Секьюрное хранилище | keyring / DPAPI / Keychain / libsecret | |
 
 `masque-go` и `quic-go` — **не зависимости**: читаем как reference для минимального
@@ -30,8 +30,10 @@ Rust-клиента RFC 9298 поверх quinn+h3.
 ### 2. crypto-core
 - **In:** session-id, peer static, KEM selection.
 - **Out:** `K_session`, seal/open записей.
-- **Impl:** Clatter / noise-protocol+ml-kem (NoisePQC++ паттерн); constant-time; KEM registry.
-- Тест: KAT-векторы на ML-KEM-768 (FIPS 203) + interop с эталонной имплементацией.
+- **Impl:** Clatter (NoisePQC++ паттерн); constant-time; KEM registry. Путь через `noise-protocol`
+  требует форка: KEM-токенов в абстрактной реализации нет.
+- Тест: KAT-векторы на ML-KEM-768 (FIPS 203) + interop. У clatter собственное именование
+  PQ-примитивов, поэтому interop-тесты против эталона обязательны, а не желательны.
 
 ### 3. key-coordinator — fleet epoch keys + tickets (NEW)
 - **In:** subscription update (epoch keys), ticket requests.

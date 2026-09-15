@@ -11,10 +11,10 @@
 | 2 | Ротация: «клиент переотправляет session-id, сессия продолжается» | Протокол до уровня сообщений: **ticket-based resumption** (паттерн TLS session tickets, RFC 8446 §2.2), fleet epoch keys, make-before-break, post-rotation re-key | Механизм «как узел без состояния получает ключ» отсутствовал — главный AIR-пункт v1 |
 | 3 | «0-RTT instant reconnect» | Честно: **reconnect ≈ 1 RTT** (outer resumption + RESUME frame); 0-RTT early data — только идемпотентный контроль, при поддержке стека | Noise-XX не имеет 0-RTT resumption; QUIC 0-RTT — свойство TLS handshake, не сессии |
 | 4 | «KEM share едет в QUIC Initial» | Noise-XX handshake едет **на control-стриме поверх установленного QUIC** | Initial-датаграмма ограничена ~1200 B; 1216 B share туда не влезает. На стриме — влезает, проблемы нет |
-| 5 | «BBRv3» | BBR в quinn — **экспериментальный** (BBRv1-класс), дефолт cubic, BBR за флагом с бенчмарком | Статус quinn congestion: «Experimental! Use at your own risk» |
-| 6 | `snow` для Noise+PQ | **Clatter** (PQNoise, ML-KEM-768) или `noise-protocol` + RustCrypto `ml-kem` | snow поддерживает только Kyber1024 round-3, ML-KEM-768 туда не вставить |
+| 5 | «BBRv3» | BBR в quinn — **экспериментальный** (BBRv1-класс), дефолт cubic, BBR за флагом с бенчмарком; дополнено 2026-09-16: **не сопровождается**, отстаёт от upstream BBR | Статус quinn congestion: «Experimental! Use at your own risk»; re-check: issue #2156 |
+| 6 | `snow` для Noise+PQ | **Clatter** (PQNoise, ML-KEM-768) — единственный готовый; `noise-protocol` + `ml-kem` — только через форк (KEM-токенов в `noise-protocol` нет) | snow поддерживает только Kyber1024 round-3, ML-KEM-768 туда не вставить; уточнено 2026-09-16 |
 | 7 | `masque-go` как имплементация | Понижен до **reference**; MASQUE-клиент — свой минимальный Rust поверх quinn+h3 | masque-go — Go; ядро Rust, смешение стеков не нужно |
-| 8 | ECH как часть дизайна Phase 1 | **Перенесён в Phase 4** с условием «когда появится в Rust-стеке» | quinn/rustls не поддерживают ECH |
+| 8 | ECH как часть дизайна Phase 1 | **Перенесён в Phase 4** с условием «когда появится в Rust-стеке» (решение сохранено прогоном 2026-09-16) | Исходная причина «quinn/rustls не поддерживают ECH» **исправлена 2026-09-16**: клиентский ECH в rustls ЕСТЬ (experimental, `rustls::client::EchConfig`), но quinn его не выставляет, а серверная половина открыта (rustls issue #1980) — поэтому ECH остаётся в Phase 4 по другой причине |
 | 9 | «30–50% быстрее TCP-VPN» подано как факт | Статус **ГИПОТЕЗА**: выведено из QPEP (>2×, 2020, PEP-контекст); свой бенчмарк — exit-критерий Phase 1 | Экстраполяция измерений другого контекста |
 | 10 | Reality-обложка без оговорок | HOL на Reality-байндинге задокументирован как tradeoff; FSM переключает на QUIC-байндинг при первой возможности | TCP-байндинг принципиально не даёт no-HOL |
 
@@ -47,7 +47,7 @@ ciphertext (1088 B). Ошибки в v1 по этому пункту не был
 ## Скиллы (v2)
 
 Обновлены под новый контекст: `crate-feasibility` (вшиты верифицированные факты стека,
-позднее доведены до леджера F1–F6 с TTL и маркером STALE), `anti-air-audit` (добавлены
+позднее доведены до леджера F1–F13 с TTL и маркером STALE; прогон 2026-09-16 опроверг F5 (ECH) и добавил F6a, F7–F13), `anti-air-audit` (добавлены
 правила про транспортно-независимую сессию и state-transfer механизмы), `phase0-scaffold`
 (порядок сборки frame-session → transports → morph).
 Добавлены: `impl-phase-driver` (оркестрация фазы end-to-end с тестовыми exit-критериями)

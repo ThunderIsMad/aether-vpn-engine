@@ -117,8 +117,9 @@ stateDiagram-v2
 - `K_session = HKDF( X25519_ss || ML-KEM_ss )`. Безопасно, пока держит **либо** X25519,
   **либо** ML-KEM-768 → HNDL-safe для записей сессии.
 - Крипто-агильность: KEM — именованный swappable параметр (2609.07849).
-- Реализация: **Clatter** (Rust, PQNoise с ML-KEM-768) или `noise-protocol` + RustCrypto
-  `ml-kem` (комбайн по NoisePQC++ паттерну). Крейт `snow` НЕ годится (только Kyber1024 r3).
+- Реализация: **Clatter** (Rust, PQNoise с ML-KEM-768) — единственный готовый путь.
+  `noise-protocol` + RustCrypto `ml-kem` требует форка: KEM-токенов в абстрактной реализации
+  нет, это не комбайн. Крейт `snow` НЕ годится (только Kyber1024 r3).
 
 ## 6. App Mirage (research-grade)
 
@@ -143,4 +144,4 @@ Decoy — реальные зашифрованные байты к benign-на�
 | Ротация | TLS-ticket паттерн + post-rotation re-key | спроектировано, тест в Phase 0 |
 | Outer транспорт | стандартный QUIC/TLS 1.3 | классический (не PQ) — транспортная роль |
 | Cover-синтез | FlowPaint-класс генератор | research-grade |
-| Метаданные | CID rotation; ECH/OHTTP | ECH отложен (Phase 4) — в Rust-стеке отсутствует |
+| Метаданные | CID rotation; ECH/OHTTP | ECH отложен (Phase 4) — сквозь quinn недоступен, серверная половина открыта |

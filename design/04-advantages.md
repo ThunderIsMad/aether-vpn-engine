@@ -24,7 +24,7 @@
 | HNDL-safe (записи сессии) | hybrid `X25519+ML-KEM-768` | ПРОЕКТНО, примитивы стандартны |
 | Нет серверных логов сессий | узел stateless; ticket у клиента | ПРОЕКТНО; epoch-key компромисс задокументирован (`02 §3.5`) |
 | Forward secrecy через узлы | post-rotation re-key | ПРОЕКТНО (Phase 0 тест) |
-| Метаданные | CID rotation; ECH | ECH **отложен** (Phase 4): в Rust-стеке отсутствует |
+| Метаданные | CID rotation; ECH | ECH **отложен** (Phase 4): сквозь quinn недоступен — клиентский ECH в rustls есть, серверный открыт |
 | Anti-fingerprint | морфинг обложек | research-grade (Phase 2) |
 | Active-probe resistance | не отвечать на неаутентифицированные пробы | ПРОЕКТНО (Reality-стиль) |
 
