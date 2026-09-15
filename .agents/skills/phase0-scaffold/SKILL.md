@@ -1,6 +1,6 @@
 ---
 name: phase0-scaffold
-description: Generate a Rust workspace skeleton from 03-components.md — crates, trait files, stubs, failing contract tests. Use when starting implementation of a phase.
+description: Generate a Rust workspace skeleton from design/03-components.md — crates, trait files, stubs, failing contract tests. Use when starting implementation of a phase.
 metadata:
   category: codegen
 ---
@@ -9,7 +9,7 @@ metadata:
 
 ## Instructions
 
-1. Read 03-components.md (v2) + the target phase in 05-roadmap.md.
+1. Read design/03-components.md (v2) + the target phase in design/05-roadmap.md.
 2. Generate Cargo workspace, one crate per module. Order matters:
    frame-session + crypto-core first (transport-independent, mock-testable);
    transport-mux next; morph-controller last.
