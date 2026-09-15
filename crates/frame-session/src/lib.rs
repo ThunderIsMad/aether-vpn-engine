@@ -35,6 +35,21 @@ pub struct Seq(pub u64);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionId(pub [u8; 16]);
 
+/// Публичный эфемерный ключ узла (`eph_node` X25519 pub, 32 B) из `RESUME_ACK` (`02 §3.3`).
+///
+/// Дублирует `key_coordinator::X25519Pub` сознательно: `frame-session` не зависит ни от кого
+/// (крейт транспортно-независим и тестируется на моках). Сведение примитивов в общий крейт —
+/// решение Phase 0 (`QUESTIONS.md` Q3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct X25519Pub(pub [u8; 32]);
+
+/// Подпись Ed25519 узла (`sig_node`, 64 B) над `RESUME_ACK` (`02 §3.3`).
+///
+/// Передаётся в сессию вместе с `eph_node`, потому что проверка подписи — часть контракта:
+/// без неё скомпрометированный старый узел подсунул бы свой `eph_node` и сохранил чтение.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Signature(pub [u8; 64]);
+
 /// Типы записей (`02 §1`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordType {
@@ -77,6 +92,22 @@ pub struct DuplicateWindow {
 /// в окне морфа — `02 §4`).
 pub const DUPLICATE_WINDOW_RECORDS: u32 = 4096;
 
+/// Ветки `RESUME_NAK` (`02 §3.7`) — ровно четыре, без расширения.
+///
+/// `02 §3.7` называет их `bad_pop` / `replay` / `epoch` / `expired`; форма Rust-типа —
+/// решение Phase 0 по объёму ACK/NAK (`QUESTIONS.md` Q3), состав веток — из спеки.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumeNak {
+    /// `sig_client` неверна: ticket не консумируется, инцидент в телеметрию узла.
+    BadPop,
+    /// Повтор ticket на том же узле (`consumed-set` эпохи, `02 §3.6`).
+    Replay,
+    /// `epoch_id` не совпал → фолбэк: полный IK-handshake (`02 §5`).
+    Epoch,
+    /// `exp` истёк → фолбэк: полный handshake.
+    Expired,
+}
+
 /// Контракт носителя сессии (`design/03-components.md` §1).
 ///
 /// Инвариант: сессия живёт, пока жив `(K_session, stream_table, seq)`. Транспортные
@@ -91,12 +122,22 @@ pub trait FrameSession {
     /// Запечатывает данные в record под текущим `K_record[n]`.
     fn seal_record(&mut self, stream: StreamId, data: &[u8]) -> Record;
 
-    /// Принимает continuity point от нового узла, возвращает своё окно дубликатов.
+    /// Принимает `RESUME_ACK` нового узла (`02 §3.3`): его `continuity_point`, его окно,
+    /// `eph_node` и `sig_node`; возвращает собственное окно дубликатов клиента.
     ///
-    /// TODO(QUESTIONS.md Q3, находка N2 аудита): `02 §3.3` говорит, что `RESUME_ACK`
-    /// несёт ещё `window_lo`/`window_hi`, `eph_node` и `sig_node`; форма Rust-сигнатуры
-    /// здесь скопирована из `03-components.md` дословно и ждёт решения по объёму ACK.
-    fn on_resume_ack(&mut self, continuity: Seq) -> DuplicateWindow;
+    /// `sig_node` в подписи не «на всякий случай»: проверка подписи узла — часть контракта,
+    /// без неё фикс свежего DH не работает (скомпрометированный N1 подсунул бы свой `eph_node`).
+    fn on_resume_ack(
+        &mut self,
+        continuity_point: Seq,
+        window: DuplicateWindow,
+        eph_node: X25519Pub,
+        sig_node: Signature,
+    ) -> DuplicateWindow;
+
+    /// Принимает `RESUME_NAK` (`02 §3.7`): узел отклонил резюм — сессия остаётся на старом
+    /// канале, ветка `Epoch`/`Expired` означает фолбэк на полный IK-handshake (`02 §5`).
+    fn on_resume_nak(&mut self, nak: ResumeNak);
 }
 
 #[cfg(test)]

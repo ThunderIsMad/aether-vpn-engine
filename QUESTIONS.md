@@ -44,6 +44,15 @@
   слабее дизайна.
 - **Как закрывается:** решением по объёму ACK-типа и по представлению NAK; место —
   `03-components.md` «Контракты (Rust)» + `frame-session`/`key-coordinator`.
+- **Закрыто 2026-09-16 (синхронизация интерфейсов, без нового механизма):** объём ACK-типа и
+  представление NAK зафиксированы в `03-components.md` → «Контракты (Rust)»:
+  `on_resume_ack(continuity_point, window, eph_node, sig_node) -> DuplicateWindow` и
+  `on_resume_nak(ResumeNak)`, где `ResumeNak` = `bad_pop`/`replay`/`epoch`/`expired` (`02 §3.7`);
+  зеркалено в `crates/frame-session`. Правка односторонняя — док и крейты приведены к спеке,
+  `02 §3.3`/`§3.7` не менялись.
+- **Остаток (не блокирует):** `Continuity` в `key-coordinator` не несёт `eph_node`/`sig_node` —
+  их передаёт вызывающий код; сведение примитивов `Seq`/`SessionId` между крейтами — решение
+  реализации Phase 0.
 
 ## Q4. Clatter: гибридный IK, порядок токенов, транскрипт, interop
 
@@ -109,7 +118,7 @@
 | Multi-hop: per-hop фрейминг и ключи | research-grade, Phase 3 | `02 §3.4` |
 | App Mirage: генератор декоя | research-grade, Phase 3 | `02 §6` |
 | ECH сквозь quinn | Phase 4 | `02 §8` |
-| Чеклист `00` не отражает принятый payload-эффект | вычитка | `00-overview.md` |
+| Чеклист `00` не отражает принятый payload-эффект | вычитка | **закрыто** 2026-09-16: пункт добавлен в чеклист `00-overview.md` |
 
 ## Структурный вопрос скаффолда
 

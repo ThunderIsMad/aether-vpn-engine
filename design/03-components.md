@@ -19,11 +19,15 @@
 `masque-go` и `quic-go` — **не зависимости**: читаем как reference для минимального
 Rust-клиента RFC 9298 поверх quinn+h3.
 
+Версии в этой таблице не пинуются: **пины живут в `DEPENDENCIES.md` → «Phase 0 pins»**
+(TTL 90d) и продублированы в `Cargo.toml` → `[workspace.dependencies]` — таблица версий здесь
+не дублируется.
+
 ## Модули
 
 ### 1. frame-session — record-протокол, носитель сессии (NEW, критический путь)
 - **In:** app flows от PolicyEngine; морф/ротация события.
-- **Out:** records в активный байндинг; ACK/continuity события.
+- **Out:** records в активный байндинг; ACK/NAK/continuity события.
 - **State:** stream_table, seq, ratchet `K_record[n]`, duplicate-window (4096 записей, bitmap 512 B).
 - **Контракт:** переживает смену байндинга и узла; **идемпотентный дедуп по (sid, seq),
   at-most-once на выходе** (exactly-once не заявляется — см. `02 §3.5`).
@@ -82,11 +86,37 @@ Rust-клиента RFC 9298 поверх quinn+h3.
 
 ## Контракты (Rust)
 
+Типы ниже — примитивы, объявляемые крейтами-владельцами (`Seq`, `SessionId` — `frame-session`;
+`X25519Pub`, `Signature` — рядом с тем, кто их несёт). Дублирование примитива в стороне узла
+или клиента сознательно: `ticket-mint` дублирует `SessionId`, потому что не тянет клиентские типы.
+Поля окон (`Window`, `DuplicateWindow`, `Continuity`) — те же числа, что `Seq`: в `frame-session`
+это `Seq`, в крейтах без зависимости на него — `u64` до решения по сшивке (`QUESTIONS.md` Q3).
+
 ```rust
 trait FrameSession {
     fn open_stream(&mut self, flow: FlowId) -> StreamId;
     fn seal_record(&mut self, stream: StreamId, data: &[u8]) -> Record;
-    fn on_resume_ack(&mut self, continuity: Seq) -> DuplicateWindow;
+
+    /// `RESUME_ACK` нового узла (`02 §3.3`): его `continuity_point`, его окно,
+    /// `eph_node` и `sig_node`. Возвращает собственное окно дубликатов клиента.
+    fn on_resume_ack(
+        &mut self,
+        continuity_point: Seq,
+        window: DuplicateWindow,
+        eph_node: X25519Pub,
+        sig_node: Signature,
+    ) -> DuplicateWindow;
+
+    /// `RESUME_NAK` (`02 §3.7`): узел отклонил резюм, сессия остаётся на старом канале.
+    fn on_resume_nak(&mut self, nak: ResumeNak);
+}
+
+/// Ветки `RESUME_NAK` (`02 §3.7`) — ровно четыре, без расширения.
+enum ResumeNak {
+    BadPop,    // sig_client неверна: ticket не консумируется, инцидент в телеметрию узла
+    Replay,    // повтор ticket на том же узле (consumed-set эпохи, `02 §3.6`)
+    Epoch,     // epoch_id не совпал → фолбэк: полный IK-handshake (`02 §5`)
+    Expired,   // exp истёк → фолбэк: полный handshake
 }
 
 trait Rotation {                       // клиентская сторона; mint здесь НЕТ
@@ -99,6 +129,22 @@ trait TicketMint {                     // сторона узла (fix #29: ед
     fn mint(&self, sid: SessionId, client_auth: Ed25519Pub, window: Window) -> TicketBlob;
     fn unwrap_ticket(&self, blob: &TicketBlob) -> Result<TicketPlain, TicketError>;
     fn verify_pop(&self, ticket: &TicketPlain, sig: &Signature, ctx: &ResumeCtx) -> bool;
+}
+
+/// Ответ нового узла на успешный `RESUME` (`02 §3.3`): то, что клиент принял после проверки
+/// `sig_node`. `eph_node`/`sig_node` из того же `RESUME_ACK` передаёт дальше вызывающий —
+/// в `FrameSession::on_resume_ack`; здесь они не дублируются.
+struct Continuity { point: Seq, window_lo: Seq, window_hi: Seq }
+/// Пол окна на момент минта (`02 §3.1`).
+struct Window { lo: Seq, hi: Seq }
+/// Окно дедупа в `RESUME_ACK` (`02 §3.3`, окно 4096 — `02 §3.5`).
+struct DuplicateWindow { lo: Seq, hi: Seq }
+
+/// Ошибка резюма на стороне клиента (`02 §3.7`).
+enum ResumeError {
+    AckTimeout,          // `RESUME_ACK` не пришёл за T_ack = 2 × SRTT, клип [200 ms, 2 s]
+    BadNodeSignature,    // sig_node неверна → канал не подтверждён, узел в quarantine
+    Nacked,              // в ветке лежат bad_pop | replay | epoch | expired (`02 §3.7`)
 }
 
 trait CoverBinding {
