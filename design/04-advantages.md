@@ -32,7 +32,7 @@
 
 | Утверждение | Механизм | Статус |
 |-------------|----------|--------|
-| Ротация egress не рвёт сессию | ticket resume, make-before-break | спроектировано; **Phase 0 тест обязателен** |
+| Ротация egress не рвёт Aether-сессию; payload-соединения видят смену 4-tuple | ticket resume, make-before-break | спроектировано; **Phase 0 тест обязателен**; прикладные TCP/QUIC рвутся сменой source IP (per-flow pinning — Phase 1, `05-roadmap` риск) |
 | WiFi↔cellular handoff | QUIC connection migration | зависит от стека (Phase 0.5) |
 | Multi-hop без Tor-латентности | QUIC mesh + per-hop hybrid. Цель: p95 латентности ≤ 3× single-hop на 2 хопах | Phase 3, метрика приёмки |
 | Self-healing против блокировок | морф к проходящей обложке | Phase 2, research-grade |

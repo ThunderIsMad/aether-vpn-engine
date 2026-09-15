@@ -225,13 +225,14 @@ RESEARCH-GRADE (Phase 3): per-hop фрейминг и ключи хопов не
 | Пост-ротационный трафик читает только новый узел | `K_session'` требует `ss_rotate`; `sig_node` не даёт подменить `eph_node` |
 | Украденный ticket не даёт сессии | `sig_client` проверяется по `client_auth_pub` из ticket |
 | Клиент не минтит tickets | `TFK_epoch` клиенту не выдаётся, mint только на узле |
-| Сессия не рвётся на ротации | make-before-break: старый канал гасится только после валидного ACK |
-| Запись не выдаётся дважды | окно 4096, `window_lo` из ticket, при потере состояния — подписанный пол от клиента |
+| **Aether**-сессия не рвётся на ротации (payload-соединения — `05-roadmap` риск) | make-before-break: старый канал гасится только после валидного ACK |
+| **At-most-once на узел; at-least-once при ротации** | окно 4096 у каждого узла, `window_lo` из ticket, при потере состояния — подписанный пол от клиента; дубли между узлами покрыты duplicate-окном (`§3.9`), глобального exactly-once нет и не заявляется |
 
 ### 3.9 Компромисс-анализ
 
 | Скомпрометировано | Последствие | Митигация |
 |---|---|---|
+| `authority_sign` (корень доверия) | обнуляет отзыв `node_identity` / `client_identity` / `node_static` / `TFK_epoch`: подделанный манифест возвращает отозванные ключи в строй | короткий `manifest_exp` + ротация authority (вне MVP) |
 | `TFK_epoch` | все tickets эпохи → `K_session` → чтение и resume | короткие эпохи, ротация TFK, per-node wrap вне MVP |
 | `K_session` у N1 | трафик до ротации (по построению — узел и есть точка выхода) | post-rotation re-key |
 | `client_identity` (Ed25519) | резюм с украденным ticket возможен | нужен ещё и ticket (SessionStore); отзыв клиента через манифест |
@@ -246,6 +247,7 @@ Duplicate-окно при ротации ≈ 1 RTT дублированного 
 
 ```mermaid
 stateDiagram-v2
+  state "rollback → предыдущий байндинг" as Rollback
   [*] --> Probe
   Probe --> QuicNative: HTTP/3 норма
   Probe --> Masque: QUIC-вайтлист прокси
@@ -254,12 +256,15 @@ stateDiagram-v2
   QuicNative --> Masque: классификатор: non-browser QUIC
   QuicNative --> Reality: ECH/SNI-проблемы
   Masque --> Reality: классификатор: прокси-паттерн
-  Masque --> QuicNative: QUIC доступен / morph failed → rollback
-  Reality --> QuicNative: QUIC доступен / morph failed → rollback
+  Masque --> QuicNative: QUIC доступен
+  Reality --> QuicNative: QUIC доступен
   Reality --> Masque: probe-rate/RST spike
   Reality --> SsPadded: target-site дрейф
   SsPadded --> QuicNative: сеть чистая
-  [*] --> [*]
+  QuicNative --> Rollback: morph failed / BindingError
+  Masque --> Rollback: morph failed / BindingError
+  Reality --> Rollback: morph failed / BindingError
+  SsPadded --> Rollback: morph failed / BindingError
 ```
 
 - Классификатор на устройстве (tiny ONNX/TFLite, класс 2506.11319): probe/block rate,

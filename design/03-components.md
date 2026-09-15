@@ -60,10 +60,15 @@ Rust-клиента RFC 9298 поверх quinn+h3.
 ### 6. cover-engine (App Mirage) — research-grade
 - FlowPaint-класс генератор, rate-limited, по требованию morph-controller.
 
-### 7. session-store (клиент)
-- `(subscription_id, UUID, session_id)` + K_session + tickets + chain descriptor.
-- In-memory + OS secure store. У сервера нет состояния, переживающего ротацию (на время
-  сессии — in-memory окно дедупликации).
+### 7. session-store (клиент) — **владелец клиентских ключей личности**
+- In/State: `(subscription_id, UUID, session_id)` + K_session + tickets + chain descriptor;
+  **`client_identity` (Ed25519 priv)** — подпись RESUME (PoP, `02 §3.3`);
+  **`client_static` (X25519 priv)** — статик инициатора в IK (`02 §5`).
+- **Владелец назначен явно здесь:** обе приватные пары личности живут в session-store; никакой
+  другой модуль их не хранит (v3 ввёл их, и без этой строки они оставались без владельца).
+- At-rest: OS secure store (keyring / DPAPI / Keychain / libsecret) для `client_identity`,
+  `client_static` и K_session; tickets — только in-memory. У сервера нет состояния,
+  переживающего ротацию (на время сессии — in-memory окно дедупликации).
 
 ### 8. policy-engine
 - Rule matcher + fake-ip DNS (198.18.0.0/16), Clash-стиль, split-tunnel.

@@ -1,6 +1,6 @@
 # Aether — обзор (v2, исправленный)
 
-> **One-liner:** *Aether* — постквантовый, rotation-safe VPN-кор с адаптивной сменой обложки (Liquid Tunnel). Сессия живёт в frame-слое на клиенте и переживает и смену обложки, и ротацию egress-узла; ключи — гибридные `X25519MLKEM768`, транспорт — QUIC-нативный.
+> **One-liner:** *Aether* — постквантовый, rotation-safe VPN-кор с адаптивной сменой обложки (Liquid Tunnel). Сессия живёт в frame-слое на клиенте и переживает и смену обложки, и ротацию egress-узла (payload-соединения при ротации рвутся сменой source IP — `05-roadmap` риск); ключи — гибридные `X25519MLKEM768`, транспорт — QUIC-нативный.
 
 Codename архитектуры: **Liquid Tunnel**.
 
@@ -44,7 +44,7 @@ Codename архитектуры: **Liquid Tunnel**.
 | Anti-DPI | нет | Reality (статично) | obfs4 | MASQUE | адаптивно (после Phase 2) |
 | Live morphing | – | – | – | – | Phase 2, research-grade |
 | PQ crypto | ✗ | ✗ | research | ✗ | ✅ hybrid (обе плоскости сессии) |
-| Egress rotation safe | n/a | ✗ (рвёт сессии) | частично | n/a | ✅ при подтверждении Phase 0 тестом |
+| Egress rotation safe | n/a | ✗ (рвёт сессии) | частично | n/a | ✅ Aether-сессия (frame-слой); прикладные TCP/QUIC на egress рвутся сменой source IP — без per-flow pinning. См. `05-roadmap` риск |
 | Multi-hop low latency | ✗ | ✗ (1 hop) | ✗ медленно | ✗ | Phase 3 |
 | App-fingerprint cover | ✗ | ✗ | ✗ | ✗ | Phase 3, research-grade |
 | 0-RTT / migration / no-HOL | ✗/✗/✗ | partial | ✗ | ✅/✅/✅ | resumption ≈1 RTT / ✅ / ✅ (QUIC-байндинг) |
