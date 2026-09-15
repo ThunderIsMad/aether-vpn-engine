@@ -1,0 +1,8 @@
+[package]
+name = "policy-engine"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Зависимостей нет: rule matcher и fake-ip DNS пишутся в Phase 0 без внешних крейтов.

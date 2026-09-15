@@ -1,0 +1,14 @@
+[package]
+name = "crypto-core"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Объявлены для проверки резолва пин-версий Phase 0 (DEPENDENCIES.md → «Phase 0 pins»).
+# Код к ним ещё не обращается: логика handshake и seal/open — Phase 0.
+clatter.workspace = true
+ml-kem.workspace = true
+chacha20poly1305.workspace = true
+x25519-dalek.workspace = true
+ed25519-dalek.workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "transport-mux"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Единственная зафиксированная в 03 связь: transport-mux зависит от frame-session
+# ради типа `Record` (интерфейс CoverBinding).
+frame-session.workspace = true
+quinn.workspace = true

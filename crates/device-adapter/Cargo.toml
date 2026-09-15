@@ -1,0 +1,9 @@
+[package]
+name = "device-adapter"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Зависимостей нет: Phase 0 — только Linux TUN stub. Платформенные крейты (utun/TUN,
+# WFP/WinDivert на Windows) подключаются вместе с платформой, а не в скаффолде.

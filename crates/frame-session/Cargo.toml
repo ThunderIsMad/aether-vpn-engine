@@ -1,0 +1,9 @@
+[package]
+name = "frame-session"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Транспортно-независим: внешних зависимостей нет, тесты идут на моках байндингов
+# (design/03-components.md, §1 и «Порядок зависимостей для сборки»).

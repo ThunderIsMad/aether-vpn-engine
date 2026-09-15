@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+
+[workspace.dependencies]
+# --- Phase 0 pins: снято с crates.io 2026-09-16, TTL 90d (перепроверка до 2026-12-15) ---
+# См. DEPENDENCIES.md → «Phase 0 pins». Ни одна из версий не является «предположительно
+# последней»: это результат запроса max_stable_version на дату прогона.
+quinn = "0.11.12"
+clatter = "2.3.0"
+ml-kem = "0.3.2"
+chacha20poly1305 = "0.11.0"
+x25519-dalek = "3.0.0"
+ed25519-dalek = "3.0.0"
+# Запинено здесь, но нужно только в Phase 1 (MASQUE CONNECT-UDP на quinn+h3).
+h3 = "0.0.8"
+
+# Внутренние крейты. Связь `transport-mux → frame-session` — единственная, зафиксированная
+# в design/03-components.md («Порядок зависимостей для сборки», интерфейс CoverBinding).
+frame-session = { path = "crates/frame-session" }

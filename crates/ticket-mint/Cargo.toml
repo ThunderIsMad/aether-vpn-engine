@@ -1,0 +1,9 @@
+[package]
+name = "ticket-mint"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Зависимостей нет: это сторона узла, и вся работа с ключами флота (TFK_epoch) —
+# реализация Phase 0. Смешивать с клиентскими крейтами не нужно.

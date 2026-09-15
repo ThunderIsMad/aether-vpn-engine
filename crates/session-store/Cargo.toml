@@ -1,0 +1,9 @@
+[package]
+name = "session-store"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Зависимостей нет: at-rest делается через OS secure store (keyring / DPAPI / Keychain /
+# libsecret) — это Phase 0/1 решение по платформам, версии крейтов ещё не пинуются.

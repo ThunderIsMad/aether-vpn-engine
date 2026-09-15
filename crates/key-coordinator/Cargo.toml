@@ -1,0 +1,9 @@
+[package]
+name = "key-coordinator"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Зависимостей нет: session-id и continuity point здесь представлены примитивами,
+# чтобы не изобретать связь крейтов, которой нет в design/03-components.md.
