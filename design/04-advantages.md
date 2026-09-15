@@ -26,7 +26,7 @@
 | Forward secrecy через узлы | post-rotation re-key | ПРОЕКТНО (Phase 0 тест) |
 | Метаданные | CID rotation; ECH | ECH **отложен** (Phase 4): сквозь quinn недоступен — клиентский ECH в rustls есть, серверный открыт |
 | Anti-fingerprint | морфинг обложек | research-grade (Phase 2) |
-| Active-probe resistance | не отвечать на неаутентифицированные пробы | ПРОЕКТНО (Reality-стиль) |
+| Active-probe resistance | не отвечать на неаутентифицированные пробы; механизм — policy-матрица по обложкам (проксировать на реальный сайт / RST / close); определяется в Phase 1 вместе с обложками | ПРОЕКТНО (Phase 1) |
 
 ## Надёжность
 
@@ -34,7 +34,7 @@
 |-------------|----------|--------|
 | Ротация egress не рвёт сессию | ticket resume, make-before-break | спроектировано; **Phase 0 тест обязателен** |
 | WiFi↔cellular handoff | QUIC connection migration | зависит от стека (Phase 0.5) |
-| Multi-hop без Tor-латентности | QUIC mesh + per-hop hybrid | Phase 3 |
+| Multi-hop без Tor-латентности | QUIC mesh + per-hop hybrid. Цель: p95 латентности ≤ 3× single-hop на 2 хопах | Phase 3, метрика приёмки |
 | Self-healing против блокировок | морф к проходящей обложке | Phase 2, research-grade |
 
 ## Честный итог

@@ -168,10 +168,12 @@ ratchet `K_record` перезапускается от `K_session'`. N1, зна�
 
 ### 3.4 Multi-hop (Federated Egress Mesh) — RESEARCH-GRADE
 
+RESEARCH-GRADE (Phase 3): per-hop фрейминг и ключи хопов не специфицированы; см. `05-roadmap`.
+
 Цепочка 1–3 узлов, per-hop гибрид, `K_session` end-to-end между клиентом и последним хопом.
 **Механизм прохождения кадра через хопы (вложенная ре-инкапсуляция? ключи хопов? onion-слои?)
-не специфицирован — статус RESEARCH-GRADE, не «спроектирован».** Каркас: SessionStore держит
-chain descriptor, адресация следующего хопа в control-записи. Валидация метрики — Phase 3.
+не специфицирован.** Каркас: SessionStore держит chain descriptor, адресация следующего хопа
+в control-записи. Валидация метрики — Phase 3.
 
 ### 3.5 Дедуп на узле
 
@@ -262,6 +264,8 @@ stateDiagram-v2
 
 - Классификатор на устройстве (tiny ONNX/TFLite, класс 2506.11319): probe/block rate,
   RST/FIN паттерны, latency cliffs, распределение длин пакетов vs baseline (2509.23522).
+- Метрика приёмки: false-negative < X% и false-positive < Y% на тестбеде Phase 2; пороги — Phase 2.
+  Значения не выдумываются здесь: они зависят от распределения и стоимости ложных срабатываний на тестбеде.
 - Морф = смена активного байндинга в TransportMux + (опц.) смена target-site/fingerprint.
 - **Overlap-window при морфе (специфицировано v3):** дублирование records на старый+новый
   байндинги до ACK по новому; старый teardown. Параметры — в таблице ниже; бюджет именно
