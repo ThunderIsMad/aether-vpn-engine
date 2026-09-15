@@ -11,7 +11,20 @@ edition = "2021"
 # См. DEPENDENCIES.md → «Phase 0 pins». Ни одна из версий не является «предположительно
 # последней»: это результат запроса max_stable_version на дату прогона.
 quinn = "0.11.12"
-clatter = "2.3.0"
+# Набор фич задан явно: default-набор тянет ОБА KEM-бэкенда, а `use-rust-crypto-ml-kem`
+# приводит транзитивный `ml-kem 0.2.1`, который не собирается сегодня (первый прогон CI,
+# 2026-09-16: `could not compile ml-kem (lib) due to 18 previous errors`). KEM-бэкенд здесь —
+# `pqclean`; `ml-kem 0.3.2` остаётся нашей прямой зависимостью (`crypto-core`, KAT FIPS 203).
+# Подробности — `QUESTIONS.md` Q8.
+clatter = { version = "2.3.0", default-features = false, features = [
+    "std",
+    "alloc",
+    "getrandom",
+    "use-25519",
+    "use-chacha20poly1305",
+    "use-sha",
+    "use-pqclean-ml-kem",
+] }
 ml-kem = "0.3.2"
 chacha20poly1305 = "0.11.0"
 x25519-dalek = "3.0.0"
