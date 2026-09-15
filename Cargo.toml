@@ -22,3 +22,11 @@ h3 = "0.0.8"
 # Внутренние крейты. Связь `transport-mux → frame-session` — единственная, зафиксированная
 # в design/03-components.md («Порядок зависимостей для сборки», интерфейс CoverBinding).
 frame-session = { path = "crates/frame-session" }
+
+# Объявлены для dev-dependencies интеграционного крейта `rotation-tests` (спеки ротации Phase 0).
+# Это тестовые зависимости: ни один рабочий крейт на них не ссылается, порядок сборки из 03
+# не меняется — они здесь только чтобы ссылка была одна на крейт, а не путь на память.
+crypto-core = { path = "crates/crypto-core" }
+key-coordinator = { path = "crates/key-coordinator" }
+ticket-mint = { path = "crates/ticket-mint" }
+transport-mux = { path = "crates/transport-mux" }

@@ -122,6 +122,10 @@
 
 ## Структурный вопрос скаффолда
 
-Интеграционный тест ротации (главный риск Phase 0 по `05-roadmap`) пока **не имеет дома**:
-напрашивается либо `crates/frame-session/tests/rotation.rs`, либо отдельный IT-крейт. Скаффолд
-намеренно не создавал девятый крейт — это решение по структуре, а не по механизму.
+**Закрыто 2026-09-16:** дом интеграционного теста ротации — отдельный девятый крейт
+`crates/rotation-tests` (dev-зависимости на `frame-session`, `crypto-core`, `key-coordinator`,
+`ticket-mint`, `transport-mux`; порядок сборки из `03` не меняется). Почему не
+`crates/frame-session/tests/rotation.rs`: тест сводит пять крейтов, а `frame-session` по `03`
+(«Порядок зависимостей для сборки») не тянет никого. Тесты-спеки лежат в `tests/rotation.rs`,
+`tests/rotation_failures.rs`, `tests/rotation_loss.rs`, `tests/morph.rs` — все под `#[ignore]`
+с `todo!()`-телами, заполняются `impl-phase-driver`.

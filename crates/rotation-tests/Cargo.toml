@@ -1,0 +1,16 @@
+[package]
+name = "rotation-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# Девятый крейт — дом интеграционного теста ротации (структурный вопрос из QUESTIONS.md).
+# Здесь нет рабочего кода: только тесты-спеки Phase 0 в tests/*.rs, все под #[ignore] + todo!().
+# Зависимости ниже — dev-only: на «Порядок зависимостей для сборки» из 03 они не влияют.
+
+[dev-dependencies]
+frame-session.workspace = true
+crypto-core.workspace = true
+key-coordinator.workspace = true
+ticket-mint.workspace = true
+transport-mux.workspace = true
