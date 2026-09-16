@@ -216,13 +216,26 @@ pub struct FlowKey {
 /// Потолок `FAKE_IP_POOL_CAP` с FIFO-вытеснением старейших привязок вместо паники:
 /// исчерпание диапазона и переполнение пула — ошибки, возвращаемые вызывающему, а не
 /// крах процесса (аудит F-SEC: expect в lib-коде — process-fatal политика).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct FakeIpPool {
     by_host: HashMap<String, IpAddr>,
     /// Порядок выдачи привязок — для FIFO-вытеснения при переполнении пула.
     order: Vec<String>,
-    /// Следующий адрес диапазона; `> FAKE_IP_LAST` — диапазон исчерпан.
+    /// Следующий адрес диапазона; стартует с `FAKE_IP_FIRST`, исчерпание —
+    /// `next > FAKE_IP_LAST`.
     next: u32,
+}
+
+impl Default for FakeIpPool {
+    /// Ручной Default вместо derive: `next` обязан стартовать с `FAKE_IP_FIRST`,
+    /// а не с нуля адреса — derive дал бы первый fake-ip `0.0.0.0`.
+    fn default() -> Self {
+        Self {
+            by_host: HashMap::new(),
+            order: Vec::new(),
+            next: FAKE_IP_FIRST,
+        }
+    }
 }
 
 /// Ошибка выдачи fake-ip.
