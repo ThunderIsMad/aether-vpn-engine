@@ -544,7 +544,7 @@ mod tests {
         let sid = [0x11u8; 16];
         let (_, node_priv) = x25519_genkey().expect("node static");
         let node_kem = mlkem768_genkey().expect("node static kem");
-        let responder = IkResponder::new(sid, x25519_keypair(&node_priv), node_kem)
+        let mut responder = IkResponder::new(sid, x25519_keypair(&node_priv), node_kem)
             .expect("responder init");
         let node_static = responder.node_static();
         let node_static_kem = responder.node_static_kem();
@@ -581,7 +581,7 @@ mod tests {
 
         // Испорченный msg2 → HandshakeFailed, а не паника.
         let (_, node_priv2) = x25519_genkey().expect("node static");
-        let responder2 = IkResponder::new(
+        let mut responder2 = IkResponder::new(
             sid,
             x25519_keypair(&node_priv2),
             mlkem768_genkey().expect("node static kem"),
