@@ -459,6 +459,7 @@ mod tests {
     fn contract_sync_and_async_failure_paths() {
         let mut binding = MemBinding::new(BindingCaps::QUIC);
         let rec = record(0, 0, b"payload");
+        let small = record(1, 0, b"x");
 
         // Асинхронный отказ: морф снят цензором — FSM получает событие один раз.
         binding.inject_failure(BindingFailure::Probed);
@@ -474,17 +475,24 @@ mod tests {
         assert_eq!(binding.send(&rec), Err(BindingError::TransportDown));
         assert_eq!(binding.journal().len(), 0, "в закрытый байндинг ничего не ушло");
 
-        // Backpressure — тоже синхронный отказ, а не рост памяти.
-        let mut tight = BindingCore::new(8);
+        // Backpressure — тоже синхронный отказ, а не рост памяти. Кадры: большой —
+        // `rec` (len(4) + header(5) + ciphertext(7) = 16 B), малый — `small` (4 + 5 + 1 = 10 B).
+        let mut tight = BindingCore::new(12);
+        assert_eq!(encode_frame(&rec).len(), 16);
+        assert_eq!(encode_frame(&small).len(), 10);
         assert_eq!(
             tight.enqueue(&rec),
             Err(BindingError::WouldBlock),
             "кадр больше потолка очереди отвергается"
         );
-        let small = record(1, 0, b"x");
         assert_eq!(tight.enqueue(&small), Ok(()));
         assert_eq!(tight.pending().len(), 1);
-        assert!(tight.pending().bytes() <= 8);
+        assert!(tight.pending().bytes() <= 12);
+        assert_eq!(
+            tight.enqueue(&small),
+            Err(BindingError::WouldBlock),
+            "второй кадр в остаток не влезает — backpressure, а не рост памяти"
+        );
         assert_eq!(tight.take_pending().len(), 1);
         assert!(tight.pending().is_empty(), "вычерпывание освобождает очередь");
         assert_eq!(tight.enqueue(&small), Ok(()), "место освободилось");

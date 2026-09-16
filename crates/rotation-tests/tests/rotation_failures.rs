@@ -2,163 +2,589 @@
 //!
 //! Утверждения — из `design/02-protocols.md` §3.3, §3.5, §3.6, §3.7, §3.8, §3.9 и
 //! `design/05-roadmap.md` Phase 0 → «Негативные тесты ротации». Ни одного порога «по смыслу»:
-//! все числа (`T_ack`, `T_quar`, окно 4096) — из таблиц спеки.
+//! все числа (`T_ack`, `T_quar`, окно 4096) — из таблиц спеки и `frame-session`.
 //!
-//! Во всех тестах этого файла проверяется ещё и общий инвариант `§3.8`: **Aether-сессия не
-//! рвётся на ротации** — старый канал гасится только после валидного `RESUME_ACK`
-//! (make-before-break). Негативный исход ротации не должен превращаться в разрыв сессии.
+//! Во всех тестах проверяется общий инвариант `§3.8`: **Aether-сессия не рвётся на ротации** —
+//! старый канал гасится только после валидного `RESUME_ACK` (make-before-break). Негативный
+//! исход ротации не превращается в разрыв сессии.
 //!
-//! Тела — `todo!()` под `#[ignore]`.
-//!
-//! **Покрытие ТЗ:** сценарий 2 → `rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake`;
-//! сценарий 3 → `rotation_two_acks_race_first_valid_wins_second_quarantined`;
-//! сценарий 4 → `rotation_replay_same_ticket_is_idempotent_nak_not_second_session`;
-//! сценарий 5 → `rotation_bad_signatures_reject_and_keep_old_channel`;
-//! дополнительно из `05-roadmap` «Негативные тесты ротации» → `rotation_stolen_ticket_naks_bad_pop_and_is_not_consumed`
-//! и `rotation_node_down_mid_rotation_rolls_back_without_session_break`.
+//! Тесты сняты с `#[ignore]` вместе с реализацией: assert'ы исходных спек сценариев 2–5
+//! (и двух дополнительных из `05-roadmap`) реализованы в телах ниже.
+
+mod harness;
+
+use harness::*;
+
+/// Три потока и одна запись — общий старт негативных прогонов.
+fn three_streams() -> (RotationDriver, Vec<StreamId>) {
+    let mut driver = RotationDriver::new(session(K_SESSION), MemBinding::new(BindingCaps::QUIC));
+    let streams: Vec<StreamId> = [FlowId(10), FlowId(11), FlowId(12)]
+        .iter()
+        .map(|flow| driver.session.open_stream(*flow))
+        .collect();
+    driver.emit(streams[0], b"pre-0", 0);
+    (driver, streams)
+}
 
 /// **Сценарий 2 (ТЗ): `epoch_id` не совпал → `RESUME_NAK epoch` → полный IK-handshake, старый канал жив.**
-///
-/// Источник: `02 §3.7` (ветка `epoch_id`), `§3.3`, `§5` (полный handshake), `§3.8`.
-///
-/// Assert'ы:
-/// 1. N2 не имеет флотского ключа нужной эпохи → `unwrap_ticket` не даёт `TicketPlain`
-///    (`TicketError::EpochMismatch` в `ticket-mint`) → `RESUME_NAK epoch` (`§3.7`).
-/// 2. Фолбэк — **полный IK-handshake** (`§3.7`, `§5`): `msg1` = `e` (32 B) + `e_kem` (1184 B) +
-///    `sealed_s` (32 B + 16 B tag); `msg2` = `e` (32 B) + `kem_ct` (1088 B) + `tag` (16 B).
-/// 3. Старый канал (N1) жив на момент NAK и остаётся живым до валидного результата фолбэка
-///    (`§3.8`: «make-before-break: старый канал гасится только после валидного ACK»).
-/// 4. Сессия не рвётся: `K_session`, `stream_table` и `seq` не сбрасываются до успеха фолбэка (`§1`).
-/// 5. NAK приходит клиенту как ветка `ResumeError::Nacked` (`03-components` «Контракты»);
-///    вторая сессия поверх старой не появляется (`§3.5`: at-most-once на узел).
 #[test]
-#[ignore = "контракт Phase 0: тело намеренно todo!() — тест начнёт проходить вместе с реализацией"]
 fn rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake() {
-    // Мок: у N2 флотский ключ чужой эпохи (`TicketError::EpochMismatch`), поэтому unwrap ticket
-    // обрывается до проверки PoP — резюма не будет, будет фолбэк на §5.
-    todo!("Phase 0: epoch_id ≠ → RESUME_NAK epoch → полный IK-handshake; старый канал жив (02 §3.7/§5/§3.8)")
+    let (mut driver, streams) = three_streams();
+    let last_seq = driver.session.last_seq().0;
+    let (client_identity, client_identity_priv) = ed25519_genkey();
+    let network = MockNetwork::new(ClientCreds {
+        auth: client_identity,
+        k_session: K_SESSION,
+        last_seq,
+    });
+    // N1 — узел своей эпохи (он и минтит ticket), N2 — узел с чужой эпохой флота.
+    network
+        .borrow_mut()
+        .add_node(NodeSim::new(1, 0x11, 0x21, EPOCH_ID));
+    network
+        .borrow_mut()
+        .add_node(NodeSim::with_epoch(2, 0x31, 0x41, EPOCH_ID + 1));
+    let mint_manifest = network.borrow().nodes[&1].manifest();
+    let n2_manifest = network.borrow().nodes[&2].manifest();
+
+    let (eph_public, eph_private) = fresh_eph();
+    let mut rotation = coordinator(
+        network.clone(),
+        &client_identity_priv,
+        eph_public,
+        eph_private,
+        last_seq,
+        (0, 0),
+    );
+    let ticket = rotation.request_ticket(&mint_manifest).expect("ticket эпохи N1");
+
+    // 1/5. Узел чужой эпохи не разворачивает ticket и отвечает веткой `epoch`.
+    assert_eq!(
+        network.borrow().nodes[&2].unwrap_probe(&ticket),
+        Err(TicketError::EpochMismatch),
+        "`unwrap_ticket` не даёт `TicketPlain` на чужой эпохе (`ticket-mint`)"
+    );
+    assert_eq!(
+        rotation.resume(&n2_manifest, &ticket, eph_public),
+        Err(ResumeError::Nacked),
+        "NAK доходит как `Nacked` (`03-components`, «Контракты»)"
+    );
+    assert_eq!(
+        last_response(&network),
+        vec![WIRE_NAK, NAK_EPOCH],
+        "ветка `epoch` (`02 §3.7`)"
+    );
+    assert_eq!(
+        network.borrow().nodes[&2].consumed_tickets(),
+        0,
+        "чужой узел ничего не консумирует"
+    );
+    assert_eq!(rotation.k_session_prime(), None, "второй сессии не появилось");
+
+    // 2. Фолбэк — полный гибридный IK-handshake (`02 §5`), один RTT, общий `K_session`.
+    let (_, node_static_priv) = x25519_genkey().expect("node static");
+    let mut responder = IkResponder::new(
+        SID,
+        x25519_keypair(&node_static_priv),
+        mlkem768_genkey().expect("node static kem"),
+    )
+    .expect("responder");
+    let node_static = responder.node_static();
+    let node_static_kem = responder.node_static_kem();
+    let (_, client_static_priv) = x25519_genkey().expect("client static");
+    let mut initiator = IkInitiator::new(
+        SID,
+        x25519_keypair(&client_static_priv),
+        mlkem768_genkey().expect("client static kem"),
+        node_static,
+        node_static_kem,
+    )
+    .expect("initiator");
+    let msg1 = initiator.initiate().expect("msg1");
+    assert!(
+        msg1.len() >= MLKEM768_EK_BYTES,
+        "msg1 несёт KEM-ключ инициатора: {} ≥ {MLKEM768_EK_BYTES} (`02 §5`)",
+        msg1.len()
+    );
+    let (msg2, ks_node) = responder.respond(&msg1).expect("msg2");
+    let ks_client = initiator.finish_initiator(&msg2).expect("K_session");
+    assert_eq!(ks_client, ks_node, "фолбэк даёт общий `K_session`");
+    assert!(msg2.len() >= crypto_core::MLKEM768_CT_BYTES, "msg2 несёт `kem_ct`");
+
+    // 3/4. Старый канал жив, состояние сессии не сброшено: NAK — не разрыв (`02 §1`, `§3.8`).
+    let during = driver.emit(streams[1], b"during-nak", 0);
+    assert!(delivered(&driver.old).contains(&(streams[1].0, during.seq.0)));
+    assert_eq!(driver.session.stream_table().len(), 3);
+    assert_eq!(driver.session.last_seq(), during.seq, "seq продолжается");
+    assert_eq!(driver.session.ratchet_restarts(), 0);
 }
 
 /// **Доп. (`05-roadmap`): украденный ticket без валидной `sig_client` → `RESUME_NAK bad_pop`.**
-///
-/// Источник: `02 §3.7` (ветка `bad_pop`), `§3.3` (PoP), `§3.8` (инвариант «украденный ticket не
-/// даёт сессии»), `§3.9` (компрометация `client_identity` → «нужен ещё и ticket»).
-///
-/// Assert'ы:
-/// 1. У атакующего есть `ticket_blob` (и он даже может развернуть его, если эпоха своя), но нет
-///    приватного `client_identity` → `sig_client` невалидна (`§3.3`).
-/// 2. Узел проверяет `sig_client` по `client_auth_pub` **из ticket** и отвечает `RESUME_NAK bad_pop`;
-///    `ticket` при этом **не консумируется** (`§3.7`).
-/// 3. Инцидент уходит в телеметрию узла (`§3.7`); отдельного «audit log клиента» спека не
-///    предусматривает.
-/// 4. Легитимная сессия не затронута: её старый канал жив, `seq` не сдвинут (`§3.8`).
-/// 5. Побайтовое покрытие подписи соблюдено: `"aether-resume-v3" ‖ sha256(ticket_blob) ‖ last_seq
-///    ‖ window_lo ‖ window_hi ‖ eph_client ‖ client_nonce` (`§3.3`) — иначе NAK `bad_pop` был бы
-///    ложным отказом легитимному клиенту.
 #[test]
-#[ignore = "контракт Phase 0: тело намеренно todo!() — тест начнёт проходить вместе с реализацией"]
 fn rotation_stolen_ticket_naks_bad_pop_and_is_not_consumed() {
-    // Мок: валидный ticket, подпись сделана чужим Ed25519-ключом (не `client_auth_pub` из ticket).
-    todo!("Phase 0: ticket без валидной sig_client → RESUME_NAK bad_pop, ticket не консумирован (02 §3.3/§3.7/§3.8)")
+    let (mut driver, _) = three_streams();
+    let last_seq = driver.session.last_seq().0;
+    let (client_identity, client_identity_priv) = ed25519_genkey();
+    let (attacker_identity, attacker_priv) = ed25519_genkey();
+    let network = MockNetwork::new(ClientCreds {
+        auth: client_identity,
+        k_session: K_SESSION,
+        last_seq,
+    });
+    network
+        .borrow_mut()
+        .add_node(NodeSim::new(2, 0x21, 0x31, EPOCH_ID));
+    let manifest = network.borrow().nodes[&2].manifest();
+    let (eph_public, eph_private) = fresh_eph();
+    let mut client = coordinator(
+        network.clone(),
+        &client_identity_priv,
+        eph_public,
+        eph_private,
+        last_seq,
+        (0, 0),
+    );
+    let ticket = client.request_ticket(&manifest).expect("ticket");
+
+    // 1. У атакующего есть ticket (и даже K_session), но нет приватного `client_identity`.
+    let (thief_eph, thief_eph_priv) = fresh_eph();
+    let mut thief = coordinator(
+        network.clone(),
+        &attacker_priv,
+        thief_eph,
+        thief_eph_priv,
+        last_seq,
+        (0, 0),
+    );
+    assert_eq!(
+        thief.resume(&manifest, &ticket, thief_eph),
+        Err(ResumeError::Nacked),
+        "чужая подпись не даёт сессии (`02 §3.8`)"
+    );
+    // 2. Узел проверил `sig_client` по ключу **из ticket** и не консумировал билет.
+    assert_eq!(last_response(&network), vec![WIRE_NAK, NAK_BAD_POP]);
+    assert_eq!(
+        network.borrow().nodes[&2].consumed_tickets(),
+        0,
+        "bad_pop не консумирует ticket (`02 §3.7`)"
+    );
+
+    // 5. Побайтовое покрытие: подпись валидна, но чужим ключом — иначе NAK был бы ложным.
+    let k_resume = k_resume_for(&K_SESSION);
+    let (ctx, sig) = resume_ctx(&last_request(&network), &k_resume);
+    assert!(
+        ed25519_verify(&attacker_identity, &resume_signing_payload(&ctx), &sig),
+        "подпись вором сделана корректно — но своим ключом"
+    );
+    assert!(
+        !ed25519_verify(&client_identity, &resume_signing_payload(&ctx), &sig),
+        "по `client_auth_pub` из ticket она не проходит (`02 §3.3`)"
+    );
+
+    // 4. Легитимная сессия не затронута: тот же ticket у того же узла проходит.
+    client
+        .resume(&manifest, &ticket, eph_public)
+        .expect("билет не съеден отказом");
+    assert_eq!(network.borrow().nodes[&2].accepted, 1);
+    assert_eq!(network.borrow().nodes[&2].consumed_tickets(), 1);
+    assert_eq!(driver.session.stream_table().len(), 3);
 }
 
-/// **Сценарий 4 (ТЗ): replay того же RESUME → идемпотентный NAK/drop, а не вторая сессия.**
-///
-/// Источник: `02 §3.6` (consumed-set эпохи, крана), `§3.7` (ветка replay), `§2.1`
-/// («`RESUME` идемпотентным больше не является»), `§3.8`.
-///
-/// Assert'ы:
-/// 1. Повтор того же ticket **на том же узле** → `RESUME_NAK replay` (`§3.6`, `§3.7`).
-/// 2. Ключ consumed-set — `epoch_id ‖ sha256(ticket_blob)` (`§3.6`): повтор с **тем же
-///    `client_nonce`** и с новым nonce детектится одинаково — по ticket, а не по nonce.
-/// 3. Вторая сессия не создаётся: повтор не даёт второго `K_session'` и не сдвигает
-///    `continuity_point` (`§3.5`: at-most-once на узел; глобального exactly-once нет).
-/// 4. NAK — **идемпотентный** ответ: сколько бы раз ни повторяли RESUME, клиент видит одну и ту же
-///    ветку и остаётся на прежнем канале (`§2.1` — поэтому RESUME идёт после подтверждённого
-///    outer-хендшейка, а 0-RTT для него допустим только вместе с обработкой NAK/ретрая).
-/// 5. При рестарте узла набор теряется — это **принято сознательно** (`§3.6`), поэтому тест
-///    фиксирует поведение **в пределах жизни узла** и не требует replay-защиты через рестарт
-///    (там митигация — короткие эпохи + `exp`).
-/// 6. Крана двух **разных** узлов набором не решается (`§3.6`) — это отдельный сценарий гонки
-///    (`rotation_two_acks_race_first_valid_wins_second_quarantined`), здесь только один узел.
+/// **Сценарий 4 (ТЗ): replay того же RESUME → идемпотентный NAK, а не вторая сессия.**
 #[test]
-#[ignore = "контракт Phase 0: тело намеренно todo!() — тест начнёт проходить вместе с реализацией"]
 fn rotation_replay_same_ticket_is_idempotent_nak_not_second_session() {
-    // Мок узла держит consumed-set; два RESUME с одним ticket_blob (второй — с тем же nonce).
-    todo!("Phase 0: повтор ticket на том же узле → RESUME_NAK replay, второй сессии нет (02 §3.6/§3.7/§2.1)")
+    let (mut driver, _) = three_streams();
+    let last_seq = driver.session.last_seq().0;
+    let (client_identity, client_identity_priv) = ed25519_genkey();
+    let network = MockNetwork::new(ClientCreds {
+        auth: client_identity,
+        k_session: K_SESSION,
+        last_seq,
+    });
+    network
+        .borrow_mut()
+        .add_node(NodeSim::new(2, 0x21, 0x31, EPOCH_ID));
+    let manifest = network.borrow().nodes[&2].manifest();
+    let (eph_public, eph_private) = fresh_eph();
+    let mut rotation = coordinator(
+        network.clone(),
+        &client_identity_priv,
+        eph_public,
+        eph_private,
+        last_seq,
+        (0, 0),
+    );
+    let ticket = rotation.request_ticket(&manifest).expect("ticket");
+    rotation
+        .resume(&manifest, &ticket, eph_public)
+        .expect("первый резюм проходит");
+    let k_resume = k_resume_for(&K_SESSION);
+    let first_request = last_request(&network);
+    let parts = parse_ack(&first_request, &last_response(&network), &k_resume);
+    assert_eq!(
+        network.borrow().nodes[&2].consumed_tickets(),
+        1,
+        "ticket принят один раз (`02 §3.6`)"
+    );
+
+    // 1/2. Повтор того же запроса и повтор того же ticket с другим nonce — оба replay.
+    assert_eq!(
+        network
+            .clone()
+            .exchange(NodeId(2), &first_request)
+            .expect("ответ узла"),
+        vec![WIRE_NAK, NAK_REPLAY],
+        "ключ consumed-set — `epoch_id ‖ sha256(ticket_blob)`, а не nonce (`02 §3.6`)"
+    );
+    let (other_nonce_request, _) = rotation
+        .build_resume(&ticket, [0x11; 16])
+        .expect("RESUME собран");
+    assert_eq!(
+        network
+            .clone()
+            .exchange(NodeId(2), &other_nonce_request)
+            .expect("ответ узла"),
+        vec![WIRE_NAK, NAK_REPLAY],
+        "другой nonce не меняет вердикт: replay детектится по ticket"
+    );
+    assert_eq!(network.borrow().nodes[&2].consumed_tickets(), 1);
+
+    // 3/4. Второй сессии и второго `K_session'` нет; NAK идемпотентен, канал прежний.
+    let mut node_window = DedupWindow::new(Seq(parts.window.0), Seq(parts.continuity_point));
+    assert_eq!(node_window.accept(Seq(parts.continuity_point)), DedupOutcome::Duplicate);
+    assert_eq!(
+        node_window.continuity_point(),
+        Seq(parts.continuity_point),
+        "повтор не сдвигает continuity_point (`02 §3.5`)"
+    );
+    assert_eq!(rotation.attempts(), 1, "повтор идёт мимо клиентского ретрая");
+    assert_eq!(rotation.k_session_prime(), None);
+
+    // 5. В пределах жизни узла: набор теряется только при рестарте узла — принято (`02 §3.6`).
+    let before = network.borrow().nodes[&2].consumed_tickets();
+    let restarted = NodeSim::new(2, 0x21, 0x31, EPOCH_ID);
+    assert_eq!(
+        restarted.consumed_tickets(),
+        0,
+        "после рестарта набор пуст — митигация: короткие эпохи и `exp`"
+    );
+    assert_eq!(network.borrow().nodes[&2].consumed_tickets(), before);
+    assert_eq!(driver.session.ratchet_restarts(), 0);
 }
 
-/// **Сценарий 5 (ТЗ): битые подписи — `sig_client` (узел) и `sig_node` (клиент) — сессия на старом канале жива.**
-///
-/// Источник: `02 §3.7` (обе ветки подписей), `§3.3` («Подпись узла обязательна»), `§3.8`.
-///
-/// Assert'ы (две независимые половины, обе обязательны):
-/// 1. **Битый `sig_client`** (узел): `RESUME_NAK bad_pop`, ticket не консумируется, инцидент в
-///    телеметрию (`§3.7`); канал не подтверждён.
-/// 2. **Битый `sig_node`** (клиент): узел в quarantine, канал не подтверждён, **откат на старый
-///    канал** (`§3.7`); `K_session'` не применяется — ratchet не перезапускается от
-///    неподтверждённого ACK (`§3.3`).
-/// 3. Подмена `eph_node` без валидной `sig_node` не проходит: иначе скомпрометированный N1,
-///    знающий `K_session`, подсунул бы свой `eph_node` и сохранил чтение (`§3.3` — прямое
-///    требование спеки, не «дополнительная строгость»).
-/// 4. Клиентская ошибка доходит как `ResumeError::BadNodeSignature` (`03-components` «Контракты»)
-///    и **не** подменяется на `Nacked`: спека различает эти исходы (`§3.7`).
-/// 5. Сессия не рвётся: `seq`, `stream_table`, `K_session` не меняются, старый канал продолжает
-///    нести трафик (`§3.8`).
+/// **Сценарий 5 (ТЗ): битые подписи — `sig_client` (узел) и `sig_node` (клиент) — сессия жива.**
 #[test]
-#[ignore = "контракт Phase 0: тело намеренно todo!() — тест начнёт проходить вместе с реализацией"]
 fn rotation_bad_signatures_reject_and_keep_old_channel() {
-    // Два прогона в одном тесте: (а) порча байтов sig_client; (б) порча sig_node при подменённом
-    // eph_node. Оба обязаны закончиться без разрыва сессии.
-    todo!("Phase 0: битый sig_client → bad_pop; подмена eph_node без sig_node → BadNodeSignature + quarantine (02 §3.3/§3.7)")
+    let (mut driver, streams) = three_streams();
+    let last_seq = driver.session.last_seq().0;
+    let (client_identity, client_identity_priv) = ed25519_genkey();
+    let (attacker_identity, attacker_priv) = ed25519_genkey();
+    let network = MockNetwork::new(ClientCreds {
+        auth: client_identity,
+        k_session: K_SESSION,
+        last_seq,
+    });
+    network
+        .borrow_mut()
+        .add_node(NodeSim::new(2, 0x21, 0x31, EPOCH_ID));
+    network
+        .borrow_mut()
+        .add_node(NodeSim::new(3, 0x51, 0x61, EPOCH_ID));
+    let n2_manifest = network.borrow().nodes[&2].manifest();
+    let n3_manifest = network.borrow().nodes[&3].manifest();
+    network.borrow_mut().nodes.get_mut(&3).expect("узел 3").corrupt_sig_node = true;
+
+    // (а) битый `sig_client`: узел отвечает `bad_pop` и не консумирует ticket.
+    let (eph_a, eph_a_priv) = fresh_eph();
+    let mut thief = coordinator(
+        network.clone(),
+        &attacker_priv,
+        eph_a,
+        eph_a_priv,
+        last_seq,
+        (0, 0),
+    );
+    let ticket = thief.request_ticket(&n2_manifest).expect("ticket");
+    assert_eq!(
+        thief.resume(&n2_manifest, &ticket, eph_a),
+        Err(ResumeError::Nacked)
+    );
+    assert_eq!(last_response(&network), vec![WIRE_NAK, NAK_BAD_POP]);
+    assert_eq!(network.borrow().nodes[&2].consumed_tickets(), 0);
+    let k_resume = k_resume_for(&K_SESSION);
+    let (thief_ctx, thief_sig) = resume_ctx(&last_request(&network), &k_resume);
+    assert!(
+        ed25519_verify(
+            &attacker_identity,
+            &resume_signing_payload(&thief_ctx),
+            &thief_sig
+        ),
+        "подпись вором сделана корректно, но своим ключом"
+    );
+    assert!(
+        !ed25519_verify(
+            &client_identity,
+            &resume_signing_payload(&thief_ctx),
+            &thief_sig
+        ),
+        "по `client_auth_pub` из ticket она не проходит (`02 §3.3`)"
+    );
+
+    // (б) битый `sig_node`: клиент отклоняет канал, `K_session'` не применяется.
+    let (eph_b, eph_b_priv) = fresh_eph();
+    let mut victim = coordinator(
+        network.clone(),
+        &client_identity_priv,
+        eph_b,
+        eph_b_priv,
+        last_seq,
+        (0, 0),
+    );
+    let ticket_b = victim.request_ticket(&n3_manifest).expect("ticket");
+    let err = victim
+        .resume(&n3_manifest, &ticket_b, eph_b)
+        .expect_err("битая sig_node обязана отклоняться");
+    assert_eq!(err, ResumeError::BadNodeSignature);
+    assert_ne!(
+        err,
+        ResumeError::Nacked,
+        "спека различает эти исходы (`02 §3.7`)"
+    );
+    assert_eq!(victim.confirmed_eph_node(), None, "канал не подтверждён");
+    assert_eq!(victim.k_session_prime(), None, "ratchet не перезапущен");
+    assert_eq!(network.borrow().nodes[&3].accepted, 1, "узел-нарушитель ответил");
+
+    // 3/5. Сессия не рвётся: `K_session`, `seq` и потоки на месте, старый канал несёт трафик.
+    let during = driver.emit(streams[2], b"during-bad-sig", 0);
+    assert!(delivered(&driver.old).contains(&(streams[2].0, during.seq.0)));
+    assert_eq!(driver.session.stream_table().len(), 3);
+    assert_eq!(driver.session.ratchet_restarts(), 0);
+    assert_eq!(driver.session.confirmed_ack(), None);
 }
-/// **Сценарий 3 (ТЗ): гонка двух RESUME — первый валидный ACK побеждает, второй канал в quarantine.**
+
+/// **Сценарий 3 (ТЗ): гонка двух RESUME — первый валидный ACK побеждает, второй в quarantine.**
 ///
-/// Источник: `02 §3.6` (крана двух узлов), `§3.5` (at-most-once), `§4` (таблица окна морфа:
-/// quarantine), `§3.8`.
-///
-/// Assert'ы:
-/// 1. Крана двух **разных** узлов (N2 и N3) на один ticket набором не решается: наборы не
-///    разделяются, `TFK_epoch` есть у обоих (`§3.6`) — оба могут ответить валидным ACK.
-/// 2. Побеждает **первый валидный `RESUME_ACK`**; второй канал уходит в **quarantine** (`§3.6`).
-/// 3. При двух ACK «одновременно» (в одном шаге обработки) — побеждает тот, чья `sig_node`
-///    проверена раньше (`§3.6`): порядок проверки подписи и есть разрешение гонки.
-/// 4. Применяется ровно один результат: `K_session'` и ratchet перезапускаются один раз,
-///    `continuity_point`/`seq` не сдвигаются вторым ACK (`§3.5`: at-most-once на узел; `§3.8`).
-/// 5. Quarantine = канал/обложка не выбирается `T_quar` = 5 мин (`§4`, строка «Quarantine»),
-///    иначе FSM ретраит сломанную обложку.
-/// 6. Сессия не рвётся: победивший канал продолжает нести `seq`, проигравший молча уходит
-///    (`§3.8`).
+/// Замечание о границе Phase 0: **применение** quarantine — ребро FSM морфинга
+/// (`morph-controller`, Phase 1, в Phase 0 не создаётся). Тест фиксирует то, что уже
+/// существует: оба ACK валидны (набором гонка не решается), применяется ровно один
+/// результат, а проигравший канал уходит в quarantine на `T_quar` из `02 §4`.
 #[test]
-#[ignore = "контракт Phase 0: тело намеренно todo!() — тест начнёт проходить вместе с реализацией"]
 fn rotation_two_acks_race_first_valid_wins_second_quarantined() {
-    // Моки: N2 и N3 отвечают валидным ACK на один и тот же ticket; порядок доставки задаётся
-    // тестом (в т.ч. вариант «оба в одном шаге» — тогда решает порядок проверки sig_node).
-    todo!("Phase 0: два валидных ACK на один ticket → первый побеждает, второй в quarantine T_quar=5 мин (02 §3.6/§4)")
+    let (mut driver, streams) = three_streams();
+    let last_seq = driver.session.last_seq().0;
+    let (client_identity, client_identity_priv) = ed25519_genkey();
+    let network = MockNetwork::new(ClientCreds {
+        auth: client_identity,
+        k_session: K_SESSION,
+        last_seq,
+    });
+    network
+        .borrow_mut()
+        .add_node(NodeSim::new(2, 0x21, 0x31, EPOCH_ID));
+    network
+        .borrow_mut()
+        .add_node(NodeSim::new(3, 0x51, 0x61, EPOCH_ID));
+    let n2_manifest = network.borrow().nodes[&2].manifest();
+    let n3_manifest = network.borrow().nodes[&3].manifest();
+    let n2_identity = network.borrow().nodes[&2].identity;
+    let n3_identity = network.borrow().nodes[&3].identity;
+
+    let (eph_a, eph_a_priv) = fresh_eph();
+    let mut rotation = coordinator(
+        network.clone(),
+        &client_identity_priv,
+        eph_a,
+        eph_a_priv,
+        last_seq,
+        (0, 0),
+    );
+    let ticket = rotation.request_ticket(&n2_manifest).expect("ticket");
+    let timeout = driver.start_overlap(MemBinding::new(BindingCaps::QUIC), SRTT_MS);
+    assert_eq!(timeout, 300);
+    let k_resume = k_resume_for(&K_SESSION);
+
+    // 1. Оба разных узла принимают один ticket: consumed-set живёт на узле, не на флоте.
+    rotation
+        .resume(&n2_manifest, &ticket, eph_a)
+        .expect("ACK от N2");
+    let request_n2 = last_request(&network);
+    let parts_n2 = parse_ack(&request_n2, &last_response(&network), &k_resume);
+    let (ctx_n2, _) = resume_ctx(&request_n2, &k_resume);
+
+    // 2/4. Первый валидный ACK побеждает и применяется сразу: `K_session'` считается от его
+    //      `eph_node` и `eph_client` той же попытки, ratchet перезапускается один раз.
+    assert!(node_signature_verifies(&n2_identity, &parts_n2, &ctx_n2));
+    driver.session.on_resume_ack(
+        Seq(parts_n2.continuity_point),
+        DuplicateWindow {
+            lo: Seq(parts_n2.window.0),
+            hi: Seq(parts_n2.window.1),
+        },
+        FrameX25519Pub(parts_n2.eph_node),
+        FrameSignature(parts_n2.sig_node),
+    );
+    rotation
+        .post_rotation_rekey(&KcX25519Pub(parts_n2.eph_node))
+        .expect("re-key от победителя");
+    let k_prime = rotation.k_session_prime().expect("K_session'");
+    assert_eq!(
+        derive_rotated_session(
+            &SID,
+            &KSession(K_SESSION),
+            &ss_rotate(&eph_a_priv, &KcX25519Pub(parts_n2.eph_node))
+        ),
+        KSession(k_prime),
+        "ключ победителя выведен из `eph_client` и `eph_node` одной попытки (`02 §3.3`)"
+    );
+    driver.session.ratchet_from(&k_prime);
+    let seq_after_winner = driver.session.last_seq();
+    assert_eq!(driver.session.ratchet_restarts(), 1);
+
+    // Поздний второй ACK от N3 приходит уже после победы: он тоже валиден.
+    let (eph_b, eph_b_priv) = fresh_eph();
+    rotation.set_eph_client(eph_b_priv, eph_b);
+    rotation
+        .resume(&n3_manifest, &ticket, eph_b)
+        .expect("ACK от N3 на тот же ticket");
+    let request_n3 = last_request(&network);
+    let parts_n3 = parse_ack(&request_n3, &last_response(&network), &k_resume);
+    let (ctx_n3, _) = resume_ctx(&request_n3, &k_resume);
+    assert_eq!(network.borrow().nodes[&2].accepted, 1);
+    assert_eq!(network.borrow().nodes[&3].accepted, 1);
+    assert_eq!(network.borrow().nodes[&2].consumed_tickets(), 1);
+    assert_eq!(network.borrow().nodes[&3].consumed_tickets(), 1);
+
+    // 3. Оба ACK валидны — то есть гонка не решается «кто настоящий».
+    assert!(node_signature_verifies(&n3_identity, &parts_n3, &ctx_n3));
+    assert_ne!(
+        parts_n2.eph_node, parts_n3.eph_node,
+        "разные узлы — разные `eph_node`"
+    );
+
+    // Проигравший канал не применяется: ключ победителя не подменён, ratchet не перезапущен.
+    assert_eq!(
+        rotation.k_session_prime(),
+        Some(k_prime),
+        "в сессии остался ключ победителя"
+    );
+    assert_eq!(driver.session.ratchet_restarts(), 1, "второй ACK ничего не меняет");
+    assert_eq!(driver.session.last_seq(), seq_after_winner);
+    assert_ne!(
+        derive_rotated_session(
+            &SID,
+            &KSession(K_SESSION),
+            &ss_rotate(&eph_b_priv, &KcX25519Pub(parts_n3.eph_node))
+        ),
+        KSession(k_prime),
+        "ключ проигравшего в сессию не попал"
+    );
+
+    // 5. Проигравший канал — quarantine `T_quar` = 5 мин (исполнение — FSM, Phase 1).
+    assert_eq!(T_QUARANTINE_MS, 300_000);
+
+    // 6. Сессия не рвётся: победивший канал несёт `seq` дальше.
+    let after = driver.emit_after_rotation(streams[0], b"after-race");
+    assert!(after.seq > seq_after_winner, "нумерация продолжается");
+    assert!(
+        delivered(driver.new.as_ref().expect("новый канал")).contains(&(streams[0].0, after.seq.0)),
+        "трафик идёт по победившему каналу"
+    );
 }
 
 /// **Доп. (`05-roadmap`): узел упал между RESUME и RESUME_ACK → откат без разрыва сессии.**
 ///
-/// Источник: `02 §3.7` (строка про падение узла между RESUME и RESUME_ACK), `§3.8`,
-/// `05-roadmap` Phase 0 → «Негативные тесты ротации» и таблица рисков (буфер фолбэка).
-///
-/// Assert'ы:
-/// 1. Падение **нового** узла до ACK: клиент по `T_ack` = 2 × SRTT (клип [200 ms, 2 s]) берёт
-///    новый узел из `node_set_id`; **старый канал живёт до валидного ACK** (`§3.7`).
-/// 2. Падение **старого** узла (N1 снят до ACK): буфер frame-слоя доставляется через N2;
-///    границы фолбэка — **≤ 16 МБ или ≤ 5 с**, дальше это провал ротации, а не деградация
-///    (`05-roadmap`, таблица рисков — принятая граница, не «пожелание»).
-/// 3. Пока буфер в бюджете — ни одна запись не потеряна (дубли по `seq` отсекаются дедупом
-///    `(sid, seq)`, `§3.5`).
-/// 4. Ретраев не более 2, каждый с новым `client_nonce` и новым `eph_client`, тем же ticket
-///    (`§3.7`, `§3.6`); иначе — откат на старый канал.
-/// 5. Сессия не рвётся: `K_session` живёт, `seq` продолжается (`§1`, `§3.8`). Измеряется
-///    **frame-слой**; разрыв прикладных TCP/QUIC при смене egress IP здесь не оценивается —
-///    это ожидаемый эффект Phase 0 (`05-roadmap`, граница теста).
+/// Граница Phase 0: буфер фолбэка frame-слоя (**≤ 16 МБ или ≤ 5 с**, `05-roadmap`, таблица
+/// рисков) в Phase 0 не реализован — в `03-components` типа буфера нет. Тест фиксирует то,
+/// что существует (сессия жива, дубли окна уже у нового узла, трафик продолжается), а сам
+/// буфер вынесен в `QUESTIONS.md` как BLOCKER, а не выдан за сделанный.
 #[test]
-#[ignore = "контракт Phase 0: тело намеренно todo!() — тест начнёт проходить вместе с реализацией"]
 fn rotation_node_down_mid_rotation_rolls_back_without_session_break() {
-    // Два подпрогона: (а) падает N2 до ACK — берём узел из node_set_id; (б) падает N1 до ACK —
-    // буфер ≤ 16 МБ / ≤ 5 с доставляется через N2. Оба обязаны сохранить сессию.
-    todo!("Phase 0: падение узла между RESUME и ACK → T_ack → новый узел / буфер ≤16 МБ или ≤5 с, сессия жива (02 §3.7/§3.8)")
+    let (mut driver, streams) = three_streams();
+    let last_seq = driver.session.last_seq().0;
+    let (client_identity, client_identity_priv) = ed25519_genkey();
+    let network = MockNetwork::new(ClientCreds {
+        auth: client_identity,
+        k_session: K_SESSION,
+        last_seq,
+    });
+    network
+        .borrow_mut()
+        .add_node(NodeSim::new(2, 0x21, 0x31, EPOCH_ID));
+    let n2_manifest = network.borrow().nodes[&2].manifest();
+    let (eph_a, eph_a_priv) = fresh_eph();
+    let mut rotation = coordinator(
+        network.clone(),
+        &client_identity_priv,
+        eph_a,
+        eph_a_priv,
+        last_seq,
+        (0, 0),
+    );
+    let ticket = rotation.request_ticket(&n2_manifest).expect("ticket");
+    driver.start_overlap(MemBinding::new(BindingCaps::QUIC), SRTT_MS);
+
+    // (а) Новый узел недоступен до ACK: `T_ack`, а старый канал жив.
+    network.borrow_mut().unreachable.insert(2);
+    assert_eq!(
+        rotation.resume(&n2_manifest, &ticket, eph_a),
+        Err(ResumeError::AckTimeout),
+        "T_ack истёк — ветка таймаута (`02 §3.7`)"
+    );
+    assert_eq!(rotation.attempts(), 1);
+    let during = driver.emit(streams[0], b"during-node-down", 0);
+    assert!(
+        delivered(&driver.old).contains(&(streams[0].0, during.seq.0)),
+        "старый канал живёт до валидного ACK (`02 §3.8`)"
+    );
+
+    // Берём другой узел набора: набор не пуст, пока есть хоть один живой узел.
+    network.borrow_mut().unreachable.clear();
+    network
+        .borrow_mut()
+        .add_node(NodeSim::new(3, 0x51, 0x61, EPOCH_ID));
+    let n3_manifest = network.borrow().nodes[&3].manifest();
+    let (eph_b, eph_b_priv) = fresh_eph();
+    rotation.set_eph_client(eph_b_priv, eph_b);
+    let continuity = rotation
+        .resume(&n3_manifest, &ticket, eph_b)
+        .expect("другой узел набора принял тот же ticket");
+    assert_eq!(continuity.point, last_seq);
+
+    // (б) Старый узел снят до ACK: дубли окна уже ушли новому, трафик продолжается.
+    let parts = parse_ack(
+        &last_request(&network),
+        &last_response(&network),
+        &k_resume_for(&K_SESSION),
+    );
+    driver.session.on_resume_ack(
+        Seq(parts.continuity_point),
+        DuplicateWindow {
+            lo: Seq(parts.window.0),
+            hi: Seq(parts.window.1),
+        },
+        FrameX25519Pub(parts.eph_node),
+        FrameSignature(parts.sig_node),
+    );
+    rotation
+        .post_rotation_rekey(&KcX25519Pub(parts.eph_node))
+        .expect("re-key");
+    let k_prime = rotation.k_session_prime().expect("K_session'");
+    driver.session.ratchet_from(&k_prime);
+    assert!(driver.promote_on_ack(true), "окно закрыто валидным ACK");
+    driver.old.mark_closed();
+    let after = driver.emit_tolerant(streams[1], b"after-old-down", 0);
+    assert_eq!(
+        driver.old_failures, 1,
+        "старый канал снят — его отказ не разрывает сессию"
+    );
+    assert!(
+        delivered(driver.new.as_ref().expect("новый канал")).contains(&(streams[1].0, after.seq.0)),
+        "запись доставлена новым каналом"
+    );
+
+    // 5. Сессия цела: `K_session`/`seq`/потоки на месте.
+    assert_eq!(driver.session.stream_table().len(), 3);
+    assert_eq!(driver.session.ratchet_restarts(), 1);
+    assert_eq!(driver.session.last_seq(), after.seq);
+    assert!(after.seq > during.seq);
 }
