@@ -146,11 +146,15 @@ fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(1);
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    // Узел однопоточный: `Session` держит `Box<dyn SessionCrypto>`, трейт не `Send`,
+    // значит `NodeState` нельзя пересылать между потоками — состояние живёт в `LocalSet`
+    // (`spawn_local`), а не в `tokio::spawn`. Для лаборатории этого достаточно.
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("tokio runtime");
-    runtime.block_on(run(port, seed, manifest_path, node_id));
+    let local = tokio::task::LocalSet::new();
+    runtime.block_on(local.run_until(run(port, seed, manifest_path, node_id)));
 }
 
 async fn run(port: u16, seed: [u8; 32], manifest_path: std::path::PathBuf, node_id: u32) {
@@ -178,7 +182,7 @@ async fn run(port: u16, seed: [u8; 32], manifest_path: std::path::PathBuf, node_
     while let Some(incoming) = endpoint.accept().await {
         let state = Arc::clone(&state);
         let config = config.clone();
-        tokio::spawn(async move {
+        tokio::task::spawn_local(async move {
             if let Err(err) = serve_connection(incoming, state, config).await {
                 eprintln!("[node] connection error: {err}");
             }
@@ -204,7 +208,7 @@ async fn serve_connection(
     {
         let ds = Arc::clone(&state);
         let dc = connection.clone();
-        tokio::spawn(datagram_loop(dc, ds));
+        tokio::task::spawn_local(datagram_loop(dc, ds));
     }
 
     // Bi-стримы по одному: первый — handshake, далее control (mint/RESUME).
