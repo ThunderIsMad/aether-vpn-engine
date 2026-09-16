@@ -260,27 +260,27 @@ pub struct QuicBinding {
     core: BindingCore,
 }
 
-/// Набросок async-писателя (Phase 0.5, спайк: API выверен по docs 0.11.12, рантайм в CI не гоняется).
-/// Вычерпывает `take_pending()` и пишет каждый кадр в uni-стрим его `stream_id`; открыть стрим
-/// и дождаться записи может только окружение с runtime — поэтому здесь это план, а не код:
-///
-/// ```no_run
-/// use quinn::{Connection, StreamId, WriteError};
-/// use std::collections::HashMap;
-///
-/// async fn drain(core: &mut BindingCore, conn: &Connection) -> Result<(), WriteError> {
-///     for (stream_id, frame) in core.take_pending() {
-///         // кэш открытых uni-стримов: один stream frame-слоя = один uni-стрим QUIC
-///         let _send: quinn::SendStream = conn.open_uni().await?;
-///         let _id: StreamId = _send.id();
-///         let _write = _send.write_all(&frame).await?;
-///         // ошибка записи → событие BindingFailure (QUIC-соединение умерло)
-///     }
-///     Ok(())
-/// }
-/// ```
-/// Инвариант, проверенный в Phase 0: `caps()` отдаёт `BindingCaps::QUIC` (no-HOL, datagram);
-/// кадры больше `TransportConfig::datagram_receive_buffer_size` не формируются.
+// Набросок async-писателя (Phase 0.5, спайк: API выверен по docs 0.11.12, рантайм в CI не гоняется).
+// Вычерпывает `take_pending()` и пишет каждый кадр в uni-стрим его `stream_id`; открыть стрим
+// и дождаться записи может только окружение с runtime — поэтому здесь это план, а не код:
+//
+// ```no_run
+// use quinn::{Connection, StreamId, WriteError};
+// use std::collections::HashMap;
+//
+// async fn drain(core: &mut BindingCore, conn: &Connection) -> Result<(), WriteError> {
+//     for (stream_id, frame) in core.take_pending() {
+//         // кэш открытых uni-стримов: один stream frame-слоя = один uni-стрим QUIC
+//         let _send: quinn::SendStream = conn.open_uni().await?;
+//         let _id: StreamId = _send.id();
+//         let _write = _send.write_all(&frame).await?;
+//         // ошибка записи → событие BindingFailure (QUIC-соединение умерло)
+//     }
+//     Ok(())
+// }
+// ```
+// Инвариант, проверенный в Phase 0: `caps()` отдаёт `BindingCaps::QUIC` (no-HOL, datagram);
+// кадры больше `TransportConfig::datagram_receive_buffer_size` не формируются.
 
 impl QuicBinding {
     /// Байндинг поверх установленного QUIC-соединения.
