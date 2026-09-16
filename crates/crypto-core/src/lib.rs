@@ -377,7 +377,7 @@ pub trait RecordCrypto {
 /// собственный источник случайности.
 pub fn random_32() -> [u8; 32] {
     let mut out = [0u8; 32];
-    DefaultRng::default().fill_bytes(&mut out);
+    DefaultRng.fill_bytes(&mut out);
     out
 }
 
@@ -467,7 +467,7 @@ pub fn mlkem768_genkey() -> Result<MlKem768KeyPair, CryptoError> {
 /// Генерирует Ed25519-пару личности (`client_identity` / `node_identity`): (pub, priv).
 pub fn ed25519_genkey() -> (Ed25519Pub, [u8; 32]) {
     let mut seed = [0u8; 32];
-    DefaultRng::default().fill_bytes(&mut seed);
+    DefaultRng.fill_bytes(&mut seed);
     let signing = SigningKey::from_bytes(&seed);
     (Ed25519Pub(signing.verifying_key().to_bytes()), seed)
 }
@@ -537,7 +537,7 @@ mod tests {
         // (3) Interop B: ciphertext PQClean-бэкенда → decapsulate эталоном.
         let (dk_b, ek_b) = RcMlKem768::generate_keypair();
         let ek_b_bytes = ek_b.to_bytes();
-        let mut rng = DefaultRng::default();
+        let mut rng = DefaultRng;
         let (ct_b, ss_pq_b) = PqMlKem768::encapsulate(&ek_b_bytes[..], &mut rng)
             .expect("PQClean encapsulate на эталонный pk");
         let ss_rc_b = dk_b
