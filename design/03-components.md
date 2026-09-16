@@ -55,6 +55,15 @@ Rust-клиента RFC 9298 поверх quinn+h3.
 - MASQUE-байндинг: минимальный RFC 9298 CONNECT-UDP клиент на quinn+h3 (свой; оценка, уточняется в Phase 1).
 - Reality/TCP-байндинг: length-prefixed frames; HOL tradeoff задокументирован.
 - SS-2022/padded байндинг (fallback, чистый Rust).
+  ⇐ Phase 1, кусок 1: реализован в `cover-ss2022` как **`SsPaddedBinding` — Aether padded
+  cover, НЕ SS-2022 interop** (внешних тест-векторов SS-2022 нет; клейм появится только
+  с записью в леджере `crate-feasibility`). Кадр: `len(4B) ‖ nonce(24B) ‖ AEAD(record ‖ pad)`;
+  ключ обложки — отдельный слой `derive_cover_key(sid, K_session)` (метка `LABEL_COVER`):
+  компрометация обложки не вскрывает `K_record`/`K_resume`. Padding — бюджет N байт на record
+  (флаг `with_padding`), внутри шифротекста, duplicate-окно `(sid, seq)` не затрагивает.
+  Caps — stream-класс: `no_hol: false` честно, как в `02 §2.2` tradeoff. Тесты: roundtrip,
+  чужой ключ, битые кадры, closed → `BindingError`, WouldBlock, padding-границы, склейка
+  packet→policy→frame-session→cover (`phase0-path`).
 
 ### 5. morph-controller — Liquid Tunnel FSM + on-device классификатор
 - **In:** uplink телеметрия, probe/block сигналы, latency.

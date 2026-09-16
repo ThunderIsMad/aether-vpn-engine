@@ -70,7 +70,12 @@ Reality — последним, как самый дорогой).
 
 Порядок по возрастанию стоимости:
 
-- [ ] SS-2022/padded байндинг — чистый Rust, простой, базовый fallback.
+- [x] SS-2022/padded байндинг — чистый Rust, простой, базовый fallback.
+      ⇐ **padded-часть закрыта** (`cover-ss2022::SsPaddedBinding`, CI `8d976d9`): собственный
+      AEAD-слой + padding-бюджет, stream-класс caps (no-HOL нет, `02 §2.2`), склейка с
+      `phase0-path` проверена. Отчёт: `docs/phase-reports/phase-1.md` (кусок 1).
+- [ ] **SS-2022 interop** (wire-совместимость с реальным shadowsocks-2022) — [ ] до появления
+      внешних тест-векторов; сейчас формат называется «Aether padded cover» (`03` §4).
 - [ ] MASQUE CONNECT-UDP (RFC 9298) — минимальный клиент на quinn+h3 (оценка, уточняется в Phase 1); masque-go как reference.
 - [ ] Reality/VLESS — последний: либо Go-sidecar с xray-core, либо `boring` с контролем ClientHello.
       uTLS-эквивалента в Rust нет — это самый дорогой пункт Phase 1.
