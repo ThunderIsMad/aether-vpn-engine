@@ -146,7 +146,9 @@ handshake. Клиентский `KeyCoordinator` не минтит и `TFK_epoch
 `K_session` → вычисляет `K_resume` → рассекречивает остаток. **Узел проверяет `sig_client` по
 `client_auth_pub` из ticket: украденный `ticket_blob` резюм не даёт.** Тикет летит вне `K_resume`,
 но внутри шифрованного outer, то есть защищён от сети и открыт для флота — как и требуется.
-Проводной формат RESUME/RESUME_ACK: `kind(1B) ‖ len(2B) ‖ nonce(24B) ‖ sealed` (Q19, выше).
+Проводной формат RESUME: `kind(1B) ‖ len(2B) ‖ nonce(24B) ‖ sealed` (Q19, выше); **RESUME_ACK —
+len-less**: `kind(1B) ‖ nonce(24B) ‖ sealed` (длина не нужна — payload фиксирован:
+120 B; так он на проводе с Phase 0, признано по BLOCKER-2, `QUESTIONS.md`).
 
 **RESUME_ACK** (N2 → клиент, sealed под `K_resume`):
 

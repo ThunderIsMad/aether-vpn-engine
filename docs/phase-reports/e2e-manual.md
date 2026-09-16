@@ -89,15 +89,22 @@ Phase 0 проверяла протоколы `02-protocols.md` моками (`r
    из авторизованного набора и своего handshake-состояния. Здесь у узла нет session-store,
    поэтому клиент передаёт их явно. Формат `kind(0x01) ‖ node_id` сохранён, расширение
    снаружи (`ext_len`).
-2. **RESUME_ACK собирается в `e2e-harness`**, а не в прод-крейте: формат — harness-мока
-   `rotation-tests` (`kind ‖ nonce ‖ AEAD{K_resume}(continuity ‖ window ‖ eph_node ‖
-   sig_node)`), проверка — прод-`ClientRotation::accept_response`. Прод-узла-сборщика ACK
-   ещё нет (записано в `QUESTIONS.md` как остаток Phase 0).
+2. ~~RESUME_ACK собирается в `e2e-harness`, а не в прод-крейте~~ **закрыто (BLOCKER-2,
+   `QUESTIONS.md`)**: узловая сборка ACK поднята в `key-coordinator::build_resume_ack`
+   — единственный прод-эмиттер; и `e2e-harness`, и мок `rotation-tests` теперь вызывают
+   его, кадр в лаборатории не кодируется вручную. Провод не изменился: `kind(0x01) ‖
+   nonce(24B) ‖ AEAD{K_resume}(...)` без `len` — спека приведена к проводу (см. ниже).
 3. **`K_session` в mint-запросе не ходит**: узел, который провёл Noise_IK с клиентом,
    вывел ключ сам (`IkResponder::respond`). Ничего секретного по проводу не пересылается.
 
-Protocol invariants `02-protocols.md` не правились. Расхождение, найденное при живом
+Protocol invariants `02-protocols.md` не правились (кроме признания len-less ACK в §3.3 —
+закрытие BLOCKER-2 по прецеденту Q19, см. `QUESTIONS.md`). Расхождение, найденное при живом
 прогоне, идёт в `QUESTIONS.md` как BLOCKER, а не в правку спеки.
+
+**Повторный живой прогон после закрытия BLOCKER-2:** не выполнялся — локального тулчейна
+на машине нет (`DEPENDENCIES.md`), провод байт-в-байт не изменился, эквивалентность
+закреплена юнит-тестами: roundtrip эмиттер↔парсер в `key-coordinator` и все 7 сценариев
+`rotation-tests` на прод-эмиттере.
 
 ## Зависимости лаборатории (не прод-пины)
 

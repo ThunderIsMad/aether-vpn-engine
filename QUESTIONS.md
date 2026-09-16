@@ -391,7 +391,35 @@
   по сети» из `docs/phase-reports/e2e-manual.md` держится на продовой криптографии, но не на
   продовом кодировании кадра.
 - **Как закрывается:** (1) узловая сборка ACK в `key-coordinator` над прод-типами
-  (`sign_and_seal_ack(ticket_ctx, eph_node, …) → Vec<u8>`), харнесс и моки переключить на неё;
+  (`build_resume_ack(k_resume, request, client_nonce, ctx, node_window, eph_node,
+  node_identity_priv) → Vec<u8>`), харнесс и моки переключить на неё;
   (2) зафиксировать вопрос `len(2B)` в `02 §3.3:149` по прецеденту Q19 — либо убрать `len`
   из формата ACK в спеке, либо добавить его во все эмиттеры; решение дизайна, не молчаливая
   правка; (3) после этого E2E-прогон докладывает «прод ↔ прод по проводу».
+- **Закрыто 2026-09-16, оба пункта:**
+  - **(2) len-вопрос — выбран вариант A** (спека признаёт len-less ACK). Обоснование:
+    вариант B (добавить `len` на провод) — ломающее изменение без пользы: ACK-payload
+    жёстко фиксирован (120 B: 8+8+8+32+64), `len` в RESUME существует потому, что внутри
+    AEAD-заголовка идёт **переменный** `ticket_blob`, который надо отрезать до nonce;
+    в ACK ничего переменного нет — поле ничего бы не проверяло и ничего бы не защищало
+    (это не length-hiding: длина и так видна по размеру UDP-датаграммы), зато сломало бы
+    все три текущих эмиттера (прод-парсер, мок `rotation-tests`, e2e-harness) разом —
+    тот же класс правки, от которого Q19 сознательно ушёл признанием существующего
+    провода. Формула Q19 «спека совпала с проводом» применена зеркально: `02 §3.3`
+    теперь различает RESUME    (`kind ‖ len ‖ nonce ‖ sealed`) и len-less RESUME_ACK (`kind ‖ nonce ‖ sealed`); строка
+    спеки поправлена в этом же коммите, инварианты не тронуты.
+  - **(1) единственный прод-эмиттер добавлен и повсюду подключён.**
+    `key_coordinator::build_resume_ack` — `crates/key-coordinator/src/lib.rs:285`
+    (функция + doc-комментарий с проводным форматом; использует прод-`ack_nonce`,
+    прод-`ack_signing_payload`, прод-`RecordAead.seal`, AAD = RESUME). Вызов:
+    мок `rotation-tests` — `crates/rotation-tests/tests/harness/mod.rs:312`
+    (`NodeSim::build_ack`, ключ подписи — `ack_signer` :334); e2e-harness —
+    `crates/e2e-harness/src/bin/aether-node.rs:453`; ручной `wire::build_resume_ack`
+    из `e2e-harness/src/wire.rs` **удалён**. Roundtrip-контракт эмиттер↔парсер
+    закреплён тестом `contract_resume_ack_emitter_matches_parser` в
+    `crates/key-coordinator/src/lib.rs` (модуль `tests`): кадр прод-эмиттера принимается
+    прод-`accept_response` с проверкой `sig_node`, чужой ключ подписи даёт
+    `BadNodeSignature`. Моки не изменили байт на проводе: эмиттер воспроизводит прежний
+    layout (проверено тестами сценариев `rotation-tests`).
+  - Смежная дыра NAK (метка `aether-nak-v3`, nonce-схема `ResumeNak`) **не** входила в
+    этот BLOCKER — остаётся открытой заметкой, отдельного действия не требует.
