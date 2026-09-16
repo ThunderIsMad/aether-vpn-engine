@@ -199,10 +199,6 @@ impl FakeIpPool {
     fn len(&self) -> usize {
         self.by_host.len()
     }
-
-    fn is_empty(&self) -> bool {
-        self.by_host.is_empty()
-    }
 }
 
 /// Движок политики: упорядоченный список правил (первое совпавшее побеждает) + дефолт.
@@ -270,7 +266,6 @@ mod tests {
         assert_ne!(first, other, "разные хосты — разные адреса");
         assert!(range.contains(&other));
         assert_eq!(engine.fake_ip_entries(), 2);
-        assert!(!engine.fakeip.is_empty());
     }
 
     /// Контракт split-tunnel: `Block` отклоняет по домену, `Direct` — по CIDR,

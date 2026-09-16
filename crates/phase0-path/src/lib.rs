@@ -98,9 +98,13 @@ pub fn send_packet(
         RouteAction::Block => Ok(StepOutcome::Blocked),
         RouteAction::Direct => Ok(StepOutcome::Direct),
         RouteAction::Route => {
-            let flow_id = *flows
-                .entry(flow_key.dst)
-                .or_insert_with(|| FlowId(next_flow_id(flows)));
+            let flow_id = if let Some(existing) = flows.get(&flow_key.dst) {
+                *existing
+            } else {
+                let id = FlowId(next_flow_id(flows));
+                flows.insert(flow_key.dst, id);
+                id
+            };
             let stream = session.open_stream(flow_id);
             let record = session.seal_record(stream, packet);
             binding
@@ -131,10 +135,10 @@ fn packet_flow_key(packet: &[u8]) -> FlowKey {
             let [a, b, c, d] = [packet[o], packet[o + 1], packet[o + 2], packet[o + 3]];
             std::net::IpAddr::V4(Ipv4Addr::new(a, b, c, d))
         } else {
-            return FlowKey::unknown();
+            return unknown_flow_key();
         }
     } else {
-        return FlowKey::unknown();
+        return unknown_flow_key();
     };
     FlowKey {
         dst,
@@ -143,13 +147,13 @@ fn packet_flow_key(packet: &[u8]) -> FlowKey {
     }
 }
 
-impl FlowKey {
-    fn unknown() -> Self {
-        Self {
-            dst: std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
-            dst_port: 0,
-            host: None,
-        }
+/// Ключ потока «адрес неизвестен»: маршрутизируется дефолтом политики.
+/// Свободная функция, а не `impl FlowKey` — тип чужой (orphan rule).
+fn unknown_flow_key() -> FlowKey {
+    FlowKey {
+        dst: std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+        dst_port: 0,
+        host: None,
     }
 }
 
@@ -200,12 +204,12 @@ mod tests {
         let fake_ip = policy.assign_fake_ip("example.com");
 
         let k = test_key();
-        let mut session = session(k);
+        let mut sender = session(k);
         let mut binding = MemBinding::new(transport_mux::BindingCaps::QUIC);
         let mut flows = std::collections::HashMap::new();
 
         let packet = ipv4_packet(match fake_ip { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"GET /");
-        let outcome = send_packet(&policy, &mut flows, &mut session, &mut binding, &packet)
+        let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet)
             .expect("route = Route");
         let stream = match outcome {
             StepOutcome::Sent(s) => s,
@@ -244,27 +248,27 @@ mod tests {
             ],
         );
         let k = test_key();
-        let mut session = session(k);
+        let mut sender = session(k);
         let mut binding = MemBinding::new(transport_mux::BindingCaps::QUIC);
         let mut flows = std::collections::HashMap::new();
 
         let blocked = ipv4_packet(Ipv4Addr::new(203, 0, 113, 9), b"x");
         assert_eq!(
-            send_packet(&policy, &mut flows, &mut session, &mut binding, &blocked),
+            send_packet(&policy, &mut flows, &mut sender, &mut binding, &blocked),
             Ok(StepOutcome::Blocked)
         );
         let direct = ipv4_packet(Ipv4Addr::new(192, 168, 1, 5), b"y");
         assert_eq!(
-            send_packet(&policy, &mut flows, &mut session, &mut binding, &direct),
+            send_packet(&policy, &mut flows, &mut sender, &mut binding, &direct),
             Ok(StepOutcome::Direct)
         );
         assert!(binding.take_pending().is_empty(), "ничего не ушло в туннель");
-        assert_eq!(session.last_seq(), frame_session::Seq(0), "seq не израсходован");
+        assert_eq!(sender.last_seq(), frame_session::Seq(0), "seq не израсходован");
 
         // Непокрытый адрес — дефолт Route: запись уходит.
         let routed = ipv4_packet(Ipv4Addr::new(198, 18, 0, 9), b"z");
         assert!(matches!(
-            send_packet(&policy, &mut flows, &mut session, &mut binding, &routed),
+            send_packet(&policy, &mut flows, &mut sender, &mut binding, &routed),
             Ok(StepOutcome::Sent(_))
         ));
         assert_eq!(binding.take_pending().len(), 1);
@@ -278,7 +282,7 @@ mod tests {
         let fake_a = policy.assign_fake_ip("a.example");
         let fake_b = policy.assign_fake_ip("b.example");
         let k = test_key();
-        let mut session = session(k);
+        let mut sender = session(k);
         let mut binding = MemBinding::new(transport_mux::BindingCaps::QUIC);
         let mut flows = std::collections::HashMap::new();
 
@@ -286,25 +290,25 @@ mod tests {
             IpAddr::V4(v4) => ipv4_packet(v4, b"p"),
             _ => panic!("v4"),
         };
-        let s1 = match send_packet(&policy, &mut flows, &mut session, &mut binding, &to_v4(fake_a))
+        let s1 = match send_packet(&policy, &mut flows, &mut sender, &mut binding, &to_v4(fake_a))
         {
             Ok(StepOutcome::Sent(s)) => s,
             other => panic!("{other:?}"),
         };
-        let s2 = match send_packet(&policy, &mut flows, &mut session, &mut binding, &to_v4(fake_a))
+        let s2 = match send_packet(&policy, &mut flows, &mut sender, &mut binding, &to_v4(fake_a))
         {
             Ok(StepOutcome::Sent(s)) => s,
             other => panic!("{other:?}"),
         };
         assert_eq!(s1, s2, "один адрес — один поток");
 
-        let s3 = match send_packet(&policy, &mut flows, &mut session, &mut binding, &to_v4(fake_b))
+        let s3 = match send_packet(&policy, &mut flows, &mut sender, &mut binding, &to_v4(fake_b))
         {
             Ok(StepOutcome::Sent(s)) => s,
             other => panic!("{other:?}"),
         };
         assert_ne!(s1, s3, "другой адрес — другой поток");
-        assert_eq!(session.stream_table().len(), 2);
+        assert_eq!(sender.stream_table().len(), 2);
     }
 
     /// Отказ байндинга (`WouldBlock`/`TransportDown`) доходит до вызывающего
@@ -313,14 +317,14 @@ mod tests {
     fn binding_error_propagates() {
         let policy = Engine::new(RouteAction::Route, Vec::new());
         let k = test_key();
-        let mut session = session(k);
+        let mut sender = session(k);
         let mut binding = MemBinding::new(transport_mux::BindingCaps::QUIC);
         binding.mark_closed();
         let mut flows = std::collections::HashMap::new();
 
         let packet = ipv4_packet(Ipv4Addr::new(198, 18, 0, 3), b"q");
         assert_eq!(
-            send_packet(&policy, &mut flows, &mut session, &mut binding, &packet),
+            send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet),
             Err(PathError::Binding(transport_mux::BindingError::TransportDown))
         );
     }
@@ -330,11 +334,11 @@ mod tests {
     fn non_ipv4_packet_routes_by_default() {
         let policy = Engine::new(RouteAction::Route, Vec::new());
         let k = test_key();
-        let mut session = session(k);
+        let mut sender = session(k);
         let mut binding = MemBinding::new(transport_mux::BindingCaps::QUIC);
         let mut flows = std::collections::HashMap::new();
 
-        let outcome = send_packet(&policy, &mut flows, &mut session, &mut binding, &[0x60, 0, 0, 0]);
+        let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &[0x60, 0, 0, 0]);
         assert!(matches!(outcome, Ok(StepOutcome::Sent(_))));
     }
 }
