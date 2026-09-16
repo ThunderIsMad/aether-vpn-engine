@@ -6,8 +6,10 @@ Per skill, checks that:
   * `name` is unique across skills
   * SKILL.md exists, opens and closes its frontmatter with `---`, parses as YAML
   * `description` is a non-empty string within the length limit
-  * references to project docs resolve on disk, and a bare `NN-name.md` reference
-    carries the `design/` prefix (the regression that broke the first scaffold run)
+  * references to project docs resolve on disk under whitelisted roots only
+    (no `..`, no absolute paths, no ROOT-wide `**/` scans), and a bare
+    `NN-name.md` reference carries the `design/` prefix (the regression that
+    broke the first scaffold run)
 
 Exits non-zero when there are errors; warnings are reported but do not fail.
 """
@@ -34,6 +36,14 @@ DOC_REF_RE = re.compile(
     r"(?<![\w/-])(?:(?P<prefixed>(?:design|research)/[\w./*-]+\.md)|(?P<bare>\d{2}-[\w-]+\.md))"
 )
 
+# Refs from SKILL.md are untrusted input (audit, Low: check_refs/DOC_REF_RE):
+# glob-паттерн из SKILL.md не должен сканировать произвольные поддеревья ROOT
+# и не должен быть DoS-вектором в CI. Корни — whitelist, `..`/абсолютные — reject,
+# число рефов и объём glob-сканирования ограничены.
+ALLOWED_DOC_ROOTS = ("design", "research")
+MAX_REFS_PER_SKILL = 64
+MAX_GLOB_MATCHES = 256
+
 
 def split_frontmatter(text: str, errors: list[str]) -> tuple[dict | None, str]:
     lines = text.splitlines()
@@ -57,12 +67,43 @@ def split_frontmatter(text: str, errors: list[str]) -> tuple[dict | None, str]:
 
 
 def check_refs(text: str, errors: list[str]) -> None:
-    for match in DOC_REF_RE.finditer(text):
+    """Doc-рефы резолвятся только под whitelisted-корнями внутри ROOT."""
+    matches = list(DOC_REF_RE.finditer(text))
+    if len(matches) > MAX_REFS_PER_SKILL:
+        errors.append(
+            f"too many doc references ({len(matches)} > {MAX_REFS_PER_SKILL})"
+        )
+        return
+    for match in matches:
         bare = match.group("bare")
         if bare:
             errors.append(f"bare doc reference {bare!r} — add the design/ prefix")
-        elif not list(ROOT.glob(match.group("prefixed"))):
-            errors.append(f"doc reference {match.group('prefixed')!r} matches no file")
+            continue
+        ref = match.group("prefixed")
+        parts = pathlib.PurePosixPath(ref).parts
+        if not parts or pathlib.PurePosixPath(ref).is_absolute() or ".." in parts:
+            errors.append(f"doc reference {ref!r} must be relative and stay inside ROOT")
+            continue
+        if parts[0] not in ALLOWED_DOC_ROOTS:
+            errors.append(
+                f"doc reference {ref!r} must start with one of {ALLOWED_DOC_ROOTS}"
+            )
+            continue
+        if len(parts) > 1 and parts[1] == "**":
+            errors.append(f"doc reference {ref!r} must not scan ROOT wholesale ('**/' first)")
+            continue
+        # Ранний break: glob-сканирование ограничено капой (glob-DoS в CI).
+        hits = 0
+        for _ in ROOT.glob(ref):
+            hits += 1
+            if hits > MAX_GLOB_MATCHES:
+                break
+        if hits == 0:
+            errors.append(f"doc reference {ref!r} matches no file")
+        elif hits > MAX_GLOB_MATCHES:
+            errors.append(
+                f"doc reference {ref!r} matches too many files (> {MAX_GLOB_MATCHES})"
+            )
 
 
 def check_skill(
