@@ -63,7 +63,7 @@ use clatter::traits::{Dh, Handshaker, Kem};
 use clatter::{HybridHandshake, HybridHandshakeParams, KeyPair};
 use ed25519_dalek::{Signature as DalekSignature, Signer, SigningKey, Verifier, VerifyingKey};
 use hkdf::Hkdf;
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 /// Публичный статический ключ X25519 (DH-половина Noise).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -370,6 +370,23 @@ pub trait RecordCrypto {
         aad: &[u8],
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, CryptoError>;
+}
+
+/// Системный RNG (getrandom через clatter) — для `client_nonce` попыток `RESUME` (`02 §3.6`),
+/// эфемерных ключей и nonce записей. Экспортируется, чтобы клиентские крейты не тянули
+/// собственный источник случайности.
+pub fn random_32() -> [u8; 32] {
+    let mut out = [0u8; 32];
+    DefaultRng::default().fill_bytes(&mut out);
+    out
+}
+
+/// sha256 — им адресуется ticket в PoP-транскрипте и подписывается транскрипт `RESUME_ACK`
+/// (`02 §3.3`). Экспортируется, чтобы клиентские крейты не тянули свою копию `sha2`.
+pub fn sha256(data: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    hasher.finalize().into()
 }
 
 /// HKDF-SHA256 в 32 байта: `Extract(salt, ikm)` + `Expand(info, 32)` (`02 §1`, `§3.3`, `§5`).

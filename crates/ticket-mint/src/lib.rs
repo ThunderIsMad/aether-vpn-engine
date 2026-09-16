@@ -564,7 +564,7 @@ mod tests {
         }
 
         // Ветки epoch/expired и «не наш blob» (`§3.7`).
-        let foreign = TicketFactory::new(TFK, 9, 3, 3_600);
+        let mut foreign = TicketFactory::new(TFK, 9, 3, 3_600);
         let (sig3, ctx3) = context(&blob2, &client2);
         assert_eq!(
             foreign.handle_resume(&blob2, &sig3, &ctx3, 1_400),

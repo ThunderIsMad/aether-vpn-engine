@@ -5,5 +5,8 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-# Зависимостей нет: session-id и continuity point здесь представлены примитивами,
-# чтобы не изобретать связь крейтов, которой нет в design/03-components.md.
+# Скаффолд объявлял «зависимостей нет», но клиенту нужны DH (`ss_rotate`), Ed25519 (PoP)
+# и те же выводы ключей, что в ядре (02 §3.3). Вторая копия HKDF/подписи в соседнем крейте —
+# это ровно то расхождение, которое потом ловит аудит, поэтому берём `crypto-core`.
+# Примитивы (`Seq`/`SessionId`/`Window`) при этом остаются своими — см. QUESTIONS.md Q3.
+crypto-core.workspace = true
