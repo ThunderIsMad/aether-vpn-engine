@@ -113,3 +113,12 @@ lab-config, `quic_lab::endpoints_bind` — bind на `127.0.0.1:0`); `cargo clip
 -p e2e-harness --all-targets --all-features -- -D warnings` проверяет бины. Живой прогон
 в CI не запускается: это ручной шаг (см. выше), но код бинов проверяется компиляцией
 и lint'ом на каждый push.
+
+## Статус CI
+
+Основной rust-job зелёный на коммите `8ba9927` (run 35124640948): **91 passed / 0 failed /
+0 ignored** по всему воркспейсу, включая 13 юнит-тестов `e2e-harness` без фичи, 15 с фичей
+`e2e` (шаг best-effort, на раннере прошёл — bind на `127.0.0.1:0` разрешён) и 1 тест бина
+узла; `cargo clippy --workspace --all-targets -- -D warnings` и `cargo clippy -p e2e-harness
+--all-targets --all-features -- -D warnings` чисты. Сам живой прогон в CI не запускается —
+это ручной шаг.
