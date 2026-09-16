@@ -237,7 +237,7 @@ mod tests {
 
         let handle = tun.open(&config()).expect("Linux-сборка открывает стаб");
         assert_eq!(tun.handle(), Some(handle), "дескриптор выдан и возвращён");
-        assert_eq!(tun.opened_config(), Some(config()), "конфигурация записана");
+        assert_eq!(tun.opened_config(), Some(&config()), "конфигурация записана");
 
         // Повторное открытие того же устройства — PermissionDenied («одно на процесс»).
         assert_eq!(tun.open(&config()), Err(DeviceError::PermissionDenied));
