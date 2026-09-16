@@ -160,6 +160,7 @@ fn rotation_loss_on_both_channels_falls_back_to_buffer_path() {
         (0, 0),
     );
     let ticket = rotation.request_ticket(&manifest).expect("ticket");
+    assert_eq!(ticket.blob.0.len(), 161, "ticket выдан, но резюма в этом прогоне не будет");
 
     // (а) Потеря на обоих каналах: запись не доставлена ни одним из них, но сессия жива.
     driver.old.set_loss_every(2);

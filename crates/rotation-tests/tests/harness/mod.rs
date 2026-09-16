@@ -15,9 +15,10 @@ use std::rc::Rc;
 
 pub use crypto_core::{
     derive_k_resume, derive_rotated_session, ed25519_genkey, ed25519_pubkey, ed25519_sign,
-    ed25519_verify, mlkem768_genkey, ratchet_record, sha256, x25519_dh, x25519_keypair, Handshake,
-    IkInitiator, IkResponder, Ed25519Pub, KSession, KRecord, MlKem768Pub, RecordAead, RecordCrypto,
-    RecordNonce, Signature, X25519Pub as CoreX25519Pub, MLKEM768_EK_BYTES,
+    ed25519_verify, mlkem768_genkey, ratchet_record, sha256, x25519_dh, x25519_genkey,
+    x25519_keypair, Handshake, IkInitiator, IkResponder, Ed25519Pub, KSession, KRecord,
+    MlKem768Pub, RecordAead, RecordCrypto, RecordNonce, Signature, X25519Pub as CoreX25519Pub,
+    MLKEM768_EK_BYTES,
 };
 pub use frame_session::{
     record_nonce, t_ack_ms, t_morph_ms, DedupWindow, DedupOutcome, DuplicateStep, DuplicateWindow,
@@ -26,7 +27,7 @@ pub use frame_session::{
     Signature as FrameSignature, StreamId, X25519Pub as FrameX25519Pub,
     DUPLICATE_WINDOW_RECORDS, MAX_RESUME_RETRIES, T_QUARANTINE_MS,
 };
-use key_coordinator::{ack_nonce, ack_signing_payload, resume_signing_payload};
+pub use key_coordinator::{ack_nonce, ack_signing_payload, resume_signing_payload};
 pub use key_coordinator::{
     ChannelError, ClientRotation, Continuity, Ed25519Pub as KcEd25519Pub, Node, NodeId, ResumeCtx,
     ResumeError, Rotation, RotationChannel, Signature as KcSignature, Ticket, TicketBlob,
@@ -269,7 +270,7 @@ impl NodeSim {
             eph_client: plain[24..56].try_into().unwrap_or_default(),
             client_nonce: plain[56..72].try_into().unwrap_or_default(),
         };
-        let signature = MintSignature(plain[72..136].try_into().unwrap_or_default());
+        let signature = MintSignature(plain[72..136].try_into().unwrap());
 
         match self
             .factory
@@ -374,12 +375,28 @@ pub struct MockNetwork {
 }
 
 /// Разделяемая сеть: тот же объект видит драйвер теста и клиентский координатор.
-pub type SharedNetwork = Rc<RefCell<MockNetwork>>;
+///
+/// Обёртка нужна не «для красоты»: `impl RotationChannel for Rc<RefCell<MockNetwork>>`
+/// невозможно (чужой тип нарушает orphan rule), а координатор владеет каналом по значению.
+#[derive(Clone)]
+pub struct SharedNetwork(Rc<RefCell<MockNetwork>>);
+
+impl SharedNetwork {
+    /// Сеть на чтение.
+    pub fn borrow(&self) -> std::cell::Ref<'_, MockNetwork> {
+        self.0.borrow()
+    }
+
+    /// Сеть на запись.
+    pub fn borrow_mut(&self) -> std::cell::RefMut<'_, MockNetwork> {
+        self.0.borrow_mut()
+    }
+}
 
 impl MockNetwork {
     /// Пустая сеть с кредами клиента.
     pub fn new(client: ClientCreds) -> SharedNetwork {
-        Rc::new(RefCell::new(Self {
+        SharedNetwork(Rc::new(RefCell::new(Self {
             nodes: BTreeMap::new(),
             client,
             requests: Vec::new(),
@@ -387,7 +404,7 @@ impl MockNetwork {
             drop_next_ack: false,
             drop_all_acks: false,
             unreachable: BTreeSet::new(),
-        }))
+        })))
     }
 
     /// Добавляет узел в набор.
@@ -423,7 +440,7 @@ impl MockNetwork {
 
 impl RotationChannel for SharedNetwork {
     fn exchange(&mut self, node: NodeId, request: &[u8]) -> Result<Vec<u8>, ChannelError> {
-        self.borrow_mut().exchange(node, request)
+        self.0.borrow_mut().exchange(node, request)
     }
 }
 
