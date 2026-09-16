@@ -134,8 +134,12 @@ pub type HybridIk = HybridHandshake<X25519, PqMlKem768, PqMlKem768, ChaChaPoly, 
 /// Пара статических DH-ключей в форме clatter (`Dh::PubKey` для X25519 — `[u8; 32]`).
 pub type X25519KeyPair = KeyPair<[u8; 32], SensitiveByteArray<[u8; 32]>>;
 
+/// Публичный статический KEM-ключ ML-KEM-768 (`Kem::PubKey`; ассоциированный тип
+/// берётся полностью квалифицированно — короткая запись неоднозначна).
+pub type MlKem768Pub = <PqMlKem768 as Kem>::PubKey;
+
 /// Пара статических KEM-ключей в форме clatter.
-pub type MlKem768KeyPair = KeyPair<PqMlKem768::PubKey, PqMlKem768::SecretKey>;
+pub type MlKem768KeyPair = KeyPair<MlKem768Pub, <PqMlKem768 as Kem>::SecretKey>;
 
 /// Тип KEM-ошибки.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -183,7 +187,7 @@ impl IkInitiator {
         client_static: X25519KeyPair,
         client_static_kem: MlKem768KeyPair,
         node_static: X25519Pub,
-        node_static_kem: PqMlKem768::PubKey,
+        node_static_kem: MlKem768Pub,
     ) -> Result<Self, CryptoError> {
         let params = HybridHandshakeParams::new(noise_hybrid_ik(), true)
             .with_s(client_static)
@@ -240,7 +244,7 @@ impl Handshake for IkInitiator {
 pub struct IkResponder {
     session_id: [u8; 16],
     node_static: X25519Pub,
-    node_static_kem: PqMlKem768::PubKey,
+    node_static_kem: MlKem768Pub,
     hs: HybridIk,
 }
 
@@ -271,7 +275,7 @@ impl IkResponder {
     }
 
     /// Публичный статический KEM-ключ узла (нужен инициатору для пред-сообщения `S`).
-    pub fn node_static_kem(&self) -> PqMlKem768::PubKey {
+    pub fn node_static_kem(&self) -> MlKem768Pub {
         self.node_static_kem.clone()
     }
 
@@ -607,7 +611,7 @@ mod tests {
     #[test]
     fn contract_record_seal_open() {
         let sid = [0x22u8; 16];
-        let session = derive_session(&sid, b"handshake-hash-заглушка-для-теста");
+        let session = derive_session(&sid, b"handshake-hash-for-test");
         let key = ratchet_record(&sid, &session, 0);
         let key_next = ratchet_record(&sid, &session, 1);
         assert_ne!(key.0, key_next.0, "ratchet двигает K_record");
