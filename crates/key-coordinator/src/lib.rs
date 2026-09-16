@@ -381,6 +381,9 @@ impl<C: RotationChannel> ClientRotation<C> {
         if kind == KIND_NAK {
             return Err(ResumeError::Nacked);
         }
+        if kind != KIND_ACK {
+            return Err(ResumeError::Malformed);
+        }
         let body = response.get(1..).ok_or(ResumeError::Malformed)?;
         let (nonce, sealed) = body.split_at_checked(24).ok_or(ResumeError::Malformed)?;
         let nonce: [u8; 24] = nonce.try_into().map_err(|_| ResumeError::Malformed)?;
