@@ -5,10 +5,14 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-# Объявлены для проверки резолва пин-версий Phase 0 (DEPENDENCIES.md → «Phase 0 pins»).
-# Код к ним ещё не обращается: логика handshake и seal/open — Phase 0.
+# Пин-версии — DEPENDENCIES.md → «Phase 0 pins».
+# Смешение бэкендов (PQClean + RustCrypto) объяснено в QUESTIONS.md Q8: набор фич clatter
+# объявлен явно, `ml-kem 0.3.2` остаётся прямой зависимостью для KAT/interop-теста.
 clatter.workspace = true
 ml-kem.workspace = true
 chacha20poly1305.workspace = true
 x25519-dalek.workspace = true
 ed25519-dalek.workspace = true
+# Вывод ключей: K_session / K_resume / re-key / ratchet записей (02 §1, §3.3, §5).
+hkdf.workspace = true
+sha2.workspace = true
