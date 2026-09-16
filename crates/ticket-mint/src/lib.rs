@@ -556,8 +556,19 @@ mod tests {
             &K_SESSION,
             1_300,
         );
-        let (sig2, mut ctx2) = context(&blob2, &client2);
-        ctx2.last_seq = 10;
+        // `last_seq` ниже пола из ticket: подпись считается уже по аномальному контексту,
+        // иначе узел ответил бы `bad_pop`, а не принял аномалию.
+        let ctx2 = ResumeCtx {
+            ticket_hash: sha256(&blob2.0),
+            last_seq: 10,
+            window: Window {
+                lo: 500,
+                hi: 500,
+            },
+            eph_client: [0x44; 32],
+            client_nonce: [0x55; 16],
+        };
+        let sig2 = Signature(client2.sign(&resume_signing_payload(&ctx2)).to_bytes());
         match factory.handle_resume(&blob2, &sig2, &ctx2, 1_400) {
             ResumeVerdict::Accept { anomaly, .. } => assert!(anomaly),
             verdict => panic!("ожидался Accept с аномалией, получено {verdict:?}"),
