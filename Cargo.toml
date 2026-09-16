@@ -37,6 +37,9 @@ sha2 = "0.11.0"
 x25519-dalek = "3.0.0"
 ed25519-dalek = "3.0.0"
 # Запинено здесь, но нужно только в Phase 1 (MASQUE CONNECT-UDP на quinn+h3).
+# RESERVED for Phase 1, owner: cover-masque (единственный планируемый потребитель;
+# на Phase 0 ни один крейт h3 не объявляет — см. audit Low «h3 без owner»). Пин работает
+# хранилищем версии; убрать/бампать может только owner-крейт через запись в DEPENDENCIES.md.
 h3 = "0.0.8"
 
 # Внутренние крейты. Связь `transport-mux → frame-session` — единственная, зафиксированная
