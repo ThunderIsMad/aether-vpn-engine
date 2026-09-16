@@ -274,10 +274,17 @@ fn secret32(value: Option<Vec<u8>>) -> Result<[u8; 32], StoreError> {
     bytes.try_into().map_err(|_| StoreError::Corrupt)
 }
 
+/// Несекретная часть сессии — то, что лежит в хранилище рядом с секретами, чтобы `load`
+/// поднимал сессию целиком, а не наполовину.
+struct SessionDescriptor {
+    subscription_id: SubscriptionId,
+    uuid: [u8; 16],
+    session_id: [u8; 16],
+    chain: Vec<[u8; 16]>,
+}
+
 /// Обратный разбор дескриптора. Обрезанный или неверный вход — `Corrupt`.
-fn decode_descriptor(
-    bytes: &[u8],
-) -> Result<(SubscriptionId, [u8; 16], [u8; 16], Vec<[u8; 16]>), StoreError> {
+fn decode_descriptor(bytes: &[u8]) -> Result<SessionDescriptor, StoreError> {
     let mut cursor = 0usize;
     let name_len = u16::from_be_bytes(take_arr::<2>(bytes, &mut cursor)?) as usize;
     let name = String::from_utf8(take_slice(bytes, &mut cursor, name_len)?.to_vec())
@@ -292,7 +299,12 @@ fn decode_descriptor(
     if cursor != bytes.len() {
         return Err(StoreError::Corrupt);
     }
-    Ok((SubscriptionId(name), uuid, session_id, chain))
+    Ok(SessionDescriptor {
+        subscription_id: SubscriptionId(name),
+        uuid,
+        session_id,
+        chain,
+    })
 }
 
 impl<S: SecureStore> SessionStore for ClientSessionStore<S> {
@@ -306,15 +318,14 @@ impl<S: SecureStore> SessionStore for ClientSessionStore<S> {
         }
         // Часть секретов без остальных — не «сессия без ключа», а повреждённое хранилище:
         // молча продолжить здесь значит работать без `client_identity` (то есть без PoP).
-        let descriptor = descriptor.ok_or(StoreError::Corrupt)?;
-        let (subscription_id, uuid, session_id, chain) = decode_descriptor(&descriptor)?;
+        let descriptor = decode_descriptor(&descriptor.ok_or(StoreError::Corrupt)?)?;
         Ok(Some(SessionState {
-            subscription_id,
-            uuid,
-            session_id,
+            subscription_id: descriptor.subscription_id,
+            uuid: descriptor.uuid,
+            session_id: descriptor.session_id,
             k_session: secret32(k_session)?,
             tickets: Vec::new(),
-            chain,
+            chain: descriptor.chain,
             secrets: ClientSecrets::new(secret32(identity)?, secret32(statics)?),
         }))
     }
@@ -401,11 +412,7 @@ mod tests {
         // Tickets в secure store не попадают вообще (`03` §7).
         let ticket_bytes = vec![0xd4u8; 161];
         assert!(
-            !store
-                .backend()
-                .values()
-                .iter()
-                .any(|value| *value == ticket_bytes.as_slice()),
+            !store.backend().values().contains(&ticket_bytes.as_slice()),
             "ticket не лежит в at-rest хранилище"
         );
         assert_eq!(store.tickets(), &[vec![0xd4u8; 161]]);
