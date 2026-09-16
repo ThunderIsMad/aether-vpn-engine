@@ -1,0 +1,13 @@
+[package]
+name = "cover-ss2022"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Обложка Phase 1 (кусок 1): кадрирует уже sealed records frame-слоя и добавляет
+# собственный AEAD-слой + padding. Крипта — crypto-core (XChaCha20-Poly1305),
+# типы записей — frame-session, контракт байндинга — transport-mux.
+crypto-core.workspace = true
+frame-session.workspace = true
+transport-mux.workspace = true

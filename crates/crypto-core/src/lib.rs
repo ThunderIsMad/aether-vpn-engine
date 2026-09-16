@@ -90,6 +90,10 @@ pub struct KSession(pub [u8; 32]);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KRecord(pub [u8; 32]);
 
+/// Ключ обложки (`03` §4): выводится из `K_session` с меткой `LABEL_COVER`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KCover(pub [u8; 32]);
+
 /// Nonce записи: `seq(8B) || sid(16B)` — 24 байта, ровно под XChaCha20-Poly1305 (`02 §1`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordNonce(pub [u8; 24]);
@@ -132,6 +136,9 @@ pub const LABEL_RESUME: &[u8] = b"aether v3 resume";
 pub const LABEL_ROTATE: &[u8] = b"aether v3 rotate";
 /// Метка KDF ratchet записей (`02 §1`).
 pub const LABEL_RECORD: &[u8] = b"aether v3 record";
+/// Метка KDF ключа обложки (Phase 1, `03` §4): отдельный слой — компрометация обложки
+/// не вскрывает session/record ключи.
+pub const LABEL_COVER: &[u8] = b"aether v3 cover";
 
 /// Гибридный IK-хендшейк: X25519 + ML-KEM-768 (PQClean-бэкенд), ChaCha20-Poly1305, SHA-256.
 pub type HybridIk = HybridHandshake<X25519, PqMlKem768, PqMlKem768, ChaChaPoly, ClatterSha256>;
@@ -403,6 +410,23 @@ fn hkdf32(salt: Option<&[u8]>, ikm: &[u8], info: &[u8]) -> [u8; 32] {
     hk.expand(info, &mut okm)
         .expect("32 bytes is a valid HKDF-SHA256 output length");
     okm
+}
+
+/// HKDF-SHA256 в открытом виде (Phase 1, обложки): salt ‖ ikm ‖ info → 32 B.
+/// Публичный, потому что обложки (`cover-*`) выводят свои ключи сами и не должны
+/// тянуть внутренние `hkdf32` с семантикой session-слоя.
+pub fn hkdf_sha256(salt: &[u8], ikm: &[u8], info: &[u8]) -> [u8; 32] {
+    hkdf32(Some(salt), ikm, info)
+}
+
+/// Ключ обложки из `K_session`: соль — `session_id`, метка — `LABEL_COVER`.
+/// Отдельный слой ключей: компрометация ключа обложки не вскрывает `K_record`/`K_resume`.
+pub fn derive_cover_key(session_id: &[u8; 16], k_session: &KSession) -> KCover {
+    KCover(hkdf32(
+        Some(session_id),
+        &k_session.0,
+        LABEL_COVER,
+    ))
 }
 
 /// `K_session` (Q10, вариант «спека под Clatter»): ikm — **chaining key** симметричного

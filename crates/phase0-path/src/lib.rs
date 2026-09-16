@@ -343,4 +343,43 @@ mod tests {
         let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &[0x60, 0, 0, 0]);
         assert!(matches!(outcome, Ok(StepOutcome::Sent(_))));
     }
+
+    /// Phase 1, кусок 1: тот же путь, но `CoverBinding` — обложка `SsPaddedBinding`
+    /// вместо `MemBinding`. Пакет проходит policy → frame-session → cover-кадр,
+    /// кадр вскрывается ключом обложки, вложенная запись — зеркальной сессией.
+    #[test]
+    fn packet_through_cover_binding_roundtrip() {
+        use cover_ss2022::{decode_cover_frame, SsPaddedBinding};
+        let mut policy = Engine::new(RouteAction::Route, Vec::new());
+        let fake = policy.assign_fake_ip("example.com");
+        let sid = [0x5au8; 16];
+        let cover =
+            crypto_core::derive_cover_key(&sid, &crypto_core::derive_session(&sid, b"cover path test"));
+        let k = test_key();
+        let mut sender = session(k);
+        let mut binding = SsPaddedBinding::with_padding(cover, 256);
+        let mut flows = std::collections::HashMap::new();
+        let packet = ipv4_packet(match fake { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"cover me");
+        let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet)
+            .expect("обложка принимает запись");
+        let stream = match outcome {
+            StepOutcome::Sent(s) => s,
+            other => panic!("ожидали Sent, получили {other:?}"),
+        };
+        assert!(!binding.supports().no_hol, "обложка stream-класса");
+        // Кадр обложки вынимается и вскрывается тем же ключом.
+        let pending = binding.take_pending();
+        assert_eq!(pending.len(), 1);
+        let (_sid, frame) = &pending[0];
+        let record = decode_cover_frame(&cover, frame).expect("cover-кадр вскрывается");
+        assert_eq!(record.stream_id, stream);
+        // Внутри — та же запись frame-слоя: зеркало вскрывает исходные байты пакета.
+        let mut mirror = session(k);
+        mirror.open_stream(FlowId(1));
+        let plaintext = mirror
+            .recv_record(&record)
+            .expect("вскрытие записи прошло")
+            .expect("не дубликат");
+        assert_eq!(plaintext, packet);
+    }
 }

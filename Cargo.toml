@@ -43,11 +43,12 @@ h3 = "0.0.8"
 # в design/03-components.md («Порядок зависимостей для сборки», интерфейс CoverBinding).
 frame-session = { path = "crates/frame-session" }
 
-# Объявлены для dev-dependencies интеграционного крейта `rotation-tests` (спеки ротации Phase 0)
-# и рабочего крейта `phase0-path` (склейка однохопового пути). Порядок сборки из 03 не меняется:
-# `phase0-path` стоит над всеми тремя слоями и сам никем не потребляется.
+# Объявлены для dev-dependencies интеграционного крейта `rotation-tests` (спеки ротации Phase 0),
+# рабочего крейта `phase0-path` (склейка однохопового пути) и `cover-ss2022` (Phase 1, кусок 1:
+# обложка поверх уже sealed records).
 crypto-core = { path = "crates/crypto-core" }
 key-coordinator = { path = "crates/key-coordinator" }
 policy-engine = { path = "crates/policy-engine" }
 ticket-mint = { path = "crates/ticket-mint" }
 transport-mux = { path = "crates/transport-mux" }
+cover-ss2022 = { path = "crates/cover-ss2022" }
