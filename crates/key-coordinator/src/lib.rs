@@ -945,7 +945,8 @@ mod tests {
     fn ack_stand() -> (ClientRotation<MockNode>, Node, [u8; 32], ResumeCtx, Vec<u8>) {
         let k_resume = derive_k_resume(&SID, &crypto_core::KSession(K_SESSION));
         let (node_pub, node_priv) = crypto_core::ed25519_genkey();
-        let (eph_pub, _) = crypto_core::x25519_genkey().expect("eph_node");
+        // `eph_node` в кадрах стенда — константа EPH_NODE: парсер берёт его из plain
+        // и сверяет только подписью, отдельная пара ключей здесь не нужна.
         let (eph_client_pub, _) = crypto_core::x25519_genkey().expect("eph_client");
         let ctx = ResumeCtx {
             ticket_hash: crypto_core::sha256(b"ticket-blob"),
