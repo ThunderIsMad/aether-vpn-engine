@@ -9,15 +9,13 @@
 //!   причин ни в проде, ни в лаборатории.
 //! * `RESUME` — `ClientRotation::build_resume` байт в байт: `kind(0x02) ‖ len(2B) ‖
 //!   ticket_blob ‖ nonce(24B) ‖ AEAD{K_resume}`, `ticket_blob` вне AEAD (`02 §3.3`).
-//! * `RESUME_ACK` — формат harness-мока `rotation-tests`: `kind(0x01) ‖ nonce(24B) ‖
-//!   AEAD{K_resume}(continuity(8) ‖ window(16) ‖ eph_node(32) ‖ sig_node(64))`, AAD — сам
-//!   запрос. Прод-крейт ACK-кадр пока не собирает (проверка — в `key-coordinator`,
-//!   `accept_response`), для живого прогона собирать его пока приходится здесь;
-//!   задокументировано в `docs/phase-reports/e2e-manual.md`.
+//! * `RESUME_ACK` — `key_coordinator::build_resume_ack` байт в байт (единственный
+//!   прод-эмиттер, BLOCKER-2): `kind(0x01) ‖ nonce(24B) ‖ AEAD{K_resume}(continuity(8)
+//!   ‖ window(16) ‖ eph_node(32) ‖ sig_node(64))`, AAD — сам запрос. Здесь ACK не
+//!   кодируется вовсе — и harness, и мок `rotation-tests` вызывают прод-функцию.
 
 #![cfg_attr(not(test), deny(unsafe_code))]
 
-use crypto_core::{RecordAead, RecordCrypto};
 use std::io::ErrorKind;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -154,28 +152,6 @@ pub fn parse_resume_request(request: &[u8]) -> Option<(Vec<u8>, [u8; 24], Vec<u8
     let (nonce, sealed) = rest.split_at_checked(24)?;
     let nonce: [u8; 24] = nonce.try_into().ok()?;
     Some((blob, nonce, sealed.to_vec()))
-}
-
-/// `RESUME_ACK` в формате harness-мока `rotation-tests` (wire-ACK):
-/// `kind(0x01) ‖ nonce(24B) ‖ AEAD{K_resume}(ack_plain)`, AAD — сам `RESUME`.
-/// `ack_plain = continuity(8) ‖ window_lo(8) ‖ window_hi(8) ‖ eph_node(32) ‖ sig_node(64)`.
-pub fn build_resume_ack(
-    client_nonce: &[u8; 16],
-    ack_plain: &[u8],
-    request_aad: &[u8],
-    k_resume: [u8; 32],
-) -> Vec<u8> {
-    let nonce = key_coordinator::ack_nonce(client_nonce);
-    let sealed = RecordAead.seal(
-        &crypto_core::KRecord(k_resume),
-        &crypto_core::RecordNonce(nonce),
-        request_aad,
-        ack_plain,
-    );
-    let mut out = vec![0x01]; // KIND_ACK
-    out.extend_from_slice(&nonce);
-    out.extend_from_slice(&sealed);
-    out
 }
 
 #[cfg(test)]

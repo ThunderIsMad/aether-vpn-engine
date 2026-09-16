@@ -305,44 +305,38 @@ impl NodeSim {
         vec![WIRE_NAK, code]
     }
 
-    /// `RESUME_ACK`: окно узла считается тем же кодом, что и у клиента (`02 §3.5`),
-    /// подпись — по `node_identity` узла над транскриптом клиента (`02 §3.3`).
+    /// `RESUME_ACK` — единственный прод-эмиттер `key_coordinator::build_resume_ack`
+    /// (BLOCKER-2): harness сам кадр не собирает, только считает окно узла (`02 §3.5`)
+    /// и выбирает ключ подписи. Окно узла здесь считается тем же кодом, что и у
+    /// клиента (`02 §3.5`), транскрипт и AEAD — внутри прод-функции.
     fn build_ack(&self, request: &[u8], ctx: &MintResumeCtx, k_resume: &[u8; 32]) -> Vec<u8> {
         let node_window = DedupWindow::new(Seq(ctx.window.lo), Seq(ctx.last_seq)).window();
         let eph_node = self.eph_override.unwrap_or(self.eph_node);
-        let transcript = sha256(&resume_signing_payload(&ResumeCtx {
-            ticket_hash: ctx.ticket_hash,
-            last_seq: ctx.last_seq,
-            window: (ctx.window.lo, ctx.window.hi),
-            eph_client: ctx.eph_client,
-            client_nonce: ctx.client_nonce,
-        }));
-        let payload = ack_signing_payload(
-            &transcript,
-            ctx.last_seq,
+        key_coordinator::build_resume_ack(
+            *k_resume,
+            request,
+            &ctx.client_nonce,
+            &ResumeCtx {
+                ticket_hash: ctx.ticket_hash,
+                last_seq: ctx.last_seq,
+                window: (ctx.window.lo, ctx.window.hi),
+                eph_client: ctx.eph_client,
+                client_nonce: ctx.client_nonce,
+            },
             (node_window.lo.0, node_window.hi.0),
-            &eph_node.0,
-        );
-        let signer = if self.corrupt_sig_node {
+            &KcX25519Pub(eph_node.0),
+            &self.ack_signer(),
+        )
+    }
+
+    /// Ключ подписи `sig_node`: настоящий `node_identity` — либо испорченный для
+    /// теста отказа (`corrupt_sig_node`).
+    fn ack_signer(&self) -> [u8; 32] {
+        if self.corrupt_sig_node {
             [0xee; 32]
         } else {
             self.identity_priv
-        };
-        let sig_node = ed25519_sign(&signer, &payload);
-
-        let mut ack_plain = Vec::with_capacity(120);
-        ack_plain.extend_from_slice(&ctx.last_seq.to_be_bytes());
-        ack_plain.extend_from_slice(&node_window.lo.0.to_be_bytes());
-        ack_plain.extend_from_slice(&node_window.hi.0.to_be_bytes());
-        ack_plain.extend_from_slice(&eph_node.0);
-        ack_plain.extend_from_slice(&sig_node.0);
-
-        let nonce = ack_nonce(&ctx.client_nonce);
-        let sealed = RecordAead.seal(&KRecord(*k_resume), &RecordNonce(nonce), request, &ack_plain);
-        let mut out = vec![WIRE_ACK];
-        out.extend_from_slice(&nonce);
-        out.extend_from_slice(&sealed);
-        out
+        }
     }
 }
 

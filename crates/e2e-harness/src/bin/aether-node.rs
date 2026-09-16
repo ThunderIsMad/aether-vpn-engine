@@ -23,10 +23,7 @@ use crypto_core::{
     ed25519_pubkey, x25519_keypair, Handshake, IkResponder, KSession, RecordAead, RecordCrypto,
 };
 use e2e_harness::quic_lab;
-use e2e_harness::wire::{
-    build_resume_ack, parse_mint_request, parse_resume_request, read_tagged, send_tagged,
-    TAG_HANDSHAKE, TAG_MINT, TAG_RESUME,
-};
+use e2e_harness::wire::{parse_mint_request, parse_resume_request, read_tagged, send_tagged, TAG_HANDSHAKE, TAG_MINT, TAG_RESUME};
 use e2e_harness::{
     decode_record_frame, new_session, seed_from_hex, short_hash, tfk_epoch, ClientKeys, LabConfig,
     NodeKeys,
@@ -437,9 +434,9 @@ fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
                 short_hash(&k_session_prime, 6)
             ));
 
-            // ACK: continuity = подписанный клиентом last_seq; окно — из ticket;
-            // `sig_node` — Ed25519 `node_identity` над транскриптом
-            // (`key_coordinator::ack_signing_payload`).
+            // ACK: единственный прод-эмиттер `key_coordinator::build_resume_ack`
+            // (BLOCKER-2): кадр, транскрипт и AEAD — внутри прод-функции; узел
+            // только считает окно (`02 §3.5`) и выбирает `eph_node` этой попытки.
             let window = DedupWindow::new(Seq(ticket.window.lo), Seq(ctx.last_seq)).window();
             let client_ctx = key_coordinator::ResumeCtx {
                 ticket_hash: ctx.ticket_hash,
@@ -448,26 +445,20 @@ fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
                 eph_client: ctx.eph_client,
                 client_nonce: ctx.client_nonce,
             };
-            let transcript = crypto_core::sha256(&key_coordinator::resume_signing_payload(&client_ctx));
             let eph_node_pub = st.eph_node_pub();
-            let payload = key_coordinator::ack_signing_payload(
-                &transcript,
-                ctx.last_seq,
-                (window.lo.0, window.hi.0),
-                &eph_node_pub,
-            );
-            let sig_node = crypto_core::ed25519_sign(&st.keys.identity_priv, &payload);
-            let mut ack_plain = Vec::with_capacity(8 + 8 + 8 + 32 + 64);
-            ack_plain.extend_from_slice(&ctx.last_seq.to_be_bytes());
-            ack_plain.extend_from_slice(&window.lo.0.to_be_bytes());
-            ack_plain.extend_from_slice(&window.hi.0.to_be_bytes());
-            ack_plain.extend_from_slice(&eph_node_pub);
-            ack_plain.extend_from_slice(&sig_node.0);
             st.log(&format!(
                 "RESUME_ACK: continuity_point={}, window=({}, {})",
                 ctx.last_seq, window.lo.0, window.hi.0
             ));
-            build_resume_ack(&ctx.client_nonce, &ack_plain, request, k_resume)
+            key_coordinator::build_resume_ack(
+                k_resume,
+                request,
+                &ctx.client_nonce,
+                &client_ctx,
+                (window.lo.0, window.hi.0),
+                &key_coordinator::X25519Pub(eph_node_pub),
+                &st.keys.identity_priv,
+            )
         }
         verdict => {
             st.log(&format!("RESUME rejected: {verdict:?}"));

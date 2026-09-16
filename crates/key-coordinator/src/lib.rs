@@ -48,8 +48,8 @@
 #![deny(unsafe_code)]
 
 use crypto_core::{
-    derive_k_resume, derive_rotated_session, ed25519_verify, x25519_dh, RecordAead, RecordCrypto,
-    KRecord, RecordNonce,
+    derive_k_resume, derive_rotated_session, ed25519_sign, ed25519_verify, x25519_dh, RecordAead,
+    RecordCrypto, KRecord, RecordNonce,
 };
 
 /// Идентификатор узла флота (`node_set_id` — набор допустимых узлов).
@@ -265,6 +265,51 @@ pub fn ack_nonce(client_nonce: &[u8; 16]) -> [u8; 24] {
     nonce[..16].copy_from_slice(client_nonce);
     nonce[16..].copy_from_slice(&NONCE_LABEL_ACK);
     nonce
+}
+
+/// Собирает `RESUME_ACK` на узловой стороне (`02 §3.3`) — единственный прод-эмиттер ACK-кадра
+/// (BLOCKER-2, `QUESTIONS.md`); раньше этот layout дублировался в моках `rotation-tests`
+/// и в `e2e-harness`. Парсер зеркальной стороны — `ClientRotation::accept_response`.
+///
+/// Провод: `kind(0x01) ‖ nonce(24B, открытый) ‖ AEAD{K_resume}(ack_plain)`, AAD — сам `RESUME`;
+/// **`len`-поля нет** — решение по BLOCKER-2 в `QUESTIONS.md` (вариант A). `ack_plain =
+/// continuity_point(8) ‖ window_lo(8) ‖ window_hi(8) ‖ eph_node(32) ‖ sig_node(64)`;
+/// `sig_node` — Ed25519 `node_identity` над `"aether-resume-ack-v3" ‖ sha256(transcript_client)
+/// ‖ continuity_point ‖ window_lo ‖ window_hi ‖ eph_node`.
+///
+/// Аргументы: `k_resume` — из ticket (узел получил при unwrap), `request` — байты `RESUME`
+/// (AAD), `client_resume_ctx` — контекст клиента из RESUME (нужен для транскрипта подписи),
+/// `node_window` — окно дедупа, посчитанное узлом (`02 §3.5`), `eph_node` — публичный
+/// эфемерный ключ узла этой попытки, `node_identity_priv` — ключ подписи `sig_node`.
+#[allow(clippy::too_many_arguments)]
+pub fn build_resume_ack(
+    k_resume: [u8; 32],
+    request: &[u8],
+    client_nonce: &[u8; 16],
+    client_resume_ctx: &ResumeCtx,
+    node_window: (u64, u64),
+    eph_node: &X25519Pub,
+    node_identity_priv: &[u8; 32],
+) -> Vec<u8> {
+    let transcript = crypto_core::sha256(&resume_signing_payload(client_resume_ctx));
+    let payload =
+        ack_signing_payload(&transcript, client_resume_ctx.last_seq, node_window, &eph_node.0);
+    let sig_node = ed25519_sign(node_identity_priv, &payload);
+
+    let mut ack_plain = Vec::with_capacity(8 + 8 + 8 + 32 + 64);
+    ack_plain.extend_from_slice(&client_resume_ctx.last_seq.to_be_bytes());
+    ack_plain.extend_from_slice(&node_window.0.to_be_bytes());
+    ack_plain.extend_from_slice(&node_window.1.to_be_bytes());
+    ack_plain.extend_from_slice(&eph_node.0);
+    ack_plain.extend_from_slice(&sig_node.0);
+
+    let nonce = ack_nonce(client_nonce);
+    let sealed = RecordAead.seal(&KRecord(k_resume), &RecordNonce(nonce), request, &ack_plain);
+    let mut out = Vec::with_capacity(1 + 24 + sealed.len());
+    out.push(KIND_ACK);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&sealed);
+    out
 }
 
 /// Клиентская сторона ротации (`03-components.md`, контракты). **mint здесь нет** —
@@ -781,6 +826,76 @@ mod tests {
         assert_eq!(
             capped.resume(&target, &ticket, eph),
             Err(ResumeError::AckTimeout)
+        );
+    }
+
+    /// Прод-эмиттер `build_resume_ack` даёт кадр, который прод-парсер `accept_response`
+    /// принимает: подпись, AEAD-поля и транскрипт совпадают (BLOCKER-2: один источник
+    /// кодирования ACK вместо моков). Подпись чужим ключом узла отвергается.
+    #[test]
+    fn contract_resume_ack_emitter_matches_parser() {
+        let k_resume = derive_k_resume(&SID, &crypto_core::KSession(K_SESSION));
+        let (node_pub, node_priv) = crypto_core::ed25519_genkey();
+        let (eph_pub, _) = crypto_core::x25519_genkey().expect("eph_node");
+        let (eph_client_pub, _) = crypto_core::x25519_genkey().expect("eph_client");
+        let ctx = ResumeCtx {
+            ticket_hash: crypto_core::sha256(b"ticket-blob"),
+            last_seq: 42,
+            window: (0, 42),
+            eph_client: eph_client_pub.0,
+            client_nonce: CLIENT_NONCE,
+        };
+        // AAD парсера — байты `RESUME`; для roundtrip достаточно любого согласованного
+        // запроса: эмиттер и парсер берут одни и те же байты.
+        let request = vec![KIND_RESUME, 0x00, 0x00];
+
+        let ack = build_resume_ack(
+            k_resume,
+            &request,
+            &CLIENT_NONCE,
+            &ctx,
+            (0, 42),
+            &X25519Pub(eph_pub.0),
+            &node_priv,
+        );
+
+        // Кадр len-less: kind(0x01), дальше nonce, без len-поля (решение BLOCKER-2, A).
+        assert_eq!(ack[0], KIND_ACK);
+
+        // Прод-парсер принимает кадр прод-эмиттера: все поля на месте.
+        let target = Node {
+            id: NodeId(1),
+            node_identity: Ed25519Pub(node_pub.0),
+            node_static: X25519Pub([0x44; 32]),
+        };
+        let mut rotation =
+            ClientRotation::new(SID, K_SESSION, MockNode::new(k_resume, [0u8; 32], false));
+        rotation.set_resume_state(ctx.last_seq, ctx.window);
+        let continuity = rotation
+            .accept_response(&target, &request, &ack, &ctx)
+            .expect("ACK прод-эмиттера принят прод-парсером");
+        assert_eq!(continuity.point, 42);
+        assert_eq!(continuity.window_lo, 0);
+        assert_eq!(continuity.window_hi, 42);
+        assert_eq!(continuity.eph_node, X25519Pub(eph_pub.0));
+        assert_eq!(
+            rotation.confirmed_ack().map(|a| a.eph_node),
+            Some(X25519Pub(eph_pub.0))
+        );
+
+        // Чужой ключ подписи узла → BadNodeSignature (`02 §3.7`).
+        let forged = build_resume_ack(
+            k_resume,
+            &request,
+            &CLIENT_NONCE,
+            &ctx,
+            (0, 42),
+            &X25519Pub(eph_pub.0),
+            &[0xEE; 32],
+        );
+        assert_eq!(
+            rotation.accept_response(&target, &request, &forged, &ctx),
+            Err(ResumeError::BadNodeSignature)
         );
     }
 
