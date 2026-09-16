@@ -511,7 +511,6 @@ mod tests {
         k_resume: [u8; 32],
         node_identity_priv: [u8; 32],
         corrupt_signature: bool,
-        replies: u8,
     }
 
     impl MockNode {
@@ -520,7 +519,6 @@ mod tests {
                 k_resume,
                 node_identity_priv,
                 corrupt_signature,
-                replies: 0,
             }
         }
     }
@@ -530,7 +528,6 @@ mod tests {
             if request[0] == KIND_MINT_REQ {
                 return Ok(vec![0xab; 161]);
             }
-            self.replies += 1;
             // Разбор RESUME: `kind ‖ len ‖ ticket ‖ nonce ‖ sealed`.
             let len = u16::from_be_bytes([request[1], request[2]]) as usize;
             let ticket = &request[3..3 + len];
@@ -617,14 +614,15 @@ mod tests {
         let k_resume = derive_k_resume(&SID, &crypto_core::KSession(K_SESSION));
         let (client_pub, client_priv) = crypto_core::ed25519_genkey();
         let (node_pub, node_priv) = crypto_core::ed25519_genkey();
-        let (eph_priv, eph_pub) = crypto_core::x25519_genkey().expect("eph_client");
+        // `x25519_genkey` отдаёт (публичный, приватный).
+        let (eph_pub, eph_priv) = crypto_core::x25519_genkey().expect("eph_client");
         let mut rotation = ClientRotation::new(
             SID,
             K_SESSION,
             MockNode::new(k_resume, node_priv, corrupt_signature),
         );
         rotation.set_client_identity(client_priv);
-        rotation.set_eph_client(eph_priv, X25519Pub(eph_pub));
+        rotation.set_eph_client(eph_priv, X25519Pub(eph_pub.0));
         rotation.set_resume_state(42, (0, 42));
         (rotation, client_pub, client_priv, node_pub)
     }
