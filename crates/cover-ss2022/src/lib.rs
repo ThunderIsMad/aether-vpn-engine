@@ -409,7 +409,7 @@ mod tests {
         assert!(!caps.no_hol, "stream-класс: no-HOL отсутствует");
         assert!(!caps.datagram);
         assert_eq!(caps.dpi_profile, DPI_PROFILE_SS_PADDED);
-        assert_ne!(caps.dpi_profile, DPI_PROFILE_MASQUE);
+        assert_ne!(caps.dpi_profile, transport_mux::DPI_PROFILE_MASQUE);
     }
 
     /// Байндинг в связке с фреймингом: записи, прошедшие через `send`, вынимаются
