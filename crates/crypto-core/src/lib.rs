@@ -569,7 +569,15 @@ mod tests {
 
         let msg1_len = msg1.len();
         let msg2_len = msg2.len();
-        println!("Phase 0: msg1 = {msg1_len} B, msg2 = {msg2_len} B (бюджет 02 §5: 1264 + 1136)");
+        // Точная раскладка пинится равенством, а не только бюджетом: `02 §5` задаёт набор полей,
+        // но фактический encoding — свойство библиотеки, и его изменение должно ломать тест,
+        // а не проходить молча (Phase 0 finding Q12).
+        let measured = (msg1_len, msg2_len);
+        assert_eq!(
+            measured,
+            (0, 0),
+            "замер раскладки handshake: вписать точные размеры, полученные в этом прогоне"
+        );
         assert!(
             msg1_len >= MLKEM768_EK_BYTES + 32 + 48,
             "msg1 {msg1_len} меньше бюджета 02 §5 (e + e_kem + sealed_s)"

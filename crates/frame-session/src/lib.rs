@@ -23,9 +23,11 @@
 //!    то есть получатель обязан знать его из заголовка, иначе дедуплицировать нечем. Layout стал
 //!    `type(1B) | seq(varint) | stream_id(varint) | flags(1B) | len(varint) | ciphertext`.
 //!    Это правка формата, а не вычитка: она вынесена в `QUESTIONS.md` (Phase 0 finding).
-//! 2. **AAD записи — её собственный заголовок** (байты до `ciphertext`). Спека молчит про AAD;
-//!    связывание заголовка аутентифицирует `type`/`seq`/`stream_id`/`flags` и делает
-//!    «записи не теряются и порядок по `seq`» проверяемым, а не декларативным.
+//! 2. **AAD записи — заголовок без поля `len`**: `type | seq | stream_id | flags`. Спека молчит
+//!    про AAD; связывание заголовка аутентифицирует `type`/`seq`/`stream_id`/`flags` и делает
+//!    «записи не теряются и порядок по `seq`» проверяемым, а не декларативным. `len` из AAD
+//!    исключён сознательно: он выводится из шифротекста, и включение длины в один и тот же
+//!    набор байтов до и после шифрования невозможно без завязки на размер тега AEAD.
 //! 3. **Крипто-операции инжектируются трейтом `SessionCrypto`**, чтобы крейт остался
 //!    без зависимостей (`03` §1: «Deps: нет», крейт транспортно-независим). Реализация трейта
 //!    поверх `crypto-core` живёт в интеграционном крейте `rotation-tests`; юнит-тесты этого
@@ -148,6 +150,20 @@ impl Record {
         out
     }
 
+    /// Байты для AAD: заголовок **без** поля `len`.
+    ///
+    /// `len` выводится из самого шифротекста при разборе, поэтому аутентифицировать его
+    /// нечем и незачем: подмена `len` меняет границу `ciphertext`, и Poly1305-тег всё равно
+    /// не сходится. Остальные поля заголовка (`type`, `seq`, `stream_id`, `flags`) —
+    /// инвариантны на приёме, и именно они защищены AAD.
+    pub fn aad_bytes(&self) -> Vec<u8> {
+        let mut out = self.header_bytes();
+        // Отрезаем последний varint — это `len` (он кодируется в 1..=9 байт; отрезаем по счётчику).
+        let len_varint = varint_len(self.ciphertext.len() as u64);
+        out.truncate(out.len() - len_varint);
+        out
+    }
+
     /// Полное кодирование записи (`02 §1`).
     pub fn encode(&self) -> Vec<u8> {
         let mut out = self.header_bytes();
@@ -189,6 +205,16 @@ pub fn record_nonce(seq: Seq, session_id: &SessionId) -> [u8; 24] {
     nonce[..8].copy_from_slice(&seq.0.to_be_bytes());
     nonce[8..].copy_from_slice(&session_id.0);
     nonce
+}
+
+/// Длина ULEB128-varint для значения — нужна, чтобы отрезать поле `len` при сборке AAD.
+fn varint_len(mut value: u64) -> usize {
+    let mut bytes = 1usize;
+    while value >= 0x80 {
+        value >>= 7;
+        bytes += 1;
+    }
+    bytes
 }
 
 /// ULEB128-varint (`02 §1` называет поля varint, не фиксируя ширину).
@@ -664,7 +690,7 @@ impl Session {
             seq,
             ciphertext: Vec::new(),
         };
-        let aad = record.header_bytes();
+        let aad = record.aad_bytes();
         record.ciphertext = self.crypto.seal(
             &self.chain_key,
             record_nonce(seq, &self.session_id),
@@ -691,7 +717,7 @@ impl Session {
                 let plaintext = self.crypto.open(
                     &key,
                     record_nonce(record.seq, &self.session_id),
-                    &record.header_bytes(),
+                    &record.aad_bytes(),
                     &record.ciphertext,
                 )?;
                 Ok(Some(plaintext))
@@ -891,6 +917,16 @@ mod tests {
         let decoded = Record::decode(&bytes).expect("round-trip");
         assert_eq!(decoded, record);
         assert_eq!(decoded.header_bytes(), record.header_bytes());
+        assert_eq!(
+            decoded.aad_bytes(),
+            record.aad_bytes(),
+            "AAD одинаков до и после шифрования (заголовок без len)"
+        );
+        assert_eq!(
+            record.aad_bytes().len(),
+            4,
+            "AAD = type + seq + stream_id + flags"
+        );
 
         // Seq монотонен по сессии, а не по потоку: второй поток продолжает нумерацию.
         let other = session.open_stream(FlowId(9));
