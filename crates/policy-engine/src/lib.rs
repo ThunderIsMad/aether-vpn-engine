@@ -25,7 +25,7 @@
 #![deny(unsafe_code)]
 
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 /// Диапазон fake-ip DNS (`03-components.md` §8).
@@ -172,7 +172,7 @@ pub struct FlowKey {
 ///
 /// Стабильность — контракт (`03` §8): по fake-ip поток позже узнаётся как тот же самый,
 /// поэтому привязки не вытесняются (вытеснение — Phase 1/2, вместе с TTL DNS).
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FakeIpPool {
     by_host: HashMap<String, IpAddr>,
     next: Option<u32>,
