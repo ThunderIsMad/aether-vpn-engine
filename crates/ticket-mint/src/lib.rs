@@ -36,6 +36,10 @@
 //!    (`§3.1`), `Vec` здесь только добавлял неоднозначность длины; отдельного wrap-слоя нет —
 //!    `K_session` защищён AEAD самого тикета, то есть ровно тем `TFK_epoch`, который объявлен
 //!    флотским (`§3.2`).
+//! 5. **Nonce тикета — случайный, не выводится из открытого текста.** Изначальный
+//!    `sha256(plain)[..24]` делал AEAD детерминированным: повторный mint с тем же plain
+//!    давал байт-идентичный blob и коллизию в consumed-set. Исправлено на CSPRNG
+//!    (`getrandom`) — см. `QUESTIONS.md`, закрытие аудита.
 
 #![deny(unsafe_code)]
 
@@ -44,6 +48,7 @@ use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 use ed25519_dalek::{Signature as DalekSignature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::fmt;
 
 /// Идентификатор сессии (`sid`).
 ///
@@ -71,8 +76,18 @@ pub struct Window {
 }
 
 /// Непрозрачный для клиента ticket (~165 B).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TicketBlob(pub Vec<u8>);
+
+impl fmt::Debug for TicketBlob {
+    /// Байты blob — шифротекст под `TFK_epoch`, но печатаем только длину: привычка
+    /// дампить содержимое билета в логи недопустима уже на этапе отладки.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("TicketBlob")
+            .field(&format_args!("{} bytes", self.0.len()))
+            .finish()
+    }
+}
 
 /// Версия формата ticket (`02 §3.2`, поле `version`).
 pub const TICKET_VERSION: u8 = 3;
@@ -87,7 +102,7 @@ pub const TICKET_BLOB_BYTES: usize = TICKET_NONCE_BYTES + TICKET_PLAINTEXT_BYTES
 pub const LABEL_RESUME: &[u8] = b"aether-resume-v3";
 
 /// Развёрнутый ticket: то, что видит только узел после unwrap флотским ключом.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TicketPlain {
     /// Идентификатор сессии.
     pub sid: SessionId,
@@ -105,6 +120,23 @@ pub struct TicketPlain {
     pub minted_at: u64,
     /// Срок годности ticket.
     pub exp: u64,
+}
+
+impl fmt::Debug for TicketPlain {
+    /// Ручной Debug вместо derive: `k_session` — секрет и не печатается никогда;
+    /// nonce открытого текста (sid/ключи/окно) сводится к идентификаторам.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TicketPlain")
+            .field("sid", &self.sid)
+            .field("k_session", &"<redacted>")
+            .field("client_auth", &self.client_auth)
+            .field("window", &self.window)
+            .field("epoch_id", &self.epoch_id)
+            .field("node_set_id", &self.node_set_id)
+            .field("minted_at", &self.minted_at)
+            .field("exp", &self.exp)
+            .finish()
+    }
 }
 
 /// Контекст резюма, который клиент подписывает (`02 §3.3`, `sig_client`).
@@ -257,7 +289,11 @@ impl TicketFactory {
         self.consumed.len()
     }
 
-    /// Mint с явным временем (`§3.2`).
+    /// Mint с явным временем (`§3.2`). Nonce — 24 B из системного CSPRNG (`getrandom`):
+    /// AEAD обязан быть probabilistic — детерминированный `sha256(plain)`-nonce давал
+    /// байт-идентичный blob при повторном mint (одинаковые входы в одну секунду), что
+    /// коллизировало `consumed_key` и сжигало легитимный второй билет как replay
+    /// (аудит F-SEC, High). Blob остаётся самодостаточным: nonce лежит в заголовке.
     pub fn mint_at(
         &self,
         sid: SessionId,
@@ -279,10 +315,12 @@ impl TicketFactory {
         plain.extend_from_slice(&window.hi.to_be_bytes());
         debug_assert_eq!(plain.len(), TICKET_PLAINTEXT_BYTES);
 
-        // Nonce выводится из открытого текста (`sha256(plain)[..24]`): уникален для каждого
-        // ticket этой эпохи и не требует RNG на стороне узла. Ключ AEAD — флотский, один на эпоху.
+        // Случайный nonce из системного CSPRNG: XChaCha20-Poly1305 остаётся probabilistic.
+        // `expect` допустим: единственная ошибка `getrandom::fill` — системный RNG
+        // недоступен, и тогда узлу нет безопасного способа минтить билет вовсе.
         let mut nonce = [0u8; TICKET_NONCE_BYTES];
-        nonce.copy_from_slice(&sha256(&plain)[..TICKET_NONCE_BYTES]);
+        getrandom::fill(&mut nonce)
+            .expect("system CSPRNG unavailable: cannot mint a ticket securely");
         let cipher = XChaCha20Poly1305::new_from_slice(&self.tfk_epoch)
             .expect("TFK_epoch is 32 bytes: XChaCha20-Poly1305 key length");
         let sealed = cipher
@@ -497,6 +535,37 @@ mod tests {
         let last = corrupted.0.len() - 1;
         corrupted.0[last] ^= 0x01;
         assert_eq!(factory.unwrap_at(&corrupted, 1_100), Err(TicketError::BadWrap));
+    }
+
+    /// AEAD тикета probabilistic: повторный mint с теми же входами (в т.ч. в одну
+    /// секунду детерминированных часов) обязан давать другой blob — иначе consumed_key
+    /// (`epoch ‖ sha256(blob)`) коллизирует и второй легитимный билет сразу NakReplay
+    /// (аудит: детерминированный nonce). Debug-редакция: `k_session` не печатается.
+    #[test]
+    fn contract_mint_is_probabilistic_and_debug_redacted() {
+        let factory = TicketFactory::new(TFK, 7, 3, 3_600);
+        let (_, client_pub) = identity(0xaa);
+        let window = Window { lo: 0, hi: 0 };
+
+        let a = factory.mint_at(SID, client_pub, window, &K_SESSION, 1_000);
+        let b = factory.mint_at(SID, client_pub, window, &K_SESSION, 1_000);
+        assert_ne!(
+            a, b,
+            "два mint с одним plain — разные blob (случайный nonce)"
+        );
+        // Оба разворачиваются и дают одинаковый plain: случайность — только в nonce.
+        let ta = factory.unwrap_at(&a, 1_100).expect("unwrap a");
+        let tb = factory.unwrap_at(&b, 1_100).expect("unwrap b");
+        assert_eq!(ta.k_session, tb.k_session);
+        assert_eq!(ta.sid, tb.sid);
+
+        // Debug не печатает ни байта ключа: ни hex-пар, ни десятичных последовательностей.
+        let plain_debug = format!("{:?}", &ta);
+        assert!(plain_debug.contains("<redacted>"), "k_session redacted: {plain_debug}");
+        assert!(!plain_debug.contains("51, 51"), "десятичный дамп k_session отсутствует");
+        assert!(!plain_debug.contains("0x33"), "hex-дамп k_session отсутствует");
+        let blob_debug = format!("{:?}", &a);
+        assert!(!blob_debug.contains("160"), "blob печатает только длину: {blob_debug}");
     }
 
     /// Контракт PoP: подделка или отсутствие `sig_client` → отказ, ticket не консумируется;
