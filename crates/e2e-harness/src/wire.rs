@@ -185,7 +185,7 @@ mod tests {
     /// Кадр roundtrip: length-префикс читается ровно один payload.
     #[tokio::test]
     async fn frame_roundtrip() {
-        let (mut client, mut server) = tokio::io::duplex(1024);
+        let (client, server) = tokio::io::duplex(1024);
         let (mut r1, mut w1) = tokio::io::split(client);
         let (mut r2, mut w2) = tokio::io::split(server);
         send_frame(&mut w1, b"hello frame").await.expect("write");
@@ -197,7 +197,7 @@ mod tests {
     /// Слишком длинный кадр — BadFrame, не аллокация.
     #[tokio::test]
     async fn oversized_frame_is_rejected() {
-        let (mut client, mut server) = tokio::io::duplex(1024);
+        let (client, server) = tokio::io::duplex(1024);
         let (_, mut w2) = tokio::io::split(server);
         let (mut r1, _) = tokio::io::split(client);
         let mut malicious = Vec::new();
@@ -210,7 +210,7 @@ mod tests {
     /// Тегированный кадр roundtrip: тег и payload не путаются.
     #[tokio::test]
     async fn tagged_roundtrip() {
-        let (mut client, mut server) = tokio::io::duplex(1024);
+        let (client, server) = tokio::io::duplex(1024);
         let (mut r1, mut w1) = tokio::io::split(client);
         let (mut r2, mut w2) = tokio::io::split(server);
         send_tagged(&mut w1, TAG_HANDSHAKE, b"msg1").await.expect("write");

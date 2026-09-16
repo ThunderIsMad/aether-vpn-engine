@@ -94,8 +94,10 @@ impl std::fmt::Debug for NodeKeys {
 impl NodeKeys {
     /// Детерминированные ключи узла из seed (кроме KEM — см. шапку структуры).
     pub fn from_seed(seed: [u8; 32]) -> Self {
-        let static_priv = crypto_core::sha256(&[b"aether-e2e-static", &seed].concat());
-        let identity_priv = crypto_core::sha256(&[b"aether-e2e-identity", &seed].concat());
+        let static_priv =
+            crypto_core::sha256(&[b"aether-e2e-static".as_slice(), seed.as_slice()].concat());
+        let identity_priv =
+            crypto_core::sha256(&[b"aether-e2e-identity".as_slice(), seed.as_slice()].concat());
         let kem = crypto_core::mlkem768_genkey().expect("ML-KEM-768 genkey (RNG)");
         Self {
             seed,
@@ -291,8 +293,12 @@ impl ClientKeys {
     pub fn from_seed(seed: [u8; 32]) -> Self {
         Self {
             seed,
-            static_priv: crypto_core::sha256(&[b"aether-e2e-client-static", &seed].concat()),
-            identity_priv: crypto_core::sha256(&[b"aether-e2e-client-identity", &seed].concat()),
+            static_priv: crypto_core::sha256(
+                &[b"aether-e2e-client-static".as_slice(), seed.as_slice()].concat(),
+            ),
+            identity_priv: crypto_core::sha256(
+                &[b"aether-e2e-client-identity".as_slice(), seed.as_slice()].concat(),
+            ),
         }
     }
 
@@ -347,9 +353,8 @@ pub fn unhex(s: &str) -> Option<Vec<u8>> {
 /// Парсинг 32-байтового seed'а из hex-строки CLI.
 pub fn seed_from_hex(s: &str) -> Result<[u8; 32], String> {
     let bytes = unhex(s).ok_or("seed: плохой hex")?;
-    bytes
-        .try_into()
-        .map_err(|_| format!("seed: {} байт, нужно 32", bytes.len()))
+    let len = bytes.len();
+    <[u8; 32]>::try_from(bytes).map_err(|_| format!("seed: {len} байт, нужно 32"))
 }
 
 /// Эфемерная пара ротации узла: fresh X25519 из RNG (`02 §3.3`).
@@ -362,6 +367,7 @@ pub fn fresh_eph_node() -> ([u8; 32], [u8; 32]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use frame_session::SessionCrypto;
 
     /// Адаптер CoreCrypto открывает то, что сам запечатал, и отвергает порчу.
     #[test]
