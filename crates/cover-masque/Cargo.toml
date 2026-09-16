@@ -1,0 +1,11 @@
+[package]
+name = "cover-masque"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Обложка Phase 1 (кусок 2): кадрирует уже sealed records frame-слоя в MASQUE-капсулы.
+# quinn/h3-клиент — следующий шаг; новые внешние крейты не тянутся (DEPENDENCIES.md).
+frame-session.workspace = true
+transport-mux.workspace = true

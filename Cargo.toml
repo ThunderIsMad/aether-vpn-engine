@@ -52,3 +52,4 @@ policy-engine = { path = "crates/policy-engine" }
 ticket-mint = { path = "crates/ticket-mint" }
 transport-mux = { path = "crates/transport-mux" }
 cover-ss2022 = { path = "crates/cover-ss2022" }
+cover-masque = { path = "crates/cover-masque" }
