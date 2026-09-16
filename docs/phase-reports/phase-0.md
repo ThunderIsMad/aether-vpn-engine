@@ -23,22 +23,24 @@
 | `crypto-core` | гибридный `noise_hybrid_ik` (clatter 2.3.0, PQClean-бэкенд), `K_session`/`K_resume`/re-key/ratchet, `XChaCha20-Poly1305` seal/open, Ed25519/X25519 примитивы | 3 (KAT+interop ML-KEM-768, IK 1 RTT с замером, seal/open) |
 | `frame-session` | layout `type‖seq‖stream_id‖flags‖len‖ct` с AAD-заголовком, nonce `seq‖sid`, цепочка `K_record[n]`, окно дедупа 4096 (bitmap 512 B), окно морфа `T_morph`/`N ≤ 4096`, `on_resume_ack`/`on_resume_nak` | 4 |
 | `ticket-mint` | mint (AEAD тикета, 161 B), `unwrap` с эпохой/`exp`, PoP по `client_auth_pub` + привязка к `sha256(ticket_blob)`, consumed-set эпохи, вердикты `Accept`/`bad_pop`/`replay`/`epoch`/`expired` | 3 |
-| `key-coordinator` | `request_ticket` (mint у узла), `RESUME` с PoP-подписью и свежим `eph_client`, проверка `sig_node`, `post_rotation_rekey` через `DH(eph_client, eph_node)`, потолок попыток | 4 |
+| `key-coordinator` | `request_ticket` (mint у узла), `RESUME` с PoP-подписью и свежим `eph_client`, проверка `sig_node`, `post_rotation_rekey` через `DH(eph_client, eph_node)`, потолок попыток | 2 |
 | `transport-mux` | QUIC-байндинг (quinn) с caps no-HOL/datagram, кадрирование `len(4B)‖record`, ограниченная очередь (backpressure → `WouldBlock`), оба отказных пути (`BindingError`, `BindingFailure`), `MemBinding` как мок для тестов | 4 |
 | `session-store` | владелец `client_identity`/`client_static` priv, at-rest через трейт `SecureStore` (in-memory backend в Phase 0), tickets только in-memory, дескриптор сессии, `Corrupt` на неполный набор секретов | 3 |
-| `rotation-tests` | harness (адаптер `crypto-core` → `frame-session`, мок узла поверх `ticket-mint`, мок сети с потерей ACK/недоступностью, драйвер ротации с окном перекрытия) + 11 сценариев: happy path, forward secrecy, потеря ACK/ретрай, `epoch`, украденный ticket, replay, битые подписи, гонка двух ACK, падение узла, потеря на одном канале, потеря на обоих, морф QUIC→mock-Reality | 11 (сняты `#[ignore]`) |
+| `rotation-tests` | harness (адаптер `crypto-core` → `frame-session`, мок узла поверх `ticket-mint`, мок сети с потерей ACK/недоступностью, драйвер ротации с окном перекрытия) + 12 сценариев: happy path, forward secrecy, потеря ACK/ретрай, `epoch`, украденный ticket, replay, битые подписи, гонка двух ACK, падение узла, потеря на одном канале, потеря на обоих, морф QUIC→mock-Reality | 12 (сняты `#[ignore]`) |
 
 `morph-controller`, Reality, MASQUE, App Mirage не создавались — по ТЗ прогона.
 
 ## Команды тестов
 
 ```bash
-cargo test --workspace --all-targets      # 32 теста: 21 юнит + 11 интеграционных
+cargo test --workspace --all-targets      # 31 тест: 19 юнит + 12 интеграционных; 4 под #[ignore]
 cargo clippy --workspace --all-targets -- -D warnings
 python scripts/validate_skills.py         # 7 skill(s), 0 error(s), 0 warning(s)
 ```
 
 Остались под `#[ignore]` (см. BLOCKER выше): `policy-engine` (2), `device-adapter` (2).
+Зелёный прогон: CI run `35068271332` на коммите `e8053a2` — `cargo test` проходит целиком,
+`clippy --all-targets -- -D warnings` чист, валидатор скиллов чист.
 
 ## Главное, что дал прогон
 
@@ -79,4 +81,7 @@ python scripts/validate_skills.py         # 7 skill(s), 0 error(s), 0 warning(s)
   прикладных TCP/QUIC сменой egress IP — ожидаемый эффект Phase 0, не регресс.
 - **Метод проверки.** В среде агента нет Rust-тулчейна: каждый модуль принимался по
   зелёному прогону CI (`cargo test --workspace --all-targets` + `clippy -D warnings`).
-  Прогоны `d04d206` (первый зелёный) и `95bcce4` (после интеграционных тестов) — в Actions.
+  Первый зелёный прогон новых модулей — `d04d206`; финальный зелёный со всеми
+  интеграционными сценариями — `e8053a2` (run `35068271332`). Между ними "зелёный" искался
+  семь раз: ошибки компиляции, два неверных ожидания в тестах и семь clippy-линтов — все
+  найдены в логах CI, а не додуманы локально.
