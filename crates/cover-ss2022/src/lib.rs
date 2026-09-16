@@ -234,7 +234,7 @@ fn deterministic_fill(counter: u64, index: u64) -> impl FnMut(&mut [u8]) {
     move |buf: &mut [u8]| {
         let mut state = counter
             ^ 0x9E37_79B9_7F4A_7C15
-            ^ (index as u64) << 32
+            ^ index << 32
             ^ (buf.len() as u64) << 3;
         for byte in buf.iter_mut() {
             state ^= state << 13;
