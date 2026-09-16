@@ -560,11 +560,11 @@ mod tests {
         assert_eq!(ta.sid, tb.sid);
 
         // Debug не печатает ни байта ключа: ни hex-пар, ни десятичных последовательностей.
-        let plain_debug = format!("{:?}", &ta);
+        let plain_debug = format!("{:?}", ta);
         assert!(plain_debug.contains("<redacted>"), "k_session redacted: {plain_debug}");
         assert!(!plain_debug.contains("51, 51"), "десятичный дамп k_session отсутствует");
         assert!(!plain_debug.contains("0x33"), "hex-дамп k_session отсутствует");
-        let blob_debug = format!("{:?}", &a);
+        let blob_debug = format!("{:?}", a);
         assert!(!blob_debug.contains("160"), "blob печатает только длину: {blob_debug}");
     }
 
