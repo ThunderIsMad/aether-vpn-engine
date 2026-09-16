@@ -75,7 +75,6 @@ fn rotation_happy_path_three_streams_no_loss() {
         .resume(&n2_manifest, &ticket, eph_public)
         .expect("валидный ACK");
     let request = last_request(&network);
-    let response = last_response(&network);
     let k_resume = k_resume_for(&K_SESSION);
     let (ctx, sig_client) = resume_ctx(&request, &k_resume);
     assert_eq!(ctx.last_seq, last_seq, "RESUME несёт `last_seq` клиента");

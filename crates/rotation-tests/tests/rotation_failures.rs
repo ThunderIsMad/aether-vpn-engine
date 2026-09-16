@@ -218,7 +218,6 @@ fn rotation_replay_same_ticket_is_idempotent_nak_not_second_session() {
     rotation
         .resume(&manifest, &ticket, eph_public)
         .expect("первый резюм проходит");
-    let k_resume = k_resume_for(&K_SESSION);
     let first_request = last_request(&network);
     let parts = last_ack(&rotation);
     assert_eq!(
