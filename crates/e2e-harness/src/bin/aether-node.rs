@@ -32,8 +32,9 @@ use e2e_harness::{
     NodeKeys,
 };
 use frame_session::{DedupWindow, Seq, Session};
+use std::cell::RefCell;
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::rc::Rc;
 use ticket_mint::{ResumeVerdict, Signature as MintSignature, TicketFactory, Window as MintWindow};
 
 /// Флаги соединения: handshake — один раз (повторный handshake-стрим — ошибка).
@@ -176,14 +177,15 @@ async fn run(port: u16, seed: [u8; 32], manifest_path: std::path::PathBuf, node_
         manifest_path.display()
     );
 
-    let state = Arc::new(tokio::sync::Mutex::new(NodeState::new(
+    // Состояние однопоточное (LocalSet): `Rc<RefCell>` вместо `Arc<tokio::sync::Mutex>` —
+    // клонти-линт требует, чтобы `Arc` был Send+Sync, а `NodeState` (через `Session`) им не является.
+    let state = Rc::new(RefCell::new(NodeState::new(
         &config, node_id, keys, eph_priv,
     )));
     while let Some(incoming) = endpoint.accept().await {
-        let state = Arc::clone(&state);
-        let config = config.clone();
+        let state = Rc::clone(&state);
         tokio::task::spawn_local(async move {
-            if let Err(err) = serve_connection(incoming, state, config).await {
+            if let Err(err) = serve_connection(incoming, state).await {
                 eprintln!("[node] connection error: {err}");
             }
         });
@@ -192,21 +194,20 @@ async fn run(port: u16, seed: [u8; 32], manifest_path: std::path::PathBuf, node_
 
 async fn serve_connection(
     incoming: quinn::Incoming,
-    state: Arc<tokio::sync::Mutex<NodeState>>,
-    config: LabConfig,
+    state: Rc<RefCell<NodeState>>,
 ) -> Result<(), String> {
     let connection = incoming
         .await
         .map_err(|err| format!("QUIC handshake: {err}"))?;
-    let node_id = state.lock().await.node_id;
+    let node_id = state.borrow().node_id;
     println!("[node{node_id}] client connected from {}", connection.remote_address());
-    let flags = Arc::new(tokio::sync::Mutex::new(ConnFlags::default()));
+    let flags = Rc::new(RefCell::new(ConnFlags::default()));
 
     // Датаграммный цикл — один на соединение, независимо от порядка стримов: на N2
     // handshake-стрима нет (клиент сразу RESUME), записи до установки состояния
     // отбрасываются с логом. Спавнить по TAG_HANDSHAKE нельзя — N2 их не прочитает.
     {
-        let ds = Arc::clone(&state);
+        let ds = Rc::clone(&state);
         let dc = connection.clone();
         tokio::task::spawn_local(datagram_loop(dc, ds));
     }
@@ -224,14 +225,17 @@ async fn serve_connection(
         match tag {
             TAG_HANDSHAKE => {
                 {
-                    let mut fl = flags.lock().await;
+                    let mut fl = flags.borrow_mut();
                     if fl.handshake_done {
                         return Err("повторный handshake-стрим".into());
                     }
                     fl.handshake_done = true;
                 }
                 let (session_id, msg2, k_session) = {
-                    let st = state.lock().await;
+                    // Borrow'и не пересекают await: на LocalSet датаграммный цикл
+                    // между await'ами может обратиться к состоянию, пересекающийся
+                    // borrow_mut — паника RefCell.
+                    let st = state.borrow();
                     let mut responder = IkResponder::new(
                         st.session_id,
                         st.node_static_keypair(),
@@ -244,7 +248,7 @@ async fn serve_connection(
                     (st.session_id, msg2, k_session.0)
                 };
                 {
-                    let mut st = state.lock().await;
+                    let mut st = state.borrow_mut();
                     st.k_session = Some(k_session);
                     let mut session = new_session(session_id, k_session);
                     // Зеркало узла: поток открывается тем же `FlowId`, что у клиента —
@@ -258,8 +262,10 @@ async fn serve_connection(
                     .map_err(|err| format!("send msg2: {err}"))?;
             }
             TAG_MINT | TAG_RESUME => {
-                let mut st = state.lock().await;
-                let response = handle_control(&mut st, tag, &payload);
+                let response = {
+                    let mut st = state.borrow_mut();
+                    handle_control(&mut st, tag, &payload)
+                };
                 send_tagged(&mut send, tag, &response)
                     .await
                     .map_err(|err| format!("control response: {err}"))?;
@@ -268,17 +274,17 @@ async fn serve_connection(
         }
     }
 
-    let st = state.lock().await;
+    let st = state.borrow();
     st.log("connection closed");
     Ok(())
 }
 
 /// Датаграммный цикл: записи frame-слоя вскрываются зеркалом сессии.
-async fn datagram_loop(connection: quinn::Connection, state: Arc<tokio::sync::Mutex<NodeState>>) {
+async fn datagram_loop(connection: quinn::Connection, state: Rc<RefCell<NodeState>>) {
     loop {
         match connection.read_datagram().await {
             Ok(payload) => {
-                let mut st = state.lock().await;
+                let mut st = state.borrow_mut();
                 match decode_record_frame(&payload) {
                     Ok(record) => {
                         let seq = record.seq.0;
