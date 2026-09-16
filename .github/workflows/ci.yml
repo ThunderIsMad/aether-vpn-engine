@@ -1,5 +1,8 @@
 name: CI
 
+# P2-гигиена (аудит F-SEC-11 / CIL): actions запинены по SHA (теги мутабельны),
+# persist-credentials: false, PyPI-зависимости запинены. Бамп = новый SHA + комментарий.
+
 on:
   push:
     branches: [main]
@@ -18,12 +21,14 @@ jobs:
     name: Validate skills
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install validator dependencies
         run: |
           python3 -m venv "$RUNNER_TEMP/skill-venv"
-          "$RUNNER_TEMP/skill-venv/bin/pip" install --quiet --upgrade pip pyyaml
+          "$RUNNER_TEMP/skill-venv/bin/pip" install --quiet pyyaml==6.0.3
 
       - name: Validate .agents/skills
         run: |
@@ -33,7 +38,9 @@ jobs:
     name: Rust (test + clippy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Detect workspace
         id: ws
