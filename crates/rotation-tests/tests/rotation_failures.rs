@@ -220,7 +220,7 @@ fn rotation_replay_same_ticket_is_idempotent_nak_not_second_session() {
         .expect("первый резюм проходит");
     let k_resume = k_resume_for(&K_SESSION);
     let first_request = last_request(&network);
-    let parts = parse_ack(&first_request, &last_response(&network), &k_resume);
+    let parts = last_ack(&rotation);
     assert_eq!(
         network.borrow().nodes[&2].consumed_tickets(),
         1,
@@ -417,21 +417,13 @@ fn rotation_two_acks_race_first_valid_wins_second_quarantined() {
         .resume(&n2_manifest, &ticket, eph_a)
         .expect("ACK от N2");
     let request_n2 = last_request(&network);
-    let parts_n2 = parse_ack(&request_n2, &last_response(&network), &k_resume);
+    let parts_n2 = last_ack(&rotation);
     let (ctx_n2, _) = resume_ctx(&request_n2, &k_resume);
 
     // 2/4. Первый валидный ACK побеждает и применяется сразу: `K_session'` считается от его
     //      `eph_node` и `eph_client` той же попытки, ratchet перезапускается один раз.
     assert!(node_signature_verifies(&n2_identity, &parts_n2, &ctx_n2));
-    driver.session.on_resume_ack(
-        Seq(parts_n2.continuity_point),
-        DuplicateWindow {
-            lo: Seq(parts_n2.window.0),
-            hi: Seq(parts_n2.window.1),
-        },
-        FrameX25519Pub(parts_n2.eph_node),
-        FrameSignature(parts_n2.sig_node),
-    );
+    apply_confirmed_ack(&mut driver.session, &parts_n2);
     rotation
         .post_rotation_rekey(&KcX25519Pub(parts_n2.eph_node))
         .expect("re-key от победителя");
@@ -456,7 +448,7 @@ fn rotation_two_acks_race_first_valid_wins_second_quarantined() {
         .resume(&n3_manifest, &ticket, eph_b)
         .expect("ACK от N3 на тот же ticket");
     let request_n3 = last_request(&network);
-    let parts_n3 = parse_ack(&request_n3, &last_response(&network), &k_resume);
+    let parts_n3 = last_ack(&rotation);
     let (ctx_n3, _) = resume_ctx(&request_n3, &k_resume);
     assert_eq!(network.borrow().nodes[&2].accepted, 1);
     assert_eq!(network.borrow().nodes[&3].accepted, 1);
@@ -561,11 +553,7 @@ fn rotation_node_down_mid_rotation_rolls_back_without_session_break() {
 
     // (б) Старый узел снят **до** ACK: окно ещё открыто, поэтому запись идёт на оба канала,
     //      отказ старого канала фиксируется, а дубль доносит её новым узлом — сессия жива.
-    let parts = parse_ack(
-        &last_request(&network),
-        &last_response(&network),
-        &k_resume_for(&K_SESSION),
-    );
+    let parts = last_ack(&rotation);
     driver.old.mark_closed();
     let during_down = driver.emit_tolerant(streams[1], b"old-down-before-ack", 0);
     assert_eq!(
@@ -579,15 +567,7 @@ fn rotation_node_down_mid_rotation_rolls_back_without_session_break() {
     );
 
     // Теперь ACK применяется: окно закрывается, ключ меняется, трафик идёт новым каналом.
-    driver.session.on_resume_ack(
-        Seq(parts.continuity_point),
-        DuplicateWindow {
-            lo: Seq(parts.window.0),
-            hi: Seq(parts.window.1),
-        },
-        FrameX25519Pub(parts.eph_node),
-        FrameSignature(parts.sig_node),
-    );
+    apply_confirmed_ack(&mut driver.session, &parts);
     rotation
         .post_rotation_rekey(&KcX25519Pub(parts.eph_node))
         .expect("re-key");

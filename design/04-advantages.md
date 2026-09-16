@@ -12,7 +12,7 @@
 | Reconnect | ≈1 RTT (не 0-RTT) | ПРОЕКТНО | outer QUIC TLS resumption + RESUME frame по ticket (`02 §7`) |
 | 0-RTT early data | опционально, только идемпотентный контроль | ГИПОТЕЗА (зависит от стека, Phase 0.5) | |
 | No-HOL | per-stream изоляция потерь | ПРОЕКТНО | только для QUIC/MASQUE-байндингов; Reality/TCP — HOL tradeoff |
-| PQ handshake overhead | +15–45 мс, +~1.2 KB | **ГИПОТЕЗА** — замерено на чужом стеке (enterprise PQ VPN, 2025), контекст RTT/loss не указан; свой замер — Phase 0 | cyberpath (02 §1) |
+| PQ handshake overhead | +15–45 мс; размер handshake **ИЗМЕРЕНО: msg1+msg2 ≈ 7.0 KB (3568 + 3424 B)**, не +~1.2 KB | латентность — **ГИПОТЕЗА** (чужой стек, enterprise PQ VPN, 2025; RTT/loss не указан); размер — замер обёртки Clatter 2.3.0 в CI 2026-09-16 (`02 §5`): в гибридном IK едут статики KEM обеих сторон + гибридный `E` (DH+KEM); свой замер латентности — Phase 0 | cyberpath (02 §1), Clatter 2.3.0 |
 | PQ steady-state | bandwidth +10–20%, CPU +15–40% | ИЗМЕРЕНО | cyberpath (02 §1) |
 | Оверхед двойной инкапсуляции (запись + outer QUIC) | до ~5–8% CPU | ГИПОТЕЗА | считать в Phase 0 бенчмарке |
 | Морфинг/ротация | ~1 RTT дублированного трафика | ПРОЕКТНО | overlap-window (`02 §3.3`, `02 §4`) |

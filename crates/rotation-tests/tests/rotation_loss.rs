@@ -63,17 +63,8 @@ fn rotation_loss_on_one_channel_stays_within_duplicate_budget() {
     let continuity = rotation
         .resume(&manifest, &ticket, eph_public)
         .expect("валидный ACK");
-    let k_resume = k_resume_for(&K_SESSION);
-    let parts = parse_ack(&last_request(&network), &last_response(&network), &k_resume);
-    driver.session.on_resume_ack(
-        Seq(parts.continuity_point),
-        DuplicateWindow {
-            lo: Seq(parts.window.0),
-            hi: Seq(parts.window.1),
-        },
-        FrameX25519Pub(parts.eph_node),
-        FrameSignature(parts.sig_node),
-    );
+    let parts = last_ack(&rotation);
+    apply_confirmed_ack(&mut driver.session, &parts);
     assert!(driver.promote_on_ack(true));
     assert_eq!(continuity.point, parts.continuity_point);
 

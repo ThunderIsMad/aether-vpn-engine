@@ -451,8 +451,9 @@ pub fn t_ack_ms(srtt_ms: u64) -> u64 {
     t_morph_ms(srtt_ms)
 }
 
-/// Не более двух ретраев `RESUME`, затем откат на старый канал (`02 §3.7`).
-pub const MAX_RESUME_RETRIES: u8 = 2;
+/// Всего попыток `RESUME` на один ticket: первая + одна повторная, затем откат на старый
+/// канал (`02 §3.7`, Q18: «не более двух попыток» — формулировка спеки, не «два ретрая»).
+pub const MAX_RESUME_ATTEMPTS: u8 = 2;
 
 /// Шаг дублирования в окне перекрытия.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1020,7 +1021,7 @@ mod tests {
         assert_eq!(t_morph_ms(500), 1_000, "2 × SRTT внутри клипа");
         assert_eq!(t_morph_ms(5_000), T_MORPH_MAX_MS, "клип сверху 2 s");
         assert_eq!(t_ack_ms(500), 1_000, "T_ack = 2 × SRTT (`02 §3.7`)");
-        assert_eq!(MAX_RESUME_RETRIES, 2);
+        assert_eq!(MAX_RESUME_ATTEMPTS, 2, "первая попытка + одна повторная (`02 §3.7`, Q18)");
         assert_eq!(T_QUARANTINE_MS, 300_000, "T_quar = 5 мин (`02 §4`)");
 
         let mut window = OverlapWindow::new(500);

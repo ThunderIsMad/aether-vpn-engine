@@ -7,6 +7,10 @@
 //!
 //! Моки байндингов — `transport_mux::MemBinding` (тот же тип, что в юнит-тестах
 //! `transport-mux`), а не локальный дубль: контракт `CoverBinding` проверяется один раз.
+//!
+//! **Разбор `RESUME_ACK` — только через тип `key_coordinator::Continuity`.** Ручного
+//! вскрытия AEAD в harness'е больше нет: `sig_node` и `eph_node` входят в `Continuity`
+//! (Q17 закрыт), поэтому тесты получают поля ACK тем же типом, что и прод-код.
 #![allow(dead_code, unused_imports)]
 
 use std::cell::RefCell;
@@ -22,10 +26,9 @@ pub use crypto_core::{
 };
 pub use frame_session::{
     record_nonce, t_ack_ms, t_morph_ms, DedupWindow, DedupOutcome, DuplicateStep, DuplicateWindow,
-    FlowId, Record,
-    RecordError, RecordType, ResumeNak, Seq, Session, SessionCrypto, SessionId,
-    Signature as FrameSignature, StreamId, X25519Pub as FrameX25519Pub,
-    DUPLICATE_WINDOW_RECORDS, MAX_RESUME_RETRIES, T_QUARANTINE_MS,
+    FlowId, Record, RecordError, RecordType, ResumeNak, Seq, Session, SessionCrypto, SessionId,
+    Signature as FrameSignature, StreamId, X25519Pub as FrameX25519Pub, DUPLICATE_WINDOW_RECORDS,
+    MAX_RESUME_ATTEMPTS, T_QUARANTINE_MS,
 };
 pub use key_coordinator::{ack_nonce, ack_signing_payload, resume_signing_payload};
 pub use key_coordinator::{
@@ -38,9 +41,7 @@ pub use ticket_mint::{
     Signature as MintSignature, TicketBlob as MintBlob, TicketError, TicketFactory,
     Window as MintWindow,
 };
-pub use transport_mux::{
-    BindingCaps, BindingError, BindingFailure, CoverBinding, MemBinding,
-};
+pub use transport_mux::{BindingCaps, BindingError, BindingFailure, CoverBinding, MemBinding};
 
 /// `sid` всех прогонов.
 pub const SID: [u8; 16] = [0x5a; 16];
@@ -191,7 +192,7 @@ impl NodeSim {
     /// Минт ticket: `sid`, `client_auth_pub` клиента, пол окна и `K_session` (`02 §3.2`).
     pub fn mint(&self, client_auth: Ed25519Pub, k_session: &[u8; 32], last_seq: u64) -> Ticket {
         let window = MintWindow {
-            lo: last_seq.saturating_sub(u64::from(frame_session::DUPLICATE_WINDOW_RECORDS)),
+            lo: last_seq.saturating_sub(u64::from(DUPLICATE_WINDOW_RECORDS)),
             hi: last_seq,
         };
         let blob = self.factory.mint_at(
@@ -239,7 +240,7 @@ impl NodeSim {
         let mut nonce_array = [0u8; 24];
         nonce_array.copy_from_slice(nonce);
 
-        // Эпоха/срок проверяются до PoP: своих ключей для этого blоба у узла может не быть.
+        // Эпоха/срок проверяются до PoP: своих ключей для этого блоба у узла может не быть.
         let ticket = match self.factory.unwrap_at(&MintBlob(blob.to_vec()), self.now) {
             Ok(ticket) => ticket,
             Err(TicketError::EpochMismatch) => return self.nak(NAK_EPOCH),
@@ -375,7 +376,6 @@ pub struct MockNetwork {
 }
 
 /// Разделяемая сеть: тот же объект видит драйвер теста и клиентский координатор.
-///
 /// Обёртка нужна не «для красоты»: `impl RotationChannel for Rc<RefCell<MockNetwork>>`
 /// невозможно (чужой тип нарушает orphan rule), а координатор владеет каналом по значению.
 #[derive(Clone)]
@@ -444,56 +444,6 @@ impl RotationChannel for SharedNetwork {
     }
 }
 
-/// Разобранный `RESUME_ACK` — то, что нужно frame-слою (`02 §3.3`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AckParts {
-    /// Подтверждённый continuity point.
-    pub continuity_point: u64,
-    /// Окно узла.
-    pub window: (u64, u64),
-    /// `eph_node` — вход re-key.
-    pub eph_node: [u8; 32],
-    /// `sig_node` — то, что клиент проверил до применения.
-    pub sig_node: [u8; 64],
-}
-
-/// Вскрывает `RESUME_ACK` тем же `K_resume`, что и клиент: тестам нужны `eph_node`/`sig_node`
-/// в форме `frame-session`.
-pub fn parse_ack(request: &[u8], response: &[u8], k_resume: &[u8; 32]) -> AckParts {
-    assert_eq!(response.first(), Some(&WIRE_ACK), "ожидался ACK");
-    let body = &response[1..];
-    let (nonce, sealed) = body.split_at(24);
-    let mut nonce_array = [0u8; 24];
-    nonce_array.copy_from_slice(nonce);
-    let plain = RecordAead
-        .open(&KRecord(*k_resume), &RecordNonce(nonce_array), request, sealed)
-        .expect("ACK вскрывается под K_resume");
-    assert_eq!(plain.len(), 120);
-    AckParts {
-        continuity_point: u64::from_be_bytes(plain[0..8].try_into().unwrap()),
-        window: (
-            u64::from_be_bytes(plain[8..16].try_into().unwrap()),
-            u64::from_be_bytes(plain[16..24].try_into().unwrap()),
-        ),
-        eph_node: plain[24..56].try_into().unwrap(),
-        sig_node: plain[56..120].try_into().unwrap(),
-    }
-}
-
-/// Достаёт `sig_client` из собранного `RESUME` (для проверки покрытия подписи).
-pub fn resume_signature(request: &[u8], k_resume: &[u8; 32]) -> Signature {
-    let len = u16::from_be_bytes([request[1], request[2]]) as usize;
-    let blob = &request[3..3 + len];
-    let rest = &request[3 + len..];
-    let (nonce, sealed) = rest.split_at(24);
-    let mut nonce_array = [0u8; 24];
-    nonce_array.copy_from_slice(nonce);
-    let plain = RecordAead
-        .open(&KRecord(*k_resume), &RecordNonce(nonce_array), blob, sealed)
-        .expect("RESUME вскрывается под K_resume");
-    Signature(plain[72..136].try_into().unwrap())
-}
-
 /// Восстанавливает `ResumeCtx` и `sig_client` из собранного `RESUME`: тестам нужно
 /// проверить покрытие подписи побайтово, а не «подпись где-то в шифротексте».
 pub fn resume_ctx(request: &[u8], k_resume: &[u8; 32]) -> (ResumeCtx, Signature) {
@@ -527,6 +477,61 @@ pub fn last_request(network: &SharedNetwork) -> Vec<u8> {
         .last()
         .cloned()
         .expect("в сети есть RESUME")
+}
+
+/// Последний ответ узла (включая `NAK`) — для проверки ветки по коду, а не по классу ошибки.
+pub fn last_response(network: &SharedNetwork) -> Vec<u8> {
+    network
+        .borrow()
+        .responses
+        .last()
+        .cloned()
+        .expect("у узла есть ответ")
+}
+
+/// Последнее подтверждение ротации: поля `RESUME_ACK` из `Continuity` (`02 §3.3`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AckParts {
+    /// Подтверждённый continuity point.
+    pub continuity_point: u64,
+    /// Окно узла.
+    pub window: (u64, u64),
+    /// `eph_node` — вход re-key.
+    pub eph_node: [u8; 32],
+    /// `sig_node` — то, что клиент проверил до применения.
+    pub sig_node: [u8; 64],
+}
+
+/// Разбирает последний ACK **через тип** `key_coordinator`: координатор уже проверил
+/// `sig_node` и сохранил полный принятый `RESUME_ACK`. Ручного вскрытия AEAD здесь нет —
+/// это гарантия Q17: тесты и прод-код читают одни и те же поля из одного типа.
+pub fn last_ack(rotation: &ClientRotation<SharedNetwork>) -> AckParts {
+    let confirmed = rotation
+        .confirmed_ack()
+        .expect("валидный ACK принят координатором");
+    AckParts {
+        continuity_point: confirmed.continuity_point,
+        window: (confirmed.window_lo, confirmed.window_hi),
+        eph_node: confirmed.eph_node.0,
+        sig_node: confirmed.sig_node.0,
+    }
+}
+
+/// Проверка подписи узла так, как её делает клиент (`02 §3.3`): по `node_identity`
+/// из манифеста над транскриптом клиента, `continuity_point`, окном и `eph_node`.
+pub fn node_signature_verifies(
+    node_identity: &Ed25519Pub,
+    parts: &AckParts,
+    client_ctx: &ResumeCtx,
+) -> bool {
+    let transcript = sha256(&resume_signing_payload(client_ctx));
+    let payload = ack_signing_payload(
+        &transcript,
+        parts.continuity_point,
+        parts.window,
+        &parts.eph_node,
+    );
+    ed25519_verify(node_identity, &payload, &Signature(parts.sig_node))
 }
 
 /// Драйвер ротации: сессия, старый канал, новый канал и окно перекрытия.
@@ -662,31 +667,18 @@ pub fn records_set(records: &[Record]) -> BTreeSet<(u32, u64)> {
         .collect()
 }
 
-/// Проверка подписи узла так, как её делает клиент (`02 §3.3`): по `node_identity`
-/// из манифеста над транскриптом клиента, `continuity_point`, окном и `eph_node`.
-pub fn node_signature_verifies(
-    node_identity: &Ed25519Pub,
-    parts: &AckParts,
-    client_ctx: &ResumeCtx,
-) -> bool {
-    let transcript = sha256(&resume_signing_payload(client_ctx));
-    let payload = ack_signing_payload(
-        &transcript,
-        parts.continuity_point,
-        parts.window,
-        &parts.eph_node,
-    );
-    ed25519_verify(node_identity, &payload, &Signature(parts.sig_node))
-}
-
-/// Последний ответ узла (включая `NAK`) — для проверки ветки по коду, а не по классу ошибки.
-pub fn last_response(network: &SharedNetwork) -> Vec<u8> {
-    network
-        .borrow()
-        .responses
-        .last()
-        .cloned()
-        .expect("у узла есть ответ")
+/// Применяет подтверждённый ACK к frame-сессии **из типа** `Continuity` — без ручного
+/// вскрытия ответа (`02 §3.3`): поля берутся из `rotation.confirmed_ack()`.
+pub fn apply_confirmed_ack(session: &mut Session, parts: &AckParts) -> DuplicateWindow {
+    session.on_resume_ack(
+        Seq(parts.continuity_point),
+        DuplicateWindow {
+            lo: Seq(parts.window.0),
+            hi: Seq(parts.window.1),
+        },
+        FrameX25519Pub(parts.eph_node),
+        FrameSignature(parts.sig_node),
+    )
 }
 
 /// Клиентский координатор ротации с заданными кредами (identity, eph, окно).
@@ -707,7 +699,7 @@ pub fn coordinator(
 
 /// Свежая эфемерная пара клиента.
 pub fn fresh_eph() -> (KcX25519Pub, [u8; 32]) {
-    let (public, private) = crypto_core::x25519_genkey().expect("eph_client");
+    let (public, private) = x25519_genkey().expect("eph_client");
     (KcX25519Pub(public.0), private)
 }
 

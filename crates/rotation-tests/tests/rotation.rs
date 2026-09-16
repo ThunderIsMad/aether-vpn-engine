@@ -107,8 +107,12 @@ fn rotation_happy_path_three_streams_no_loss() {
         1,
         "consumed-set эпохи (`02 §3.6`)"
     );
+    // Q17: поля ACK читаются из типа `Continuity`, ручного вскрытия ответа нет.
     let node_identity = network.borrow().nodes[&2].identity;
-    let parts = parse_ack(&request, &response, &k_resume);
+    let parts = last_ack(&rotation);
+    assert_eq!(parts.continuity_point, continuity.point);
+    assert_eq!(parts.eph_node, continuity.eph_node.0);
+    assert_ne!(parts.sig_node, [0u8; 64]);
     assert!(
         node_signature_verifies(&node_identity, &parts, &ctx),
         "sig_node проверяется по node_identity из манифеста (`02 §3.3`)"
@@ -117,18 +121,9 @@ fn rotation_happy_path_three_streams_no_loss() {
         parts.continuity_point, last_seq,
         "continuity_point = граница дублированного окна (`02 §3.5`)"
     );
-    assert_eq!(continuity.point, parts.continuity_point);
 
-    // 6. Frame-слой принимает ACK: окно узла, его `eph_node` и `sig_node`; окно закрывается ACK.
-    let client_window = driver.session.on_resume_ack(
-        Seq(parts.continuity_point),
-        DuplicateWindow {
-            lo: Seq(parts.window.0),
-            hi: Seq(parts.window.1),
-        },
-        FrameX25519Pub(parts.eph_node),
-        FrameSignature(parts.sig_node),
-    );
+    // 6. Frame-слой принимает ACK из того же типа; окно закрывается ACK.
+    let client_window = apply_confirmed_ack(&mut driver.session, &parts);
     assert_eq!(client_window.hi, Seq(last_seq));
     assert!(driver.promote_on_ack(true), "валидный ACK закрывает окно (`02 §4`)");
     assert!(
@@ -254,8 +249,7 @@ fn rotation_forward_secrecy_old_k_session_cannot_open_new_records() {
     rotation
         .resume(&manifest, &ticket, eph_public)
         .expect("валидный ACK");
-    let k_resume = k_resume_for(&K_SESSION);
-    let parts = parse_ack(&last_request(&network), &last_response(&network), &k_resume);
+    let parts = last_ack(&rotation);
     assert!(driver.promote_on_ack(true), "окно закрыто валидным ACK");
 
     // 2. `ss_rotate` недостижим владельцу одного `K_session`.

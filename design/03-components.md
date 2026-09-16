@@ -131,10 +131,16 @@ trait TicketMint {                     // сторона узла (fix #29: ед
     fn verify_pop(&self, ticket: &TicketPlain, sig: &Signature, ctx: &ResumeCtx) -> bool;
 }
 
-/// Ответ нового узла на успешный `RESUME` (`02 §3.3`): то, что клиент принял после проверки
-/// `sig_node`. `eph_node`/`sig_node` из того же `RESUME_ACK` передаёт дальше вызывающий —
-/// в `FrameSession::on_resume_ack`; здесь они не дублируются.
-struct Continuity { point: Seq, window_lo: Seq, window_hi: Seq }
+/// Ответ нового узла на успешный `RESUME` (`02 §3.3`): **все поля `RESUME_ACK`, которые клиент
+/// проверил** — включая `eph_node` и `sig_node` (Q17). `FrameSession::on_resume_ack` получает
+/// их из этого типа; ручной разбор AEAD-ответа в клиентском коде не нужен.
+struct Continuity {
+    point: Seq,
+    window_lo: Seq,
+    window_hi: Seq,
+    eph_node: X25519Pub,
+    sig_node: Signature,
+}
 /// Пол окна на момент минта (`02 §3.1`).
 struct Window { lo: Seq, hi: Seq }
 /// Окно дедупа в `RESUME_ACK` (`02 §3.3`, окно 4096 — `02 §3.5`).

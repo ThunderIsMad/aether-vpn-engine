@@ -90,7 +90,31 @@ pub struct Ticket {
     pub blob: TicketBlob,
 }
 
+/// Полный принятый `RESUME_ACK` (`02 §3.3`) — все поля, которые клиент проверил.
+///
+/// Выделен из `Continuity` сознательно: `Continuity` — это «продолжение сессии»
+/// (граница окна), а `AcceptedAck` — доказательство, на котором оно построено.
+/// Frame-слою нужны оба (`on_resume_ack`), и брать их надо из одного типа, а не из двух
+/// половин, одну из которых (`sig_node`) до Q17 вообще никто не отдавал.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AcceptedAck {
+    /// Подтверждённый `continuity_point`.
+    pub continuity_point: u64,
+    /// Нижняя граница окна нового узла.
+    pub window_lo: u64,
+    /// Верхняя граница окна нового узла.
+    pub window_hi: u64,
+    /// `eph_node` из `RESUME_ACK` — вход пост-ротационного re-key (`02 §3.3`).
+    pub eph_node: X25519Pub,
+    /// `sig_node`, которой узел подписал ACK (проверена здесь, хранится для полноты).
+    pub sig_node: Signature,
+}
+
 /// Continuity point, подтверждённый новым узлом (`02 §3.3`).
+///
+/// Несёт **все поля `RESUME_ACK`** (`eph_node`, `sig_node` добавлены по Q17): раньше
+/// здесь была только граница окна, и вызывающему коду пришлось бы вскрывать AEAD ответа
+/// самому, чтобы дотащить `sig_node`/`eph_node` до `frame-session::on_resume_ack`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Continuity {
     /// Подтверждённый `continuity_point`.
@@ -99,6 +123,22 @@ pub struct Continuity {
     pub window_lo: u64,
     /// Верхняя граница окна нового узла.
     pub window_hi: u64,
+    /// `eph_node` из принятого ACK — вход `post_rotation_rekey` (`02 §3.3`).
+    pub eph_node: X25519Pub,
+    /// `sig_node`, которой узел подписал ACK (проверена, хранится для полноты записи).
+    pub sig_node: Signature,
+}
+
+impl From<AcceptedAck> for Continuity {
+    fn from(ack: AcceptedAck) -> Self {
+        Self {
+            point: ack.continuity_point,
+            window_lo: ack.window_lo,
+            window_hi: ack.window_hi,
+            eph_node: ack.eph_node,
+            sig_node: ack.sig_node,
+        }
+    }
 }
 
 /// Ошибка запроса ticket у узла.
@@ -159,6 +199,9 @@ const NONCE_LABEL_ACK: [u8; 8] = *b"resumeak";
 
 /// Максимальный ticket, который клиент согласен принять от узла (защита от флуда памяти).
 pub const MAX_TICKET_BYTES: usize = 1024;
+
+/// Всего попыток `RESUME` на один ticket: первая + одна повторная (`02 §3.7`, Q18).
+pub const MAX_RESUME_ATTEMPTS: u8 = 2;
 
 /// Контекст, который клиент подписывает в `RESUME` (`02 §3.3`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -258,6 +301,7 @@ pub struct ClientRotation<C: RotationChannel> {
     window: (u64, u64),
     k_session_prime: Option<[u8; 32]>,
     confirmed_eph_node: Option<X25519Pub>,
+    accepted_ack: Option<AcceptedAck>,
     attempts: u8,
     channel: C,
 }
@@ -274,6 +318,7 @@ impl<C: RotationChannel> ClientRotation<C> {
             window: (0, 0),
             k_session_prime: None,
             confirmed_eph_node: None,
+            accepted_ack: None,
             attempts: 0,
             channel,
         }
@@ -321,6 +366,11 @@ impl<C: RotationChannel> ClientRotation<C> {
     /// `eph_node`, подтверждённый валидным `RESUME_ACK` — вход re-key.
     pub fn confirmed_eph_node(&self) -> Option<X25519Pub> {
         self.confirmed_eph_node
+    }
+
+    /// Полный принятый `RESUME_ACK` — все поля `02 §3.3` из одного типа (Q17).
+    pub fn confirmed_ack(&self) -> Option<AcceptedAck> {
+        self.accepted_ack
     }
 
     /// Собирает `RESUME` (`02 §3.3`): `kind(1B) ‖ len(2B) ‖ ticket_blob ‖ nonce(24B) ‖
@@ -430,12 +480,16 @@ impl<C: RotationChannel> ClientRotation<C> {
         if !verified {
             return Err(ResumeError::BadNodeSignature);
         }
-        self.confirmed_eph_node = Some(X25519Pub(eph_node));
-        Ok(Continuity {
-            point: continuity_point,
+        let accepted = AcceptedAck {
+            continuity_point,
             window_lo,
             window_hi,
-        })
+            eph_node: X25519Pub(eph_node),
+            sig_node,
+        };
+        self.confirmed_eph_node = Some(accepted.eph_node);
+        self.accepted_ack = Some(accepted);
+        Ok(Continuity::from(accepted))
     }
 }
 
@@ -462,8 +516,9 @@ impl<C: RotationChannel> Rotation for ClientRotation<C> {
         ticket: &Ticket,
         eph: X25519Pub,
     ) -> Result<Continuity, ResumeError> {
-        if self.attempts >= 2 {
-            // Спека: не более двух ретраев, затем откат на старый канал (`02 §3.7`).
+        if self.attempts >= MAX_RESUME_ATTEMPTS {
+            // Спека: не более двух попыток RESUME (первая + одна повторная), затем откат
+            // на старый канал (`02 §3.7`, Q18: формулировка выровнена со спекой).
             return Err(ResumeError::AckTimeout);
         }
         match self.eph_client {
@@ -696,8 +751,13 @@ mod tests {
         let continuity = rotation.resume(&target, &ticket, eph).expect("валидный ACK");
         assert_eq!(continuity.point, 42);
         assert_eq!(continuity.window_hi, 42);
+        assert_eq!(continuity.eph_node, X25519Pub(EPH_NODE), "Q17: eph_node в типе");
+        assert_ne!(continuity.sig_node.0, [0u8; 64], "Q17: sig_node в типе");
         assert_eq!(rotation.attempts(), 1);
         assert_eq!(rotation.confirmed_eph_node(), Some(X25519Pub(EPH_NODE)));
+        let ack = rotation.confirmed_ack().expect("полный ACK сохранён");
+        assert_eq!(ack.continuity_point, 42);
+        assert_eq!(ack.eph_node, X25519Pub(EPH_NODE));
 
         // Битый `sig_node` → `BadNodeSignature`, а не `Nacked` (`02 §3.7`).
         let (mut hostile, _, _, node_pub) = coordinator(true);
@@ -710,7 +770,7 @@ mod tests {
         );
         assert_eq!(hostile.confirmed_eph_node(), None);
 
-        // Потолок ретраев: третья попытка не делается (`02 §3.7`).
+        // Потолок попыток: третья не делается (`02 §3.7`, Q18 — попыток не более двух).
         let (mut capped, _, _, node_pub) = coordinator(false);
         let target = node(node_pub);
         let ticket = capped.request_ticket(&target).expect("ticket");
