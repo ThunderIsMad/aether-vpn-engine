@@ -34,12 +34,21 @@
 //!    один `K_resume` на два сообщения означает, что повтор nonce вскрывает оба. Nonce
 //!    собирается как `client_nonce(16B) ‖ метка направления(8B)` (`"resume\x00\x00"` /
 //!    `"resumeak"`), поэтому две стороны никогда не используют один nonce дважды.
-//!    Вынесено в `QUESTIONS.md`.
+//!    Вынесено в `QUESTIONS.md`. Клиент при этом не берёт nonce ACK с провода на веру:
+//!    принимается только `nonce == ack_nonce(&ctx.client_nonce)`, иначе `Malformed` —
+//!    nonce с провода не доверенный вход (закрытие аудита F-CORR).
 //! 4. **NAK на проводе** — `kind(1B) ‖ код(1B)`: `0x02` + `BadPop|Replay|Epoch|Expired`.
-//!    Спека называет ветки, но не их представление (`§3.7`).
+//!    Спека называет ветки, но не их представление (`§3.7`). Детекция — по фрейму целиком
+//!    (`len == 2` **и** `kind == 0x02`), не по первому байту сырого ответа: первый байт
+//!    легитимного ticket/blob — данные, а не маркер отказа (аудит F-CORR: heuristic давал
+//!    ложные отказы с p ≈ 1/256 на mint-пути).
 //! 5. **Проверка `sig_node` — здесь, а не в `frame-session`:** транскрипт `RESUME_ACK`
 //!    принадлежит этому крейту (`ResumeError::BadNodeSignature` в контрактах `03`),
 //!    а `frame-session` получает уже принятый ACK (`on_resume_ack`).
+//! 6. **Классификация отказов ACK:** AEAD-open failure — `Malformed` (битый шифротекст /
+//!    не тот ключ — это corruption, а не доказательство подделки); `BadNodeSignature` —
+//!    только вердикт `ed25519_verify` при вскрывшемся AEAD. Иначе честный узел уходил бы
+//!    в quarantine из-за случайной порчи кадра (аудит F-CORR).
 //!
 //! Открытые остатки (в `QUESTIONS.md`): определение `sha256(transcript_client)` из `§3.3`
 //! (`transcript_client` = подписанный клиентом `sig_client`-полезная нагрузка — наше прочтение);
@@ -398,7 +407,9 @@ impl<C: RotationChannel> ClientRotation<C> {
         derive_k_resume(&self.session_id, &crypto_core::KSession(self.k_session))
     }
 
-    /// Сколько попыток `RESUME` сделано (потолок — `02 §3.7`: не более двух ретраев).
+    /// Сколько попыток `RESUME` **дошло до сети** (потолок — `02 §3.7`, Q18: первая плюс
+    /// одна повторная). Локальные `Malformed` (нет identity/eph, пустой/битый ticket)
+    /// бюджет не расходуют (аудит F-CORR).
     pub fn attempts(&self) -> u8 {
         self.attempts
     }
@@ -421,13 +432,15 @@ impl<C: RotationChannel> ClientRotation<C> {
     /// Собирает `RESUME` (`02 §3.3`): `kind(1B) ‖ len(2B) ‖ ticket_blob ‖ nonce(24B) ‖
     /// AEAD{K_resume}(last_seq ‖ window_lo ‖ window_hi ‖ eph_client ‖ client_nonce ‖ sig_client)`.
     ///
-    /// `ticket_blob` летит **вне** `K_resume`, как и требует спека.
+    /// `ticket_blob` летит **вне** `K_resume`, как и требует спека. Пустой blob — тоже
+    /// `Malformed`: узел такой RESUME всё равно отбросит, тратить попытку и запрос
+    /// нерационально (аудит F-CORR: раньше отклонялся только `len > 1024`).
     pub fn build_resume(
         &mut self,
         ticket: &Ticket,
         client_nonce: [u8; 16],
     ) -> Result<(Vec<u8>, ResumeCtx), ResumeError> {
-        if ticket.blob.0.len() > MAX_TICKET_BYTES {
+        if ticket.blob.0.is_empty() || ticket.blob.0.len() > MAX_TICKET_BYTES {
             return Err(ResumeError::Malformed);
         }
         let identity = self.client_identity.ok_or(ResumeError::Malformed)?;
@@ -465,9 +478,17 @@ impl<C: RotationChannel> ClientRotation<C> {
         Ok((request, ctx))
     }
 
-    /// Разбирает ответ узла: `NAK` → `Nacked`, `ACK` → расшифровка под `K_resume` и проверка
-    /// `sig_node` (`02 §3.3`, `§3.7`). Проверка подписи обязательна: без неё скомпрометированный
+    /// Разбирает ответ узла: NAK-фрейм (`len == 2` и `kind == 0x02`) → `Nacked`; иначе
+    /// `ACK` (`kind == 0x01`) — расшифровка под `K_resume` и проверка `sig_node`
+    /// (`02 §3.3`, `§3.7`). Проверка подписи обязательна: без неё скомпрометированный
     /// старый узел подсунул бы свой `eph_node` и сохранил чтение.
+    ///
+    /// Классификация отказов (закрытие аудита F-CORR):
+    /// * nonce ответа обязан равняться `ack_nonce(&ctx.client_nonce)` — nonce с провода
+    ///   не доверенный вход, mismatch → `Malformed`;
+    /// * AEAD-open failure → `Malformed` (corruption, не доказательство подделки);
+    ///   `BadNodeSignature` — только вердикт `ed25519_verify` при вскрывшемся AEAD;
+    /// * всё, что не NAK-фрейм и не ACK (в т. ч. одинокий байт `0x02`), — `Malformed`.
     pub fn accept_response(
         &mut self,
         node: &Node,
@@ -476,7 +497,9 @@ impl<C: RotationChannel> ClientRotation<C> {
         ctx: &ResumeCtx,
     ) -> Result<Continuity, ResumeError> {
         let kind = *response.first().ok_or(ResumeError::Malformed)?;
-        if kind == KIND_NAK {
+        // NAK детектируется фреймом целиком (`len == 2 && kind == 0x02`): первый байт
+        // длинного ответа — данные, а не маркер отказа (аудит F-CORR).
+        if response.len() == 2 && kind == KIND_NAK {
             return Err(ResumeError::Nacked);
         }
         if kind != KIND_ACK {
@@ -485,9 +508,18 @@ impl<C: RotationChannel> ClientRotation<C> {
         let body = response.get(1..).ok_or(ResumeError::Malformed)?;
         let (nonce, sealed) = body.split_at_checked(24).ok_or(ResumeError::Malformed)?;
         let nonce: [u8; 24] = nonce.try_into().map_err(|_| ResumeError::Malformed)?;
+        // Nonce ACK — не с провода, а выведенный из собственной попытки: AAD уже привязывает
+        // ответ к запросу, а повтор nonce под одним `K_resume` вскрывал бы и RESUME, и ACK —
+        // поэтому допускается ровно `ack_nonce(client_nonce)` (аудит F-CORR).
+        if nonce != ack_nonce(&ctx.client_nonce) {
+            return Err(ResumeError::Malformed);
+        }
 
         // AAD ответа — сам `RESUME`: спека этого не требует, но без привязки к запросу
         // валидный `ACK` другого резюма был бы неотличим от ответа на этот.
+        // AEAD-open failure — corruption (битый шифротекст, не тот ключ), а не подделка:
+        // честный узел не должен уходить в quarantine из-за порчи кадра — `Malformed`.
+        // `BadNodeSignature` — только вердикт `ed25519_verify` ниже (аудит F-CORR).
         let plain = RecordAead
             .open(
                 &KRecord(self.k_resume()),
@@ -495,7 +527,7 @@ impl<C: RotationChannel> ClientRotation<C> {
                 request,
                 sealed,
             )
-            .map_err(|_| ResumeError::BadNodeSignature)?;
+            .map_err(|_| ResumeError::Malformed)?;
         if plain.len() != 8 + 8 + 8 + 32 + 64 {
             return Err(ResumeError::Malformed);
         }
@@ -547,7 +579,13 @@ impl<C: RotationChannel> Rotation for ClientRotation<C> {
             .channel
             .exchange(node.id, &request)
             .map_err(|_| MintError::NodeUnreachable)?;
-        if response.is_empty() || response.len() > MAX_TICKET_BYTES || response[0] == KIND_NAK {
+        // NAK фреймится distinctly (`len == 2 && kind == 0x02`): легитимный ticket начинается
+        // со случайного nonce AEAD, и heuristic «первый байт == 0x02» давал ложный `Rejected`
+        // с p ≈ 1/256 (аудит F-CORR).
+        if response.len() == 2 && response.first() == Some(&KIND_NAK) {
+            return Err(MintError::Rejected);
+        }
+        if response.is_empty() || response.len() > MAX_TICKET_BYTES {
             return Err(MintError::Rejected);
         }
         Ok(Ticket {
@@ -570,12 +608,15 @@ impl<C: RotationChannel> Rotation for ClientRotation<C> {
             Some((_, public)) if public == eph => {}
             _ => return Err(ResumeError::Malformed),
         }
-        self.attempts += 1;
         // Новый `client_nonce` на каждую попытку, ticket тот же (`02 §3.6`).
         let nonce_bytes = crypto_core::random_32();
         let mut client_nonce = [0u8; 16];
         client_nonce.copy_from_slice(&nonce_bytes[..16]);
         let (request, ctx) = self.build_resume(ticket, client_nonce)?;
+        // Бюджет тратят только попытки, дошедшие до сети (включая таймаут канала):
+        // локальный `Malformed` до `build_resume`/на нём самом не съедает ретрай — иначе
+        // третий валидный вызов получал `AckTimeout` вместо попытки (аудит F-CORR).
+        self.attempts += 1;
         let response = self
             .channel
             .exchange(node.id, &request)
@@ -897,6 +938,216 @@ mod tests {
             rotation.accept_response(&target, &request, &forged, &ctx),
             Err(ResumeError::BadNodeSignature)
         );
+    }
+
+    /// Ручной стенд для парсера ACK без мок-узла: полный контроль над байтами ответа
+    /// (nonce, подпись, шифротекст) — прод-эмиттер `build_resume_ack` строит кадры.
+    fn ack_stand() -> (ClientRotation<MockNode>, Node, [u8; 32], ResumeCtx, Vec<u8>) {
+        let k_resume = derive_k_resume(&SID, &crypto_core::KSession(K_SESSION));
+        let (node_pub, node_priv) = crypto_core::ed25519_genkey();
+        let (eph_pub, _) = crypto_core::x25519_genkey().expect("eph_node");
+        let (eph_client_pub, _) = crypto_core::x25519_genkey().expect("eph_client");
+        let ctx = ResumeCtx {
+            ticket_hash: crypto_core::sha256(b"ticket-blob"),
+            last_seq: 42,
+            window: (0, 42),
+            eph_client: eph_client_pub.0,
+            client_nonce: CLIENT_NONCE,
+        };
+        // AAD парсера — байты `RESUME`; прод-эмиттеру достаточно тех же байтов.
+        let request = vec![KIND_RESUME, 0x00, 0x00];
+        let node = Node {
+            id: NodeId(1),
+            node_identity: Ed25519Pub(node_pub.0),
+            node_static: X25519Pub([0x44; 32]),
+        };
+        let mut rotation =
+            ClientRotation::new(SID, K_SESSION, MockNode::new(k_resume, [0u8; 32], false));
+        rotation.set_resume_state(ctx.last_seq, ctx.window);
+        (rotation, node, node_priv, ctx, request)
+    }
+
+    /// Nonce ACK — производная от собственной попытки, а не доверенный вход с провода:
+    /// кадр под чужим nonce → `Malformed` до open (аудит F-CORR), под своим — принимается.
+    #[test]
+    fn contract_ack_nonce_is_derived_from_client_nonce() {
+        let (mut rotation, node, node_priv, ctx, request) = ack_stand();
+        let k_resume = derive_k_resume(&SID, &crypto_core::KSession(K_SESSION));
+        let eph = X25519Pub([0x77; 32]);
+
+        // Валидный ACK другой попытки: тот же AEAD-ключ и AAD, но nonce и транскрипт —
+        // от чужого `client_nonce`. Раньше клиент молча принимал такой nonce с провода.
+        let other_nonce = [0x99u8; 16];
+        let mut other_ctx = ctx.clone();
+        other_ctx.client_nonce = other_nonce;
+        let stale = build_resume_ack(
+            k_resume,
+            &request,
+            &other_nonce,
+            &other_ctx,
+            (0, 42),
+            &eph,
+            &node_priv,
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &stale, &ctx),
+            Err(ResumeError::Malformed),
+            "nonce ACK обязан равняться ack_nonce(client_nonce)"
+        );
+        assert!(rotation.confirmed_ack().is_none(), "отказ ничего не подтверждает");
+
+        // Тот же кадр под nonce этой попытки принимается — различие ровно в nonce.
+        let fresh = build_resume_ack(
+            k_resume,
+            &request,
+            &ctx.client_nonce,
+            &ctx,
+            (0, 42),
+            &eph,
+            &node_priv,
+        );
+        assert!(rotation.accept_response(&node, &request, &fresh, &ctx).is_ok());
+    }
+
+    /// AEAD-open failure — corruption (`Malformed`), а не доказательство подделки;
+    /// `BadNodeSignature` — только вердикт `ed25519_verify` при вскрывшемся AEAD.
+    /// Это разные классы отказа (аудит F-CORR): карантинить честный узел из-за
+    /// испорченного байта — quarantine poisoning.
+    #[test]
+    fn contract_aead_failure_is_malformed_not_bad_signature() {
+        let (mut rotation, node, node_priv, ctx, request) = ack_stand();
+        let k_resume = derive_k_resume(&SID, &crypto_core::KSession(K_SESSION));
+        let eph = X25519Pub([0x77; 32]);
+
+        let mut corrupted = build_resume_ack(
+            k_resume,
+            &request,
+            &ctx.client_nonce,
+            &ctx,
+            (0, 42),
+            &eph,
+            &node_priv,
+        );
+        let last = corrupted.len() - 1;
+        corrupted[last] ^= 0xff; // испорчен шифротекст — AEAD open не пройдёт
+        assert_eq!(
+            rotation.accept_response(&node, &request, &corrupted, &ctx),
+            Err(ResumeError::Malformed),
+            "битый AEAD — Malformed, не BadNodeSignature"
+        );
+
+        // Подпись чужим ключом при целом AEAD — по-прежнему BadNodeSignature.
+        let forged = build_resume_ack(
+            k_resume,
+            &request,
+            &ctx.client_nonce,
+            &ctx,
+            (0, 42),
+            &eph,
+            &[0xEE; 32],
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &forged, &ctx),
+            Err(ResumeError::BadNodeSignature)
+        );
+
+        // Обрезанные/чужие кадры — Malformed: одинокий NAK-байт, ACK без тела, пустой ответ.
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[KIND_NAK], &ctx),
+            Err(ResumeError::Malformed)
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[KIND_ACK], &ctx),
+            Err(ResumeError::Malformed)
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[], &ctx),
+            Err(ResumeError::Malformed)
+        );
+    }
+
+    /// NAK детектируется фреймом (`len == 2 && kind == 0x02`), а не первым байтом
+    /// сырого ответа (аудит F-CORR): первый байт легитимного ticket — случайный nonce
+    /// AEAD, и heuristic «первый байт == 0x02» давал ложный `Rejected` с p ≈ 1/256.
+    #[test]
+    fn contract_nak_detection_is_framed_not_heuristic() {
+        let (mut rotation, node, _node_priv, ctx, request) = ack_stand();
+
+        // RESUME-ответ: NAK-фрейм → Nacked; всё прочее с kind=NAK → Malformed.
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[KIND_NAK, 0x01], &ctx),
+            Err(ResumeError::Nacked)
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[KIND_NAK, 0x01, 0x02], &ctx),
+            Err(ResumeError::Malformed),
+            "3 байта с kind=NAK — не NAK-фрейм"
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[KIND_NAK], &ctx),
+            Err(ResumeError::Malformed)
+        );
+
+        // Mint-ответ: NAK-фрейм отклоняется, но blob, начинающийся с байта 0x02, — данные.
+        struct FixedNode(Vec<u8>);
+        impl RotationChannel for FixedNode {
+            fn exchange(&mut self, _node: NodeId, _request: &[u8]) -> Result<Vec<u8>, ChannelError> {
+                Ok(self.0.clone())
+            }
+        }
+        let target = Node {
+            id: NodeId(1),
+            node_identity: Ed25519Pub([0x00; 32]),
+            node_static: X25519Pub([0x44; 32]),
+        };
+        let mut nak_mint = ClientRotation::new(SID, K_SESSION, FixedNode(vec![KIND_NAK, 0x01]));
+        assert_eq!(nak_mint.request_ticket(&target), Err(MintError::Rejected));
+
+        // Регрессия heuristic: ticket с первым байтом 0x02 больше не ложный Rejected.
+        let mut blob_02 = ClientRotation::new(SID, K_SESSION, FixedNode(vec![0x02, 0x33, 0x44]));
+        let ticket = blob_02
+            .request_ticket(&target)
+            .expect("0x02 в первом байте blob — данные, а не отказ");
+        assert_eq!(ticket.blob.0, vec![0x02, 0x33, 0x44]);
+    }
+
+    /// Бюджет попыток тратят только попытки, дошедшие до сети (аудит F-CORR):
+    /// локальные `Malformed` (eph-мismatch, пустой ticket) не съедают ретрай — иначе
+    /// третий валидный вызов получал `AckTimeout` вместо попытки.
+    #[test]
+    fn contract_local_malformed_does_not_burn_retry_budget() {
+        let (mut rotation, _client_pub, _client_priv, node_pub) = coordinator(false);
+        let target = node(node_pub);
+        let ticket = rotation.request_ticket(&target).expect("ticket");
+        let eph = rotation.eph_public().expect("eph_client установлен");
+
+        // Локальный Malformed №1: чужой eph — отказ до сети.
+        assert_eq!(
+            rotation.resume(&target, &ticket, X25519Pub([0x66; 32])),
+            Err(ResumeError::Malformed)
+        );
+        assert_eq!(rotation.attempts(), 0, "eph-мismatch не тратит попытку");
+
+        // Локальный Malformed №2: пустой blob отклоняется до сборки
+        // (аудит F-CORR: раньше отклонялся только len > 1024).
+        let empty = Ticket {
+            blob: TicketBlob(Vec::new()),
+        };
+        assert_eq!(
+            rotation.build_resume(&empty, CLIENT_NONCE),
+            Err(ResumeError::Malformed),
+            "len == 0 — Malformed, не только len > 1024"
+        );
+        assert_eq!(
+            rotation.resume(&target, &empty, eph),
+            Err(ResumeError::Malformed)
+        );
+        assert_eq!(rotation.attempts(), 0, "пустой ticket не тратит попытку");
+
+        // Валидная попытка после двух локальных отказов проходит: бюджет не съеден.
+        let continuity = rotation.resume(&target, &ticket, eph).expect("валидный ACK");
+        assert_eq!(continuity.point, 42);
+        assert_eq!(rotation.attempts(), 1, "сеть увидела ровно одну попытку");
     }
 
     /// Контракт re-key: `K_session'` выводится из `DH(eph_client, eph_node)`, поэтому
