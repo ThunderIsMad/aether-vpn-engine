@@ -1,0 +1,14 @@
+[package]
+name = "phase0-path"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# Склейка Phase 0 (однохоповый путь без GUI/сети): policy решает, frame-session
+# шифрует, transport-mux отправляет в байндинг. Адаптер crypto-core поверх
+# SessionCrypto — тот же путь, что в harness rotation-tests (см. QUESTIONS Q3).
+frame-session.workspace = true
+policy-engine.workspace = true
+transport-mux.workspace = true
+crypto-core.workspace = true
