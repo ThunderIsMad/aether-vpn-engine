@@ -76,7 +76,12 @@ Reality — последним, как самый дорогой).
       `phase0-path` проверена. Отчёт: `docs/phase-reports/phase-1.md` (кусок 1).
 - [ ] **SS-2022 interop** (wire-совместимость с реальным shadowsocks-2022) — [ ] до появления
       внешних тест-векторов; сейчас формат называется «Aether padded cover» (`03` §4).
-- [ ] MASQUE CONNECT-UDP (RFC 9298) — минимальный клиент на quinn+h3 (оценка, уточняется в Phase 1); masque-go как reference.
+- [x] MASQUE CONNECT-UDP (RFC 9298) — **каркас** закрыт (`cover-masque::MasqueBinding`): форматы
+      DATAGRAM-капсулы/UDP Proxying payload (Context ID 0, лимит 65527)/запроса Extended CONNECT
+      проверены в CI; байндинг кладёт капсулы в `Outbox`, отказные пути и backpressure как у
+      остальных байндингов; caps — stream-класс (no_hol/datagram — только у реального h3-клиента).
+  - [ ] **RFC 9298 interop** — живой CONNECT-UDP к пиру через собственный h3-клиент на quinn
+        (SETTINGS_H3_DATAGRAM, приёмная сторона); `masque-go`/`h3-masque` — reference-only, не зависимости.
 - [ ] Reality/VLESS — последний: либо Go-sidecar с xray-core, либо `boring` с контролем ClientHello.
       uTLS-эквивалента в Rust нет — это самый дорогой пункт Phase 1.
 - [ ] Ручной выбор обложки в UI; измерить pass-rate каждой на тестовой сети.

@@ -53,6 +53,15 @@ Rust-клиента RFC 9298 поверх quinn+h3.
 ### 4. transport-mux — байндинги
 - QUIC-байндинг (quinn; resumption/0-RTT — по результату Phase 0.5).
 - MASQUE-байндинг: минимальный RFC 9298 CONNECT-UDP клиент на quinn+h3 (свой; оценка, уточняется в Phase 1).
+  ⇐ Phase 1, кусок 2: реализован в `cover-masque` как **`MasqueBinding` — каркас, НЕ RFC-клиент**.
+  Граница. Реализовано и проверено в CI: encode/decode DATAGRAM-капсулы (RFC 9297 §4), UDP Proxying
+  payload `Context ID(0) ‖ payload` с лимитом 65527 (RFC 9298 §5), varint (RFC 9000 §16), описание
+  запроса Extended CONNECT (`:protocol = connect-udp`, RFC 9298 §3.4). Не реализовано: h3-сессия
+  (RFC 9220), exchange SETTINGS_H3_DATAGRAM, приёмная сторона — в CI нет сети и рантайма. Поэтому
+  кадр байндинга — капсула в `Outbox` (как у `SsPaddedBinding` cover-кадр), а caps — stream-класс
+  `no_hol: false, datagram: false`: no-HOL/datagram заявит только реальный h3-клиент,
+  мультиплексирующий QUIC streams и шлющий QUIC DATAGRAM frames. Чекбокс «RFC 9298 interop»
+  в `05-roadmap` остаётся `[ ]` до живого CONNECT-UDP к пиру.
 - Reality/TCP-байндинг: length-prefixed frames; HOL tradeoff задокументирован.
 - SS-2022/padded байндинг (fallback, чистый Rust).
   ⇐ Phase 1, кусок 1: реализован в `cover-ss2022` как **`SsPaddedBinding` — Aether padded
