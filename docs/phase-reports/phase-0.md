@@ -87,6 +87,43 @@ python scripts/validate_skills.py         # 7 skill(s), 0 error(s), 0 warning(s)
 | **BLOCKER-1** | Закрыт как **scope-решение, не реализацией**: фолбэк-буфер payload выведен из Phase 0 — exit-граница записана в `05-roadmap` (Exit Phase 0): ротация доказана на overlap-window, буфер — Phase 1. Буфер не реализован, чекбокс не отмечен; владение буфером — решение дизайна Phase 1 | `05-roadmap`, `QUESTIONS.md` |
 | **Q10** | Закрыт вариантом **A («спека под Clatter»)** с уточнением точки вывода. API (доки + исходник `handshakestate/hybrid.rs`): наружу только `get_hash()`/`get_chaining_key()`/`split()`; отдельные `ss_*` не отдаются — вариант B без unsafe/форка невозможен. Найдено: в `h` через `mix_key_and_hash` идёт **только `ss_skem`** (DH-секреты и `Ekem` — через `mix_key` в ck), т.е. прежний ikm (handshake-hash) был не гибридным, а PQ-зависимым — поэтому старый вывод был неспека. Новый ikm — **chaining key**: `K_session = HKDF-Extract(salt = session_id, ikm = ck) → Expand("aether v3 session", 32)`. Вектор не ломается: байты `K_session` нигде не пинились (в handshake-тесте — только равенство сторон); новый тест `contract_k_session_ikm_is_chaining_key` фиксирует контракт нашего слоя — воспроизводимость из ck той же обвязкой и влияние salt. Гибридность комбината — внутренность Clatter, не сверяема нашим кодом (Phase 0.5, Q12) | `crypto-core`, `02 §5`, `04-advantages`, `QUESTIONS.md` |
 
+## Remainder: policy + tun stub (2026-09-16, добивка остатка Phase 0)
+
+Три крейта, оставшиеся в Phase 0 заглушками скаффолда, доведены до рабочего однохопового пути
+без GUI и сети. Коммит-цепочка `7fd4de7 → b025f19 → ba790ae → … → 8e5c666` (финальный CI —
+success, clippy 0 warnings).
+
+| Модуль | Что сделано | Тесты |
+|---|---|---|
+| `policy-engine` | `RouteAction::Route/Direct/Block`; matcher — exact domain (без учёта регистра) + CIDR (v4/v6), матчеры правила по И, первое совпавшее правило побеждает, дефолт для остальных. Fake-ip-пул `198.18.0.0/16` (.2…254): один хост — один стабильный адрес. Черновой трейт скаффолда заменён конкретным `Engine` — форма зафиксирована реализацией, как и разрешено скаффолдом. Clash-провайдеры, geoip, wildcards — не в Phase 0 | 3, **0 ignored** |
+| `device-adapter` | Контракт `DeviceAdapter` (`open → read_packet → write_packet → close`) целиком на **in-memory стабе** `LinuxTunStub`: пакеты «от ОС» инжектируются (`inject_inbound`), записанные — в журнале по порядку; MTU-границы; повторное открытие — `PermissionDenied` («одно устройство на процесс»). Платформенный гейт — чистая функция `ensure_supported`: не-Linux сборка возвращает `UnsupportedPlatform`, не паникуя; контракт проверен юнит-тестом на Linux-раннере | 3, **0 ignored** — реальные TUN-тесты не нужны: устройства в CI нет |
+| `phase0-path` (новый) | Склейка: packet → `packet_flow_key` (минимальный IPv4; прочее — «адрес неизвестен» → дефолт политики) → `Engine::route` → ленивый `FlowId` (один адрес — один поток) → `FrameSession::open_stream` → `seal_record` → `CoverBinding::send`. `Blocked`/`Direct` отбрасывают пакет **до** шифрования — `seq` не расходуется. Адаптер `crypto-core → SessionCrypto` — тот же контракт, что в harness `rotation-tests`, но в рабочем крейте | 5: end-to-end (seal → `MemBinding` → `decode_frame` → зеркало вскрывает исходные байты), гейты политики, стабильность `FlowId`, проброс `BindingError`, не-IPv4 без паники |
+
+Путь packet → policy → FrameSession → seal → binding пройден end-to-end с обеих сторон:
+записи, ушедшие в `MemBinding`, разбираются `decode_frame` и вскрываются зеркальной сессией
+до исходных байтов пакета. Сеть и GUI не задействованы — по границе Phase 0.
+
+**Что прогон вскрыл:**
+
+- `policy-engine` и `phase0-path` не регистрировались в `workspace.dependencies`/`crates/*`
+  взаимосогласованно — первый прогон упал на `dependency.policy-engine was not found in
+  workspace.dependencies`; исправлено регистрацией (три красных CI до зелёного).
+- Тестовый пакет был собран с 4-байтовым полем `id` (заголовок 22 B вместо 20) — парсер читал
+  dst по неверному смещению, и все пакеты уходили в дефолт политики. Нашёл CI-прогон, не
+  локальный компилятор (метод, зафиксированный в QUESTIONS.md).
+
+**Честные границы добивки (не выдаются за TUN):**
+
+- Реального `/dev/net/tun` нет ни в стабе, ни в CI. Ручная интеграция с живым устройством
+  (вне CI, требует root): `sudo ip tuntap add mode tun dev aether0 && sudo ip addr add
+  198.18.0.1/16 dev aether0 && sudo ip link set aether0 up && sudo ip route add 198.18.0.0/16
+  dev aether0` — затем инжектировать пакеты с `198.18.0.0/16` в дескриптор; ioctl(TUNSETIFF)
+  и чтение fd — Phase 1 (libc/unsafe в отдельном модуле).
+- L4-разбор (порты TCP/UDP для policy) и реальный egress для `Direct` — Phase 1;
+  в Phase 0 `Direct` — решение политики, не сеть.
+- `DeviceHandle(u32)` и счётчик дескрипторов — артефакт стаба; на живом fd дескриптором
+  станет RawFd/HANDLE (модуль платформы).
+
 ## Чего прогон не проверил (честно)
 
 - **Сеть.** quinn-байндинг компилируется и проверен на caps/отказных путях/кадрировании,

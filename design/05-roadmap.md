@@ -29,10 +29,15 @@ Reality — последним, как самый дорогой).
       ⇐ «узел упал» проверен в части, которая существует: ротация остаётся на overlap-window,
       сессия жива после отказа старого канала; фолбэк-буфер — вне Phase 0 (см. Exit выше),
       поэтому пункт закрыт без него, а не с ним.
-- [ ] `session-store` + `device-adapter` (Linux TUN первым) + `policy-engine` (fake-ip).
-      ⇐ **частично:** `session-store` реализован (at-rest через трейт `SecureStore`, in-memory
-      backend в Phase 0); `device-adapter` и `policy-engine` — заглушки скаффолда,
-      их контрактные тесты остались под `#[ignore]`.
+- [x] `session-store` + `device-adapter` (Linux TUN первым) + `policy-engine` (fake-ip).
+      ⇐ закрыто на границе Phase 0: `session-store` — at-rest через трейт `SecureStore` (in-memory
+      backend; OS keyring — Phase 1); `policy-engine` — matcher exact-domain + CIDR, `Route/Direct/Block`,
+      стабильный fake-ip-пул (0 ignored-тестов); `device-adapter` — контракт `open → read → write → close`
+      на **in-memory стабе** с платформенным гейтом (`UnsupportedPlatform` на не-Linux, unit-тесты
+      без устройства зелёные). Реального `/dev/net/tun` и ioctl(TUNSETIFF) здесь нет — ручная
+      интеграция с живым TUN вынесена в Phase 1 (см. `phase-0.md` → «remainder: policy + tun stub»).
+      Склейка пути — крейт `phase0-path`: packet → policy → `FrameSession` → seal → `CoverBinding`
+      (5 интеграционных тестов на `MemBinding`, без сети и TUN).
 - **Exit:** PQ-безопасный, rotation-safe **на frame-слое** однохоповый туннель (payload-соединения — риск выше). Это уже закрывает SnowVPN-баг —
       но теперь с доказательством, а не заявлением.
       **Граница exit (записано явно): фолбэк-буфер payload при мёртвых обоих каналах — НЕ
