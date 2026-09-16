@@ -38,10 +38,7 @@
 
 use crypto_core::{KCover, KRecord, RecordAead, RecordCrypto, RecordNonce};
 use frame_session::{Record, RecordError};
-use transport_mux::{
-    BindingCaps, BindingError, BindingFailure, CoverBinding, DEFAULT_OUTBOX_BYTES,
-    DPI_PROFILE_MASQUE,
-};
+use transport_mux::{BindingCaps, BindingError, BindingFailure, CoverBinding, DEFAULT_OUTBOX_BYTES};
 
 /// Профиль DPI этого байндинга: stream-обложка с собственным кадрированием.
 /// (0x01 QUIC, 0x02 Reality-TCP, 0x03 MASQUE — заняты в transport-mux.)
@@ -323,15 +320,19 @@ mod tests {
         }
     }
 
-    /// Padding: длина outgoing-кадра ∈ [plaintext+tag+nonce+len, …+budget], при
-    /// budget=0 ровно минимум; паддинг реально меняет размер; seq записи не трогается —
-    /// duplicate-окно узла не затронуто.
+    /// Padding: длина outgoing-кадра ∈ [минимум, минимум+budget], при budget=0 ровно
+    /// минимум; паддинг реально меняет размер; seq записи не трогается — duplicate-окно
+    /// узла не затронуто. Минимум = len(4) + nonce(24) + record.encode() + tag(16),
+    /// где encode() = header(type+seq+stream+flags+len varint'ы) + ciphertext(64).
     #[test]
     fn padding_bounds_and_window_neutrality() {
         let cov = cover();
         let payload = b"x".repeat(64);
         let rec = record(9, &payload);
-        let min_len = FRAME_LEN_BYTES + NONCE_LEN + 64 + TAG_LEN;
+        // Минимум считаем от фактического кодирования записи, а не руками:
+        // header записи зависит от varint-длин seq/stream/len (первый прогон: 108 ≠ 113).
+        let rec_len = rec.encode().len();
+        let min_len = FRAME_LEN_BYTES + NONCE_LEN + rec_len + TAG_LEN;
 
         let mut fill = fixed_fill(0x11);
         let no_pad = encode_cover_frame(&cov, &rec, 0, &mut fill);
