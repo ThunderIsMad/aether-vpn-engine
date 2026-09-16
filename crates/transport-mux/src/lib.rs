@@ -421,7 +421,7 @@ impl CoverBinding for MemBinding {
             return Err(BindingError::TransportDown);
         }
         self.offered += 1;
-        if self.loss_every != 0 && self.offered % self.loss_every == 0 {
+        if self.loss_every != 0 && self.offered.is_multiple_of(self.loss_every) {
             self.dropped += 1;
             return Ok(());
         }
@@ -508,12 +508,12 @@ mod tests {
         assert_eq!(caps.dpi_profile, DPI_PROFILE_QUIC);
 
         // Reality/TCP: HOL — задокументированный tradeoff, а не дефект мока (`02 §2.2`).
-        assert!(!BindingCaps::REALITY_TCP.no_hol);
-        assert!(!BindingCaps::REALITY_TCP.datagram);
-        assert_ne!(BindingCaps::REALITY_TCP.dpi_profile, caps.dpi_profile);
-
         let binding = MemBinding::new(BindingCaps::REALITY_TCP);
-        assert_eq!(binding.supports(), BindingCaps::REALITY_TCP);
+        let reality = binding.supports();
+        assert!(!reality.no_hol, "у Reality/TCP HOL есть по построению");
+        assert!(!reality.datagram, "датаграммной семантики на TCP нет");
+        assert_ne!(reality.dpi_profile, caps.dpi_profile);
+        assert_eq!(reality, BindingCaps::REALITY_TCP);
     }
 
     /// Контракт кадрирования: `len(4B BE) ‖ record` — round-trip, обрезка и неверная длина
@@ -554,7 +554,7 @@ mod tests {
         let pending = binding.take_pending();
         assert_eq!(pending.len(), 4, "доставленные кадры ушли в очередь писателя");
         assert_eq!(pending[0].0, StreamId(1));
-        assert!(binding.pending_bytes() == 0);
+        assert_eq!(binding.pending_bytes(), 0);
 
         // Никакого тайного удержания: очередь отдаёт ровно те записи, что в журнале.
         for (index, (stream, frame)) in pending.iter().enumerate() {

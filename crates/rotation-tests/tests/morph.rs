@@ -31,12 +31,17 @@ fn morph_quic_to_mock_reality_keeps_frame_session_alive() {
     // 7. Морф на length-prefixed mock-Reality: HOL есть, QUIC-over-TCP не используется.
     let timeout = driver.start_overlap(MemBinding::new(BindingCaps::REALITY_TCP), SRTT_MS);
     assert_eq!(timeout, 300, "T_morph = 2 × SRTT, внутри клипа `[200 ms, 2 s]`");
+    let reality = driver
+        .new
+        .as_ref()
+        .expect("новая обложка подключена")
+        .supports();
     assert!(
-        !BindingCaps::REALITY_TCP.no_hol,
+        !reality.no_hol,
         "HOL на Reality/TCP — задокументированный tradeoff (`02 §2.2`)"
     );
     assert!(
-        !BindingCaps::REALITY_TCP.datagram,
+        !reality.datagram,
         "Reality/TCP не сохраняет датаграммную семантику"
     );
 
