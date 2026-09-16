@@ -27,7 +27,9 @@
 //! 2. **Wire-формат `RESUME`/`RESUME_ACK` — Phase 0 решение.** `§3.3` задаёт поля, но не
 //!    кадрирование: реализация пишет `kind(1B) ‖ ticket_blob_len(2B) ‖ ticket_blob ‖
 //!    nonce(24B) ‖ AEAD{K_resume}(поля)`, где `ticket_blob` идёт **вне** `K_resume`, как и
-//!    требует спека.
+//!    требует спека. Nonce стоит в открытом виде — иначе он оказался бы *внутри* того
+//!    шифротекста, который им же и вскрывается (спека перечисляет `client_nonce` среди
+//!    запечатанных полей и про nonce AEAD не говорит ничего).
 //! 3. **Nonce для `RESUME`/`RESUME_ACK` спека не задаёт вовсе** — и это опасное место:
 //!    один `K_resume` на два сообщения означает, что повтор nonce вскрывает оба. Nonce
 //!    собирается как `client_nonce(16B) ‖ метка направления(8B)` (`"resume\x00\x00"` /
@@ -359,10 +361,11 @@ impl<C: RotationChannel> ClientRotation<C> {
             &plain,
         );
 
-        let mut request = Vec::with_capacity(3 + ticket.blob.0.len() + sealed.len());
+        let mut request = Vec::with_capacity(3 + ticket.blob.0.len() + 24 + sealed.len());
         request.push(KIND_RESUME);
         request.extend_from_slice(&(ticket.blob.0.len() as u16).to_be_bytes());
         request.extend_from_slice(&ticket.blob.0);
+        request.extend_from_slice(&resume_nonce(&client_nonce));
         request.extend_from_slice(&sealed);
         Ok((request, ctx))
     }
@@ -531,20 +534,23 @@ mod tests {
             if request[0] == KIND_MINT_REQ {
                 return Ok(vec![0xab; 161]);
             }
-            // Разбор RESUME: `kind ‖ len ‖ ticket ‖ nonce ‖ sealed`.
+            // Разбор RESUME: `kind ‖ len ‖ ticket ‖ nonce(24) ‖ sealed`.
             let len = u16::from_be_bytes([request[1], request[2]]) as usize;
             let ticket = &request[3..3 + len];
-            let sealed = &request[3 + len..];
+            let nonce_and_sealed = &request[3 + len..];
             let mut nonce = [0u8; 24];
-            nonce.copy_from_slice(&sealed[..24]);
+            nonce.copy_from_slice(&nonce_and_sealed[..24]);
             let plain = RecordAead
                 .open(
                     &KRecord(self.k_resume),
                     &RecordNonce(nonce),
                     ticket,
-                    &sealed[24..],
+                    &nonce_and_sealed[24..],
                 )
                 .map_err(|_| ChannelError::Unreachable)?;
+            // Узел знает `client_nonce` только отсюда — и выбирает свой nonce для ACK.
+            let mut client_nonce = [0u8; 16];
+            client_nonce.copy_from_slice(&plain[56..72]);
 
             // Транскрипт клиента = `resume_signing_payload` (`02 §3.3`).
             let mut client_payload = Vec::with_capacity(16 + 32 + 72);
@@ -573,11 +579,12 @@ mod tests {
             ack_plain.extend_from_slice(&signature);
             let sealed_ack = RecordAead.seal(
                 &KRecord(self.k_resume),
-                &RecordNonce(ack_nonce(&CLIENT_NONCE)),
+                &RecordNonce(ack_nonce(&client_nonce)),
                 request,
                 &ack_plain,
             );
             let mut response = vec![KIND_ACK];
+            response.extend_from_slice(&ack_nonce(&client_nonce));
             response.extend_from_slice(&sealed_ack);
             Ok(response)
         }
@@ -595,15 +602,15 @@ mod tests {
     fn signature_of(request: &[u8], k_resume: &[u8; 32]) -> crypto_core::Signature {
         let len = u16::from_be_bytes([request[1], request[2]]) as usize;
         let ticket = &request[3..3 + len];
-        let sealed = &request[3 + len..];
+        let nonce_and_sealed = &request[3 + len..];
         let mut nonce = [0u8; 24];
-        nonce.copy_from_slice(&sealed[..24]);
+        nonce.copy_from_slice(&nonce_and_sealed[..24]);
         let plain = RecordAead
             .open(
                 &KRecord(*k_resume),
                 &RecordNonce(nonce),
                 ticket,
-                &sealed[24..],
+                &nonce_and_sealed[24..],
             )
             .expect("RESUME вскрывается под K_resume");
         let mut signature = [0u8; 64];
