@@ -69,6 +69,7 @@ use clatter::{HybridHandshake, HybridHandshakeParams, KeyPair};
 use ed25519_dalek::{Signature as DalekSignature, Signer, SigningKey, Verifier, VerifyingKey};
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
+use std::fmt;
 
 /// Публичный статический ключ X25519 (DH-половина Noise).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,16 +84,42 @@ pub struct Ed25519Pub(pub [u8; 32]);
 pub struct Signature(pub [u8; 64]);
 
 /// Мастер-ключ сессии (`K_session`, 32 B).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Debug — ручной redacted, не derive: ключ, который можно напечатать, — утечший ключ.
+/// Любой `debug!`/`println!("{:?}")`/паника с этим типом обязана писать `<redacted>`,
+/// не байты (аудит F-SEC: derive(Debug) дампил 32 B ключа в любом формате).
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct KSession(pub [u8; 32]);
 
+impl fmt::Debug for KSession {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("KSession").field(&"<redacted>").finish()
+    }
+}
+
 /// Ключ записи на шаге ratchet `K_record[n] = HKDF(K_record[n-1])`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Debug — ручной redacted, не derive (см. `KSession`).
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct KRecord(pub [u8; 32]);
 
+impl fmt::Debug for KRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("KRecord").field(&"<redacted>").finish()
+    }
+}
+
 /// Ключ обложки (`03` §4): выводится из `K_session` с меткой `LABEL_COVER`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Debug — ручной redacted, не derive (см. `KSession`).
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct KCover(pub [u8; 32]);
+
+impl fmt::Debug for KCover {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("KCover").field(&"<redacted>").finish()
+    }
+}
 
 /// Nonce записи: `seq(8B) || sid(16B)` — 24 байта, ровно под XChaCha20-Poly1305 (`02 §1`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -766,5 +793,34 @@ mod tests {
             aead.open(&key, &nonce, b"aether v3 record", &damaged),
             Err(CryptoError::OpenFailed)
         );
+    }
+
+    /// Контракт гигиены логов: Debug секретных ключей — ручной redacted, не derive.
+    /// Проверяем, что Debug не печатает байты ключа **в любом формате**: ни десятичные
+    /// пары (типичный derive для массивов), ни hex — иначе любой `debug!`/паника с
+    /// ключом пишут 32 B материала в логи (аудит F-SEC).
+    #[test]
+    fn contract_secret_keys_debug_is_redacted() {
+        const KEY: [u8; 32] = [0xab; 32];
+        let session = format!("{:?}", KSession(KEY));
+        let record = format!("{:?}", KRecord(KEY));
+        let cover = format!("{:?}", KCover(KEY));
+        for (printed, name) in [
+            (&session, "KSession"),
+            (&record, "KRecord"),
+            (&cover, "KCover"),
+        ] {
+            assert!(
+                printed.contains("<redacted>"),
+                "{name}: Debug помечает ключ как redacted: {printed}"
+            );
+            assert!(!printed.contains("0xab"), "{name}: нет hex-дампа: {printed}");
+            assert!(!printed.contains("171"), "{name}: нет десятичного дампа: {printed}");
+            assert!(!printed.contains("[171"), "{name}: нет массивного дампа: {printed}");
+            assert!(
+                !printed.contains("171, 171"),
+                "{name}: нет парного десятичного дампа: {printed}"
+            );
+        }
     }
 }
