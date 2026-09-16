@@ -1,0 +1,39 @@
+[package]
+name = "e2e-harness"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+# E2E-сборка Phase 1 (ручной прогон): живой QUIC между aether-client и aether-node.
+# Прод-библиотеки — те же крейты, что проверяются тестами; никакого дублирования логики.
+crypto-core.workspace = true
+frame-session.workspace = true
+policy-engine.workspace = true
+transport-mux.workspace = true
+ticket-mint.workspace = true
+key-coordinator.workspace = true
+# quinn — тот же workspace-пин 0.11.12, что у transport-mux (пиновая зависимость Phase 1).
+quinn.workspace = true
+# Рантайм wire-слоя и бинов: read/write framing, duplex-тесты, multi-thread RT.
+# Не прод-зависимость — крейт publish = false, живёт только в лаборатории.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "io-util", "macros", "sync", "time"] }
+# TLS-стек QUIC-лаборатории — за фичей `e2e` (см. ниже); прод-крейты их не тянут,
+# зависимостная дуга Phase 0 не расширяется (DEPENDENCIES.md).
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"], optional = true }
+
+[features]
+# Живой прогон: QUIC-лаборатория (сертификаты на лету) и оба бина. Тяжёлые TLS-крейты
+# не собираются без фичи: `cargo test --workspace` (CI, без сетей) их не видит.
+e2e = ["dep:rustls", "dep:rcgen"]
+
+[[bin]]
+name = "aether-node"
+path = "src/bin/aether-node.rs"
+required-features = ["e2e"]
+
+[[bin]]
+name = "aether-client"
+path = "src/bin/aether-client.rs"
+required-features = ["e2e"]

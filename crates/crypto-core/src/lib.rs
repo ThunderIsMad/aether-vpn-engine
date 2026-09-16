@@ -498,6 +498,21 @@ pub fn mlkem768_genkey() -> Result<MlKem768KeyPair, CryptoError> {
     PqMlKem768::genkey().map_err(|_| CryptoError::HandshakeFailed)
 }
 
+/// Сериализация публичного статического KEM-ключа узла для манифеста подписки:
+/// `ek` — FIPS 203 encapsulation key, ровно `MLKEM768_EK_BYTES` байт.
+pub fn mlkem768_ek_bytes(public: &MlKem768Pub) -> Vec<u8> {
+    clatter::bytearray::ByteArray::as_slice(public).to_vec()
+}
+
+/// Обратное к `mlkem768_ek_bytes`: сборка `MlKem768Pub` из байтов манифеста.
+/// Длина контролируется самим типом; кривой вход — `CryptoError::BadLength`.
+pub fn mlkem768_pub_from_bytes(ek: &[u8]) -> Result<MlKem768Pub, CryptoError> {
+    if ek.len() != MLKEM768_EK_BYTES {
+        return Err(CryptoError::BadLength);
+    }
+    Ok(clatter::bytearray::ByteArray::from_slice(ek))
+}
+
 /// Генерирует Ed25519-пару личности (`client_identity` / `node_identity`): (pub, priv).
 pub fn ed25519_genkey() -> (Ed25519Pub, [u8; 32]) {
     let mut seed = [0u8; 32];

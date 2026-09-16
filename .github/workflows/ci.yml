@@ -59,3 +59,17 @@ jobs:
       - name: cargo clippy
         if: steps.ws.outputs.found == 'true'
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # E2E-лаборатория Phase 1: бины не запускаются (сети раннера не гарантированы),
+      # но код бинов и QUIC-лаборатории должен компилироваться и проходить clippy.
+      # Юнит-тесты крейта (wire, quic_lab, lib) идут в обычном `cargo test` выше.
+      - name: cargo clippy (e2e feature)
+        if: steps.ws.outputs.found == 'true'
+        run: cargo clippy -p e2e-harness --all-targets --all-features -- -D warnings
+
+      # Тесты за фичей `e2e` (bind на 127.0.0.1:0): на раннере может быть запрещён —
+      # шаг мягкий (continue-on-error), красный по сетевой причине не блокирует pipeline.
+      - name: cargo test (e2e feature, best-effort)
+        if: steps.ws.outputs.found == 'true'
+        continue-on-error: true
+        run: cargo test -p e2e-harness --all-features

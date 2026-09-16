@@ -53,3 +53,5 @@ ticket-mint = { path = "crates/ticket-mint" }
 transport-mux = { path = "crates/transport-mux" }
 cover-ss2022 = { path = "crates/cover-ss2022" }
 cover-masque = { path = "crates/cover-masque" }
+# E2E-лаборатория Phase 1 (ручной прогон, не CI job): см. docs/phase-reports/e2e-manual.md.
+e2e-harness = { path = "crates/e2e-harness" }
