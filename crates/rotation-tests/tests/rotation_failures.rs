@@ -32,7 +32,7 @@ fn rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake() {
     let (mut driver, streams) = three_streams();
     let last_seq = driver.session.last_seq().0;
     let (client_identity, client_identity_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,
@@ -126,7 +126,7 @@ fn rotation_stolen_ticket_naks_bad_pop_and_is_not_consumed() {
     let last_seq = driver.session.last_seq().0;
     let (client_identity, client_identity_priv) = ed25519_genkey();
     let (attacker_identity, attacker_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,
@@ -196,7 +196,7 @@ fn rotation_replay_same_ticket_is_idempotent_nak_not_second_session() {
     let (driver, _) = three_streams();
     let last_seq = driver.session.last_seq().0;
     let (client_identity, client_identity_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,
@@ -288,7 +288,7 @@ fn rotation_bad_signatures_reject_and_keep_old_channel() {
     let last_seq = driver.session.last_seq().0;
     let (client_identity, client_identity_priv) = ed25519_genkey();
     let (attacker_identity, attacker_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,
@@ -382,7 +382,7 @@ fn rotation_two_acks_race_first_valid_wins_second_quarantined() {
     let (mut driver, streams) = three_streams();
     let last_seq = driver.session.last_seq().0;
     let (client_identity, client_identity_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,
@@ -511,7 +511,7 @@ fn rotation_node_down_mid_rotation_rolls_back_without_session_break() {
     let (mut driver, streams) = three_streams();
     let last_seq = driver.session.last_seq().0;
     let (client_identity, client_identity_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,

@@ -382,6 +382,19 @@ pub struct MockNetwork {
 pub struct SharedNetwork(Rc<RefCell<MockNetwork>>);
 
 impl SharedNetwork {
+    /// Пустая сеть с кредами клиента (единственный конструктор сети).
+    pub fn new(client: ClientCreds) -> Self {
+        Self(Rc::new(RefCell::new(MockNetwork {
+            nodes: BTreeMap::new(),
+            client,
+            requests: Vec::new(),
+            responses: Vec::new(),
+            drop_next_ack: false,
+            drop_all_acks: false,
+            unreachable: BTreeSet::new(),
+        })))
+    }
+
     /// Сеть на чтение.
     pub fn borrow(&self) -> std::cell::Ref<'_, MockNetwork> {
         self.0.borrow()
@@ -394,19 +407,6 @@ impl SharedNetwork {
 }
 
 impl MockNetwork {
-    /// Пустая сеть с кредами клиента.
-    pub fn new(client: ClientCreds) -> SharedNetwork {
-        SharedNetwork(Rc::new(RefCell::new(Self {
-            nodes: BTreeMap::new(),
-            client,
-            requests: Vec::new(),
-            responses: Vec::new(),
-            drop_next_ack: false,
-            drop_all_acks: false,
-            unreachable: BTreeSet::new(),
-        })))
-    }
-
     /// Добавляет узел в набор.
     pub fn add_node(&mut self, node: NodeSim) {
         self.nodes.insert(node.id.0, node);

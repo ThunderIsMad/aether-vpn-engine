@@ -33,7 +33,7 @@ fn rotation_loss_on_one_channel_stays_within_duplicate_budget() {
     // Ротация: новый канал теряет каждую третью запись — потерь «в сети» хватает, чтобы
     // выживание обеспечивалось именно дублированием на старый канал (`02 §3.3` шаг 5).
     let (client_identity, client_identity_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,
@@ -141,7 +141,7 @@ fn rotation_loss_on_both_channels_falls_back_to_buffer_path() {
     let last_seq = driver.session.last_seq().0;
 
     let (client_identity, client_identity_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,

@@ -39,7 +39,7 @@ fn rotation_happy_path_three_streams_no_loss() {
 
     // 2. Ticket клиент не минтит сам, а просит у узла; N2 — узел той же эпохи флота.
     let (client_identity, client_identity_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,
@@ -231,7 +231,7 @@ fn rotation_forward_secrecy_old_k_session_cannot_open_new_records() {
 
     // Ротация: ticket от узла N2 и валидный ACK.
     let (client_identity, client_identity_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,
@@ -345,7 +345,7 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
     let last_seq = driver.session.last_seq().0;
 
     let (client_identity, client_identity_priv) = ed25519_genkey();
-    let network = MockNetwork::new(ClientCreds {
+    let network = SharedNetwork::new(ClientCreds {
         auth: client_identity,
         k_session: K_SESSION,
         last_seq,
@@ -437,7 +437,7 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
 
     // 5. `K_session'` выводится от `eph_client` успешной попытки: новая попытка — новый ticket.
     let (client2, client2_priv) = ed25519_genkey();
-    let network2 = MockNetwork::new(ClientCreds {
+    let network2 = SharedNetwork::new(ClientCreds {
         auth: client2,
         k_session: K_SESSION,
         last_seq: driver.session.last_seq().0,
