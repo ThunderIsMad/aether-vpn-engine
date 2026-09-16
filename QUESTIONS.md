@@ -143,6 +143,20 @@
   ML-KEM» сохраняется (хеш покрывает оба), но формула другая — и `salt` тоже другой.
 - **Как закрывается:** либо спека принимает derivation от handshake-hash (и `salt = session_id`
   становится частью контракта), либо нужен свой Noise-стек вместо clatter. Решение — дизайна.
+- **Закрыто 2026-09-16 — вариант A («спека под Clatter»), с уточнением точки вывода.** API
+  clatter 2.3.0 наружу отдаёт только `SymmetricState::get_hash()` (h), `get_chaining_key()` (c)
+  и `split()`/`finalize()` → `CipherStates` (k₁/k₂); отдельные `ss_*` не отдаются никому
+  (приватные поля) — вариант B (достать оба ss и считать HKDF сам) без unsafe/форка невозможен.
+  Из исходника `handshakestate/hybrid.rs`: DH-токены (`EE/ES/SE/SS`) и `Ekem` идут через
+  `mix_key` (→ только ck), `Skem` — через `mix_key_and_hash` (→ ck **и** h). Следовательно
+  в handshake-hash единственный секрет — `ss_skem`: ikm оттуда не гибридный. Выбран ikm =
+  **chaining key** (`get_chaining_key()`): в него сходятся все секреты, это стандартный
+  гибридный комбинат Noise/PQNoise. Итог: `K_session = HKDF-Extract(salt = session_id,
+  ikm = c) → Expand("aether v3 session", 32)`; salt = session_id — domain separation нашего
+  слоя. Гибридность комбината — внутренность библиотеки, на нашем слое не наблюдаема и не
+  сверяема; сверка раскладки токенов — Phase 0.5 (Q12). Формула `ss_ee ‖ … ‖ ss_mlkem` в
+  `02 §5` помечена как внутренность Clatter; спека выровнена (`02 §5`, `04-advantages`),
+  код переведён с `get_hash()` на `get_chaining_key()` + тест `contract_k_session_ikm_is_chaining_key`.
 
 ### Q11. Контракт `Handshake` был внутренне противоречив
 

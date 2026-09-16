@@ -26,14 +26,19 @@
 //!    Порядок токенов и байтовые размеры сообщений при этом **не** совпадают с таблицами
 //!    `02 §5`: замер — в `contract_noise_ik_two_messages_one_rtt`, расхождение вынесено в
 //!    `QUESTIONS.md` как Phase 0 finding (спека не правится без решения дизайна).
-//! 2. **`K_session` выводится из handshake-hash, а не из конкатенации сырых DH/KEM-секретов.**
-//!    Формула `02 §5` (`ss_ee ‖ ss_es ‖ ss_se ‖ ss_ss ‖ ss_mlkem`) неисполнима поверх clatter:
-//!    библиотека смешивает эти секреты внутри симметричного состояния и наружу их не отдаёт.
-//!    Наружу отдаётся `SymmetricState::get_hash()` — хеш, в который уже входят все DH- и
-//!    KEM-результаты и весь транскрипт. Ключ выводится как
-//!    `K_session = HKDF-Extract(salt = session_id, ikm = handshake_hash) → Expand(label, 32)`,
-//!    поэтому свойство «держится, пока держит либо X25519, либо ML-KEM» сохраняется, а формула
-//!    в спеке — нет. Решение — `QUESTIONS.md` (Phase 0 finding, требует решения дизайна).
+//! 2. **`K_session` выводится из chaining key, а не из конкатенации сырых DH/KEM-секретов**
+//!    (Q10 закрыт 2026-09-16, вариант «спека под Clatter»). Поверх clatter формула
+//!    `02 §5` (`ss_ee ‖ ss_es ‖ ss_se ‖ ss_ss ‖ ss_mlkem`) неисполнима: библиотека смешивает
+//!    секреты внутри симметричного состояния и наружу отдельные `ss_*` не отдаёт — экспорт
+//!    ограничен `SymmetricState::get_hash()`, `get_chaining_key()` и `split()`/`finalize()`.
+//!    По раскладке токенов (`handshakestate/hybrid.rs`) в handshake-hash (`get_hash`) через
+//!    `mix_key_and_hash` попадает только `ss_skem`, поэтому ikm оттуда — не гибрид; гибридный
+//!    комбинат — chaining key `c` (`get_chaining_key`): в него `mix_key`-ом сходятся все
+//!    DH-секреты (`EE/ES/SS`), `ss_ekem` и `ss_skem`. Итог:
+//!    `K_session = HKDF-Extract(salt = session_id, ikm = c) → Expand("aether v3 session", 32)`.
+//!    Гибридность «держится, пока держит либо X25519, либо ML-KEM» обеспечивается раскладкой
+//!    токенов Clatter (оба класса секретов входят в `c`) и на нашем слое не сверяется —
+//!    это внутренность библиотеки; сверка — Phase 0.5 (Q12).
 //! 3. **Контракт хендшейка исправлен.** Черновой `Handshake::initiate → (msg1, K_session)` был
 //!    гипотезой до паттерна и внутренне противоречив: в IK ключа инициатора до `msg2` не
 //!    существует. Теперь `initiate()` отдаёт только `msg1`, а ключ — `finish_initiator(msg2)`.
@@ -45,7 +50,7 @@
 //!
 //! Открытые остатки (в `QUESTIONS.md`): ACVP KAT-векторы FIPS 203 в дерево не вшиты —
 //! вместо них размеры FIPS 203 Table 3 и двунаправленный interop с эталонной реализацией;
-//! вопрос static/ephemeral семантики `Skem`/`Ekem` относительно HNDL-клейма `02 §5`.
+//! сверка раскладки токенов гибридного IK (чьи KEM-половины получают инкапсуляцию) — Phase 0.5.
 
 #![deny(unsafe_code)]
 
@@ -203,13 +208,15 @@ impl IkInitiator {
         self.session_id
     }
 
-    /// Выводит `K_session` из текущего симметричного состояния (см. п. 2 в шапке модуля).
+    /// Выводит `K_session` из текущего симметричного состояния (Q10: ikm — chaining key,
+    /// гибридный комбинат Clatter; handshake-hash не годится — в него через
+    /// `mix_key_and_hash` попадает только `ss_skem`).
     fn session_key(&self) -> Result<KSession, CryptoError> {
         if !self.hs.is_finished() {
             return Err(CryptoError::HandshakeFailed);
         }
-        let hash = self.hs.get_state().get_hash();
-        Ok(derive_session(&self.session_id, ByteArray::as_slice(&hash)))
+        let ck = self.hs.get_state().get_chaining_key();
+        Ok(derive_session(&self.session_id, ByteArray::as_slice(&ck)))
     }
 }
 
@@ -288,8 +295,8 @@ impl IkResponder {
         if !self.hs.is_finished() {
             return Err(CryptoError::HandshakeFailed);
         }
-        let hash = self.hs.get_state().get_hash();
-        Ok(derive_session(&self.session_id, ByteArray::as_slice(&hash)))
+        let ck = self.hs.get_state().get_chaining_key();
+        Ok(derive_session(&self.session_id, ByteArray::as_slice(&ck)))
     }
 }
 
@@ -398,7 +405,10 @@ fn hkdf32(salt: Option<&[u8]>, ikm: &[u8], info: &[u8]) -> [u8; 32] {
     okm
 }
 
-/// `K_session`: см. п. 2 в шапке модуля — ikm это handshake-hash, а не конкатенация секретов.
+/// `K_session` (Q10, вариант «спека под Clatter»): ikm — **chaining key** симметричного
+/// состояния после msg2 (`SymmetricState::get_chaining_key()`), в который Clatter через
+/// `mix_key`/`mix_key_and_hash` сводит все DH- и KEM-секреты; salt — `session_id`
+/// (domain separation нашего слоя).
 pub fn derive_session(session_id: &[u8; 16], handshake_hash: &[u8]) -> KSession {
     KSession(hkdf32(
         Some(session_id),
@@ -633,11 +643,52 @@ mod tests {
         );
     }
 
+    /// Точка вывода `K_session` (Q10, вариант «спека под Clatter»): ikm — chaining key
+    /// симметричного состояния, не handshake-hash. Свойства: обе стороны выводят один ключ;
+    /// ключ зависит от материала (изменение входа меняет вывод); вывод устойчив (зафиксирован
+    /// в `QUESTIONS.md` Q10 вместе с формулой). Почему не handshake-hash: по раскладке токенов
+    /// Clatter (`handshakestate/hybrid.rs`) в `h` через `mix_key_and_hash` попадает только
+    /// `ss_skem` — ikm оттуда не гибридный; в chaining key сходятся все DH- и KEM-секреты.
+    /// Вектор не вшивается байтами: ikm — внутреннее состояние библиотеки, наши гарантии —
+    /// KDF-обвязка (метки, salt = session_id), она и фиксируется.
+    #[test]
+    fn contract_k_session_ikm_is_chaining_key() {
+        let sid = [0x33u8; 16];
+        let (_, node_priv) = x25519_genkey().expect("node static");
+        let mut responder = IkResponder::new(sid, x25519_keypair(&node_priv), mlkem768_genkey().expect("node static kem"))
+            .expect("responder init");
+        let (_, client_priv) = x25519_genkey().expect("client static");
+        let mut initiator = IkInitiator::new(
+            sid,
+            x25519_keypair(&client_priv),
+            mlkem768_genkey().expect("client static kem"),
+            responder.node_static(),
+            responder.node_static_kem(),
+        )
+        .expect("initiator init");
+        let msg1 = initiator.initiate().expect("msg1");
+        let (msg2, ks_node) = responder.respond(&msg1).expect("msg2");
+        let ks_client = initiator.finish_initiator(&msg2).expect("k_session клиента");
+
+        assert_eq!(ks_client, ks_node, "один K_session у обеих сторон");
+
+        // Вывод детерминирован относительно входа KDF: воспроизводим derivation напрямую
+        // из отданного clatter секрета (chaining key) той же обвязкой.
+        let ck = initiator.hs.get_state().get_chaining_key();
+        let replayed = derive_session(&sid, ByteArray::as_slice(&ck));
+        assert_eq!(replayed, ks_client, "K_session воспроизводится из chaining key той же обвязкой");
+        assert_ne!(
+            derive_session(&[0x35u8; 16], ByteArray::as_slice(&ck)),
+            ks_client,
+            "salt = session_id входит в вывод (domain separation)"
+        );
+    }
+
     /// Контракт seal/open: nonce ровно 24 B (`seq || sid`), неверный tag → `OpenFailed`.
     #[test]
     fn contract_record_seal_open() {
         let sid = [0x22u8; 16];
-        let session = derive_session(&sid, b"handshake-hash-for-test");
+        let session = derive_session(&sid, b"ikm-from-chaining-key");
         let key = ratchet_record(&sid, &session, 0);
         let key_next = ratchet_record(&sid, &session, 1);
         assert_ne!(key.0, key_next.0, "ratchet двигает K_record");

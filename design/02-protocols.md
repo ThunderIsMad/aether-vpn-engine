@@ -350,8 +350,19 @@ IK сохранён сознательно — узел узнаёт, кто з�
 перестал бы держаться. Предраспределённые статики дают аутентификацию, эфемерный KEM даёт
 post-quantum forward secrecy; это разные задачи.
 
-`K_session = HKDF-Expand(HKDF-Extract(salt = sha256(transcript), ikm = ss_x25519(e,e) ‖ ss_x25519(e,s_node)
-‖ ss_x25519(s_client,e) ‖ ss_x25519(s_client,s_node) ‖ ss_mlkem), "aether v3 session", 32)`
+**Вывод `K_session` (Q10, зафиксировано по факту реализации — вариант «спека под Clatter»):**
+формула `HKDF(ss_ee ‖ ss_es ‖ ss_se ‖ ss_ss ‖ ss_mlkem)` ниже — внутренность Clatter: библиотека
+смешивает DH- и KEM-секреты в симметричном состоянии и наружу отдельные `ss_*` не отдаёт (экспорт
+— `get_hash()`/`get_chaining_key()`/`split()`; по исходнику `handshakestate/hybrid.rs` в hash через
+`mix_key_and_hash` идёт только `ss_skem`, все секреты сходятся в chaining key). Наш слой выводит:
+
+`K_session = HKDF-Expand(HKDF-Extract(salt = session_id, ikm = chaining_key), "aether v3 session", 32)`
+
+где `chaining_key` — `SymmetricState::get_chaining_key()` после msg2 (32 B, SHA-256). Гибридность
+комбината («держится, пока держит либо X25519, либо ML-KEM») — свойство раскладки токенов Clatter,
+на нашем слое не наблюдаемо и не сверяемо; сверка раскладки — Phase 0.5 (Q12). Все нижележащие
+выводы наследуют эту точку: `K_resume` (`§3.3`), `K_record`/ratchet (`§1`), `K_session'` при
+ротации (`§3.3`) — строятся от `K_session` и не меняются.
 
 Безопасно, пока держит **либо** X25519, **либо** ML-KEM-768 → HNDL-safe для записей сессии.
 Outer QUIC/TLS 1.3 — классический, его роль транспортная; PQ-защита относится к записям frame-слоя.
