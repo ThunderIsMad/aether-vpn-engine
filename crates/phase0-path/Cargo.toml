@@ -14,5 +14,6 @@ transport-mux.workspace = true
 crypto-core.workspace = true
 
 [dev-dependencies]
-# Интеграционный тест куска 1 Phase 1: тот же путь, но через cover-байндинг.
+# Интеграционные тесты Phase 1 (куски 1–2): тот же путь, но через cover-байндинги.
 cover-ss2022.workspace = true
+cover-masque.workspace = true

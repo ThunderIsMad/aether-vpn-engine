@@ -382,4 +382,46 @@ mod tests {
             .expect("не дубликат");
         assert_eq!(plaintext, packet);
     }
+
+    /// Phase 1, кусок 2: тот же путь, но `CoverBinding` — каркас MASQUE CONNECT-UDP
+    /// (`MasqueBinding`). Пакет проходит policy → frame-session → DATAGRAM-капсулу
+    /// (`Context ID 0 ‖ record.encode()`), капсула вскрывается до записи, запись —
+    /// зеркальной сессией до исходных байтов пакета. Caps каркаса — stream-класс:
+    /// no-HOL/datagram заявит только реальный h3-клиент (см. доки cover-masque).
+    #[test]
+    fn packet_through_masque_binding_roundtrip() {
+        use cover_masque::{decode_masque_frame, MasqueBinding};
+
+        let mut policy = Engine::new(RouteAction::Route, Vec::new());
+        let fake = policy.assign_fake_ip("example.org");
+        let k = test_key();
+        let mut sender = session(k);
+        let mut binding = MasqueBinding::new();
+        let mut flows = std::collections::HashMap::new();
+
+        let packet = ipv4_packet(match fake { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"masque me");
+        let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet)
+            .expect("байндинг принимает запись");
+        let stream = match outcome {
+            StepOutcome::Sent(s) => s,
+            other => panic!("ожидали Sent, получили {other:?}"),
+        };
+        assert!(!binding.supports().no_hol, "каркас без h3: no-HOL не заявляем");
+
+        // Капсула вынимается из очереди и вскрывается до записи frame-слоя.
+        let pending = binding.take_pending();
+        assert_eq!(pending.len(), 1);
+        let (_sid, capsule) = &pending[0];
+        let record = decode_masque_frame(capsule).expect("MASQUE-капсула вскрывается");
+        assert_eq!(record.stream_id, stream);
+
+        // Внутри — та же запись frame-слоя: зеркало вскрывает исходные байты пакета.
+        let mut mirror = session(k);
+        mirror.open_stream(FlowId(1));
+        let plaintext = mirror
+            .recv_record(&record)
+            .expect("вскрытие записи прошло")
+            .expect("не дубликат");
+        assert_eq!(plaintext, packet);
+    }
 }
