@@ -122,7 +122,7 @@ fn rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake() {
 /// **Доп. (`05-roadmap`): украденный ticket без валидной `sig_client` → `RESUME_NAK bad_pop`.**
 #[test]
 fn rotation_stolen_ticket_naks_bad_pop_and_is_not_consumed() {
-    let (mut driver, _) = three_streams();
+    let (driver, _) = three_streams();
     let last_seq = driver.session.last_seq().0;
     let (client_identity, client_identity_priv) = ed25519_genkey();
     let (attacker_identity, attacker_priv) = ed25519_genkey();
@@ -193,7 +193,7 @@ fn rotation_stolen_ticket_naks_bad_pop_and_is_not_consumed() {
 /// **Сценарий 4 (ТЗ): replay того же RESUME → идемпотентный NAK, а не вторая сессия.**
 #[test]
 fn rotation_replay_same_ticket_is_idempotent_nak_not_second_session() {
-    let (mut driver, _) = three_streams();
+    let (driver, _) = three_streams();
     let last_seq = driver.session.last_seq().0;
     let (client_identity, client_identity_priv) = ed25519_genkey();
     let network = MockNetwork::new(ClientCreds {
@@ -251,7 +251,16 @@ fn rotation_replay_same_ticket_is_idempotent_nak_not_second_session() {
 
     // 3/4. Второй сессии и второго `K_session'` нет; NAK идемпотентен, канал прежний.
     let mut node_window = DedupWindow::new(Seq(parts.window.0), Seq(parts.continuity_point));
-    assert_eq!(node_window.accept(Seq(parts.continuity_point)), DedupOutcome::Duplicate);
+    assert_eq!(
+        node_window.accept(Seq(parts.continuity_point)),
+        DedupOutcome::Accepted,
+        "граница окна принимается один раз"
+    );
+    assert_eq!(
+        node_window.accept(Seq(parts.continuity_point)),
+        DedupOutcome::Duplicate,
+        "повтор того же seq — дубль"
+    );
     assert_eq!(
         node_window.continuity_point(),
         Seq(parts.continuity_point),
@@ -550,12 +559,26 @@ fn rotation_node_down_mid_rotation_rolls_back_without_session_break() {
         .expect("другой узел набора принял тот же ticket");
     assert_eq!(continuity.point, last_seq);
 
-    // (б) Старый узел снят до ACK: дубли окна уже ушли новому, трафик продолжается.
+    // (б) Старый узел снят **до** ACK: окно ещё открыто, поэтому запись идёт на оба канала,
+    //      отказ старого канала фиксируется, а дубль доносит её новым узлом — сессия жива.
     let parts = parse_ack(
         &last_request(&network),
         &last_response(&network),
         &k_resume_for(&K_SESSION),
     );
+    driver.old.mark_closed();
+    let during_down = driver.emit_tolerant(streams[1], b"old-down-before-ack", 0);
+    assert_eq!(
+        driver.old_failures, 1,
+        "старый канал снят — его отказ не разрывает сессию"
+    );
+    assert!(
+        delivered(driver.new.as_ref().expect("новый канал"))
+            .contains(&(streams[1].0, during_down.seq.0)),
+        "дубль окна донёс запись новым каналом до применения ACK"
+    );
+
+    // Теперь ACK применяется: окно закрывается, ключ меняется, трафик идёт новым каналом.
     driver.session.on_resume_ack(
         Seq(parts.continuity_point),
         DuplicateWindow {
@@ -571,14 +594,11 @@ fn rotation_node_down_mid_rotation_rolls_back_without_session_break() {
     let k_prime = rotation.k_session_prime().expect("K_session'");
     driver.session.ratchet_from(&k_prime);
     assert!(driver.promote_on_ack(true), "окно закрыто валидным ACK");
-    driver.old.mark_closed();
-    let after = driver.emit_tolerant(streams[1], b"after-old-down", 0);
-    assert_eq!(
-        driver.old_failures, 1,
-        "старый канал снят — его отказ не разрывает сессию"
-    );
+    assert!(driver.session.overlap().expect("окно").is_closed());
+    let after = driver.emit_after_rotation(streams[2], b"after-old-down");
     assert!(
-        delivered(driver.new.as_ref().expect("новый канал")).contains(&(streams[1].0, after.seq.0)),
+        delivered(driver.new.as_ref().expect("новый канал"))
+            .contains(&(streams[2].0, after.seq.0)),
         "запись доставлена новым каналом"
     );
 
@@ -586,5 +606,6 @@ fn rotation_node_down_mid_rotation_rolls_back_without_session_break() {
     assert_eq!(driver.session.stream_table().len(), 3);
     assert_eq!(driver.session.ratchet_restarts(), 1);
     assert_eq!(driver.session.last_seq(), after.seq);
+    assert!(after.seq > during_down.seq);
     assert!(after.seq > during.seq);
 }

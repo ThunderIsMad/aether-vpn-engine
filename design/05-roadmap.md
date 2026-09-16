@@ -7,23 +7,35 @@ Reality — последним, как самый дорогой).
 
 ## Phase 0 — Фундамент: frame-сессия + PQ + ротация (MVP)
 
-- [ ] `frame-session`: record-протокол, stream_table, ratchet, duplicate-window. Юнит-тесты на моках байндингов.
-- [ ] `crypto-core`: Noise_IK + `X25519MLKEM768` (Clatter; noise-protocol — только через форк), `XChaCha20-Poly1305`. KAT-векторы FIPS 203.
+- [x] `frame-session`: record-протокол, stream_table, ratchet, duplicate-window. Юнит-тесты на моках байндингов.
+- [x] `crypto-core`: Noise_IK + `X25519MLKEM768` (Clatter; noise-protocol — только через форк), `XChaCha20-Poly1305`. KAT-векторы FIPS 203.
 - [ ] `key-coordinator`: mint/unwrap tickets, epoch keys, post-rotation re-key.
+      ⇐ **частично:** клиентская половина (PoP, `RESUME`, re-key) и `mint`/`unwrap`
+      (`ticket-mint`) реализованы и проверены; раздача epoch keys — манифест подписки,
+      а не крейт (владелец `TFK_epoch` — узел, `02 §3.1`).
 - [ ] `transport-mux`: QUIC-байндинг (quinn), дефолт cubic.
-- [ ] **Интеграционный тест ротации** (главный риск проекта): сессия с 3 потоками, ротация
+      ⇐ **частично:** кадрирование, caps (no-HOL/datagram), ограниченная очередь и оба
+      отказных пути реализованы; async-писатель в `SendStream` и сетевой прогон — Phase 0.5.
+- [x] **Интеграционный тест ротации** (главный риск проекта): сессия с 3 потоками, ротация
       N1→N2 по ticket, проверка: ни одна запись не потеряна на обоих каналах, continuity по seq,
       старый узел не читает пост-ротационный трафик (свежий DH),
       duplicate-window ≤ `T_morph` (2×SRTT, клип [200 ms, 2 s]) и `N ≤ 4096`.
       Отдельно — прогон с потерей на одном канале и прогон с потерей на обоих (фолбэк-путь).
       **Граница теста:** измеряется frame-слой, не payload-соединения; разрыв прикладных TCP
       при смене egress IP — ожидаемый эффект, не регресс.
-- [ ] **Негативные тесты ротации:** украденный ticket без валидной `sig_client` → `RESUME_NAK bad_pop`;
+- [x] **Негативные тесты ротации:** украденный ticket без валидной `sig_client` → `RESUME_NAK bad_pop`;
       повтор того же ticket → `RESUME_NAK replay`; подмена `eph_node` без `sig_node` → канал не подтверждён;
       узел упал между RESUME и ACK → откат на старый канал без разрыва сессии.
+      ⇐ «узел упал» проверен в части, которая существует: буфер фолбэка ≤ 16 МБ / ≤ 5 с не
+      реализован — BLOCKER в `QUESTIONS.md`.
 - [ ] `session-store` + `device-adapter` (Linux TUN первым) + `policy-engine` (fake-ip).
+      ⇐ **частично:** `session-store` реализован (at-rest через трейт `SecureStore`, in-memory
+      backend в Phase 0); `device-adapter` и `policy-engine` — заглушки скаффолда,
+      их контрактные тесты остались под `#[ignore]`.
 - **Exit:** PQ-безопасный, rotation-safe **на frame-слое** однохоповый туннель (payload-соединения — риск выше). Это уже закрывает SnowVPN-баг —
       но теперь с доказательством, а не заявлением.
+      ⇐ **не достигнут:** см. `docs/phase-reports/phase-0.md` — буфер фолбэка (BLOCKER),
+      `device-adapter`/`policy-engine`, сетевой прогон QUIC-байндинга и OS secure store.
 
 ## Phase 0.5 — Верификационный спайк стека (1–2 дня, до Phase 1)
 
