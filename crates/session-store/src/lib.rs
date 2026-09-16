@@ -32,6 +32,11 @@
 //! 5. **`zeroize` не подключён.** Честно: вычищать скаляры из памяти на drop — hardening,
 //!    который требует крейта; в скаффолде он был назван условием реализации, и здесь
 //!    отложен вместе с платформенным backend'ом (`QUESTIONS.md`, Phase 1 hardening).
+//! 6. **Debug секретов — ручной redacted, сырые значения — только в тестах.** `SessionState`
+//!    и `InMemorySecureStore` печатают `<redacted>` вместо `k_session`/ключей; выгрузка всех
+//!    значений backend'а (`values`) и доступ к самому backend'у (`ClientSessionStore::backend`)
+//!    гейтятся `#[cfg(test)]` — прод-код не умеет одной строкой скопировать весь набор секретов
+//!    (закрытие аудита F-SEC).
 
 #![deny(unsafe_code)]
 
@@ -83,7 +88,11 @@ impl fmt::Debug for ClientSecrets {
 }
 
 /// Состояние сессии на клиенте (`03-components.md` §7).
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Debug — ручной redacted, не derive: `k_session` и `secrets` печатаются как `<redacted>`,
+/// не байтами. Дамп `SessionState` целиком (панель отладчика, лог упавшего теста,
+/// `debug!`) обязан быть безопасным (аудит F-SEC).
+#[derive(Clone, PartialEq, Eq)]
 pub struct SessionState {
     /// Подписка, в рамках которой живёт сессия.
     pub subscription_id: SubscriptionId,
@@ -99,6 +108,20 @@ pub struct SessionState {
     pub chain: Vec<[u8; 16]>,
     /// Ключи личности — принадлежат этому модулю.
     pub secrets: ClientSecrets,
+}
+
+impl fmt::Debug for SessionState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionState")
+            .field("subscription_id", &self.subscription_id)
+            .field("uuid", &"<redacted>")
+            .field("session_id", &"<redacted>")
+            .field("k_session", &"<redacted>")
+            .field("tickets", &self.tickets.len())
+            .field("chain", &self.chain.len())
+            .field("secrets", &"<redacted>")
+            .finish()
+    }
 }
 
 /// Ошибка хранилища.
@@ -137,9 +160,22 @@ pub trait SecureStore {
 
 /// Эталонный in-memory backend: он не защищён и не персистентен — тесты проверяют
 /// **политику** хранения, а не свойства OS-хранилища.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// Debug — ручной redacted, не derive: значения backend'а — это сами секреты
+/// (`client_identity`, `client_static`, `K_session`), и `{:?}` над хранилищем не имеет
+/// права их печатать (аудит F-SEC).
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct InMemorySecureStore {
     map: HashMap<String, Vec<u8>>,
+}
+
+impl fmt::Debug for InMemorySecureStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InMemorySecureStore")
+            .field("keys", &self.map.keys().collect::<Vec<_>>())
+            .field("values", &"<redacted>")
+            .finish()
+    }
 }
 
 impl InMemorySecureStore {
@@ -155,7 +191,10 @@ impl InMemorySecureStore {
         keys
     }
 
-    /// Все значения, лежащие в backend'е (для проверки «чего тут быть не должно»).
+    /// Все значения, лежащие в backend'е: это **секреты в открытом виде**. Метод
+    /// существует только для тестов политики хранения — прод-код не должен уметь
+    /// скопировать весь набор ключей одной строкой (аудит F-SEC).
+    #[cfg(test)]
     pub fn values(&self) -> Vec<&[u8]> {
         self.map.values().map(Vec::as_slice).collect()
     }
@@ -210,7 +249,10 @@ impl<S: SecureStore> ClientSessionStore<S> {
         }
     }
 
-    /// Backend на чтение (диагностика/тесты).
+    /// Backend на чтение — **только тесты**: отдаёт необработанный backend, чей `get`
+    /// вынимает секреты в открытом виде (аудит F-SEC). Прод-диагностике достаточно
+    /// `keys()`/`state()`/`tickets()`/`secrets()`.
+    #[cfg(test)]
     pub fn backend(&self) -> &S {
         &self.backend
     }
@@ -459,18 +501,42 @@ mod tests {
         assert_eq!(secrets.identity(), &IDENTITY);
         assert_eq!(secrets.statics(), &STATIC);
 
-        // Ключ, который можно напечатать, — утёкший ключ: в Debug нет ни одного байта.
-        let printed = format!("{:?}", store.state().expect("сессия").secrets);
-        assert!(printed.contains("<redacted>"));
-        for byte in IDENTITY.iter().take(4) {
-            assert!(
-                !printed.contains(&format!("{byte}")),
-                "Debug не печатает байты ключа"
-            );
-        }
+        // Ключ, который можно напечатать, — утёкший ключ. Проверяем Debug **в любом
+        // формате**: hex-пары (`a1, a1` — обычная derive-форма массивов), hex-константы
+        // (`0xa1`), десятичные последовательности (`161, 161` — derive(Debug) массива
+        // десятичными числами). Прежняя проверка видела только hex-пару и пропускала
+        // десятичный дамп — false confidence (аудит F-SEC).
+        let secrets_debug = format!("{:?}", store.state().expect("сессия").secrets);
         let state_debug = format!("{:?}", store.state().expect("сессия"));
-        assert!(state_debug.contains("ClientSecrets"));
-        assert!(!state_debug.contains("a1, a1"), "K_session/identity не печатаются");
+        // Хранилище целиком: значения backend'а — сами секреты, {:?} не печатает их.
+        let store_debug = format!("{:?}", store.backend());
+
+        fn assert_no_secret_bytes(printed: &str, secret: &[u8], what: &str) {
+            assert!(
+                printed.contains("<redacted>"),
+                "{what}: секретные поля redacted: {printed}"
+            );
+            for byte in secret.iter().take(4) {
+                assert!(
+                    !printed.contains(&format!("{byte}, {byte}")),
+                    "{what}: нет десятичного дампа ({byte}, {byte}): {printed}"
+                );
+                assert!(
+                    !printed.contains(&format!("0x{byte:02x}")),
+                    "{what}: нет hex-дампа (0x{byte:02x}): {printed}"
+                );
+                assert!(
+                    !printed.contains(&format!("{byte:02x}, {byte:02x}")),
+                    "{what}: нет hex-пар ({byte:02x}, {byte:02x}): {printed}"
+                );
+            }
+        }
+        assert_no_secret_bytes(&secrets_debug, &IDENTITY, "ClientSecrets.identity");
+        assert_no_secret_bytes(&secrets_debug, &STATIC, "ClientSecrets.statics");
+        assert_no_secret_bytes(&state_debug, &IDENTITY, "SessionState");
+        assert_no_secret_bytes(&state_debug, &STATIC, "SessionState");
+        assert_no_secret_bytes(&state_debug, &K_SESSION, "SessionState");
+        assert_no_secret_bytes(&store_debug, &K_SESSION, "InMemorySecureStore");
 
         // Стирание забирает и ключи: после `wipe` владельца ключей просто нет.
         store.wipe().expect("wipe");
