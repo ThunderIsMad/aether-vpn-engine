@@ -113,7 +113,9 @@ async fn run(
         vec![policy_engine::Rule::new("tunnel-lab", policy_engine::RouteAction::Route)
             .with_host("lab.aether.test")],
     );
-    let fake_ip = engine.assign_fake_ip("lab.aether.test");
+    let fake_ip = engine
+        .assign_fake_ip("lab.aether.test")
+        .expect("лабовый хост валиден: резервирует fake-ip");
     let flow = policy_engine::FlowKey {
         dst: fake_ip,
         dst_port: 443,

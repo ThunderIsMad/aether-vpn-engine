@@ -19,8 +19,10 @@
 //!   Clash-провайдеры, geoip-базы и wildcards — не в Phase 0.
 //! - Черновой трейт из скаффолда заменён конкретным `Engine` («форма фиксируется при
 //!   реализации Phase 0» — скаффолд); если появится второй бэкенд политики, трейт вернётся.
-//! - Пул fake-ip исчерпывается паникой с ясным сообщением: 65 534 адресов на процесс —
-//!   для Phase 0 достаточно; вытеснение старых привязок — Phase 1/2.
+//! - Пул fake-ip: нормализация хоста (`normalize_host`), потолок `FAKE_IP_POOL_CAP`
+//!   с вытеснением старейших привязок вместо паники на исчерпании (`assign` возвращает
+//!   `Result`) — страница с десятками тысяч уникальных поддоменов не должна ронять
+//!   клиентский процесс (закрытие аудита F-SEC: panic-DoS + unbounded HashMap).
 
 #![deny(unsafe_code)]
 
@@ -35,6 +37,13 @@ pub const FAKE_IP_RANGE: &str = "198.18.0.0/16";
 const FAKE_IP_FIRST: u32 = 0xC612_0002; // 198.18.0.2
 /// Последний выдаваемый fake-ip (вещательный адрес `198.18.255.255` не выдаётся).
 const FAKE_IP_LAST: u32 = 0xC612_FFFE; // 198.18.255.254
+
+/// Потолок пула fake-ip на процесс.
+///
+/// Пул — по записи на хост; без потолка DNS-флуд растит `HashMap` неограниченно (OOM).
+/// При исчерпании адресов вытесняется старейшая привязка (FIFO — ближайший к LRU аналог
+/// без меток времени; точный LRU/TTL — решение Phase 1/2 вместе с DNS-TTL).
+pub const FAKE_IP_POOL_CAP: usize = 65_536;
 
 /// Решение по потоку.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,8 +139,12 @@ impl Rule {
     }
 
     /// Задаёт exact-domain матчер.
+    ///
+    /// Хост нормализуется при задании (`normalize_host`): `tracker.example.` — тот же
+    /// матчер, что и `tracker.example`. `None` (пустой/невалидный) → матчер не задаётся,
+    /// правило остаётся без host-условия — это видно вызывающему по полю `host`.
     pub fn with_host(mut self, host: &str) -> Self {
-        self.host = Some(host.to_owned());
+        self.host = normalize_host(host);
         self
     }
 
@@ -143,9 +156,13 @@ impl Rule {
 
     fn matches(&self, flow: &FlowKey) -> bool {
         if let Some(host) = &self.host {
-            match &flow.host {
-                Some(flow_host) if flow_host.eq_ignore_ascii_case(host) => {}
-                _ => return false,
+            // Нормализуем и сторону потока: `TRacker.example.` обязан совпасть с
+            // правилом `tracker.example`, а не уйти в дефолт мимо блок-листа.
+            let Some(flow_host) = flow.host.as_deref().and_then(normalize_host) else {
+                return false;
+            };
+            if &flow_host != host {
+                return false;
             }
         }
         if let Some(cidr) = &self.cidr {
@@ -155,6 +172,31 @@ impl Rule {
         }
         true
     }
+}
+
+/// Каноническая форма хоста для всех host-сравнений движка (правила и пул fake-ip).
+///
+/// ASCII-lowercase, один завершающий dot срезается, пустой/с управляющими символами/
+/// с пробельными или недопустимыми для имени хоста байтами → `None`. Без нормализации
+/// `tracker.example.` и `Example.COM` обходят block-правила и плодят вторые записи
+/// в пуле (аудит F-SEC). IDNA для не-ASCII — отдельное решение, здесь не делается:
+/// не-ASCII имя отбрасывается как невалидное.
+pub fn normalize_host(host: &str) -> Option<String> {
+    if host.is_empty() {
+        return None;
+    }
+    let stripped = host.strip_suffix('.').unwrap_or(host);
+    let lowered = stripped.to_ascii_lowercase();
+    if lowered.is_empty() {
+        return None;
+    }
+    for ch in lowered.chars() {
+        let ok = ch.is_ascii_alphanumeric() || ch == '-' || ch == '.';
+        if !ok {
+            return None;
+        }
+    }
+    Some(lowered)
 }
 
 /// Ключ потока, по которому принимается решение.
@@ -168,32 +210,54 @@ pub struct FlowKey {
     pub host: Option<String>,
 }
 
-/// Пул fake-ip из `FAKE_IP_RANGE`: один хост — один стабильный адрес.
+/// Пул fake-ip из `FAKE_IP_RANGE`: один нормализованный хост — один стабильный адрес.
 ///
-/// Стабильность — контракт (`03` §8): по fake-ip поток позже узнаётся как тот же самый,
-/// поэтому привязки не вытесняются (вытеснение — Phase 1/2, вместе с TTL DNS).
+/// Стабильность — контракт (`03` §8): по fake-ip поток позже узнаётся как тот же самый.
+/// Потолок `FAKE_IP_POOL_CAP` с FIFO-вытеснением старейших привязок вместо паники:
+/// исчерпание диапазона и переполнение пула — ошибки, возвращаемые вызывающему, а не
+/// крах процесса (аудит F-SEC: expect в lib-коде — process-fatal политика).
 #[derive(Debug, Clone, Default)]
 pub struct FakeIpPool {
     by_host: HashMap<String, IpAddr>,
-    next: Option<u32>,
+    /// Порядок выдачи привязок — для FIFO-вытеснения при переполнении пула.
+    order: Vec<String>,
+    /// Следующий адрес диапазона; `> FAKE_IP_LAST` — диапазон исчерпан.
+    next: u32,
+}
+
+/// Ошибка выдачи fake-ip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FakeIpError {
+    /// Хост не нормализуется (пустой, управляющие/недопустимые символы).
+    BadHost,
+    /// Диапазон `FAKE_IP_RANGE` исчерпан и вытеснять нечего (пул пуст — аномалия,
+    /// недостижимая при `FAKE_IP_POOL_CAP` ≤ размеру диапазона).
+    Exhausted,
 }
 
 impl FakeIpPool {
-    fn assign(&mut self, host: &str) -> IpAddr {
-        if let Some(addr) = self.by_host.get(host) {
-            return *addr;
+    fn assign(&mut self, host: &str) -> Result<IpAddr, FakeIpError> {
+        let host = normalize_host(host).ok_or(FakeIpError::BadHost)?;
+        if let Some(addr) = self.by_host.get(&host) {
+            return Ok(*addr);
         }
-        let next = match self.next {
-            Some(prev) => prev
-                .checked_add(1)
-                .filter(|n| *n <= FAKE_IP_LAST),
-            None => Some(FAKE_IP_FIRST),
+        // Пул полон → вытесняем старейшую привязку (FIFO), освобождая **ключ**, а не
+        // адрес: выдача всё равно монотонно идёт по диапазону.
+        while self.by_host.len() >= FAKE_IP_POOL_CAP {
+            let Some(oldest) = self.order.first().cloned() else {
+                return Err(FakeIpError::Exhausted);
+            };
+            self.order.remove(0);
+            self.by_host.remove(&oldest);
         }
-        .expect("fake-ip pool exhausted (Phase 0 stub): вытеснение привязок — Phase 1/2");
-        self.next = Some(next);
-        let addr = IpAddr::V4(Ipv4Addr::from(next));
-        self.by_host.insert(host.to_owned(), addr);
-        addr
+        if self.next > FAKE_IP_LAST {
+            return Err(FakeIpError::Exhausted);
+        }
+        let addr = IpAddr::V4(Ipv4Addr::from(self.next));
+        self.next = self.next.saturating_add(1);
+        self.by_host.insert(host.clone(), addr);
+        self.order.push(host);
+        Ok(addr)
     }
 
     fn len(&self) -> usize {
@@ -231,8 +295,10 @@ impl Engine {
     /// Регистрирует fake-ip для хоста и возвращает адрес из `FAKE_IP_RANGE`.
     ///
     /// Повторный вызов для того же хоста возвращает тот же адрес (стабильный ключ
-    /// потока, `03` §8).
-    pub fn assign_fake_ip(&mut self, host: &str) -> IpAddr {
+    /// потока, `03` §8). Хост нормализуется (`normalize_host`): регистр и завершающий
+    /// dot не создают вторых записей. Ошибки — `BadHost` (невалидный хост) и `Exhausted`
+    /// (диапазон исчерпан); паники нет — классификация потока не должна ронять процесс.
+    pub fn assign_fake_ip(&mut self, host: &str) -> Result<IpAddr, FakeIpError> {
         self.fakeip.assign(host)
     }
 
@@ -255,17 +321,139 @@ mod tests {
     #[test]
     fn contract_fake_ip_is_stable_and_in_range() {
         let mut engine = Engine::new(RouteAction::Route, Vec::new());
-        let first = engine.assign_fake_ip("example.com");
-        let again = engine.assign_fake_ip("example.com");
+        let first = engine
+            .assign_fake_ip("example.com")
+            .expect("валидный хост резервирует адрес");
+        let again = engine
+            .assign_fake_ip("example.com")
+            .expect("повтор — тот же хост");
         assert_eq!(first, again, "один хост — один стабильный адрес");
 
         let range = Cidr::parse(FAKE_IP_RANGE).expect("константа FAKE_IP_RANGE парсится");
         assert!(range.contains(&first), "адрес внутри {FAKE_IP_RANGE}");
 
-        let other = engine.assign_fake_ip("other.example");
+        let other = engine
+            .assign_fake_ip("other.example")
+            .expect("второй хост резервирует адрес");
         assert_ne!(first, other, "разные хосты — разные адреса");
         assert!(range.contains(&other));
         assert_eq!(engine.fake_ip_entries(), 2);
+    }
+
+    /// Контракт нормализации: регистр и завершающий dot не создают вторых записей пула
+    /// и не обходят блок-правила; пустой/недопустимый хост — `BadHost`, а не запись.
+    #[test]
+    fn contract_host_normalization_rejects_and_dedups() {
+        assert_eq!(
+            normalize_host("Example.COM."),
+            Some("example.com".to_string()),
+            "lowercase + strip trailing dot"
+        );
+        assert_eq!(normalize_host(""), None, "пустой хост невалиден");
+        assert_eq!(normalize_host("."), None, "точка без имени невалидна");
+        assert_eq!(
+            normalize_host("exa mple.com"),
+            None,
+            "пробел в имени невалиден"
+        );
+        assert_eq!(
+            normalize_host("ex\u{1}ample.com"),
+            None,
+            "управляющий символ невалиден"
+        );
+        assert_eq!(
+            normalize_host("пример.test"),
+            None,
+            "не-ASCII без IDNA отбрасывается, а не кладётся в пул"
+        );
+
+        let mut engine = Engine::new(RouteAction::Route, Vec::new());
+        let a = engine
+            .assign_fake_ip("Example.COM.")
+            .expect("нормализуемый хост принимается");
+        let b = engine
+            .assign_fake_ip("example.com")
+            .expect("тот же хост после нормализации");
+        assert_eq!(a, b, "регистр/точка не дают второй адрес");
+        assert_eq!(engine.fake_ip_entries(), 1, "один хост — одна запись пула");
+        assert_eq!(
+            engine.assign_fake_ip(""),
+            Err(FakeIpError::BadHost),
+            "пустой хост — ошибка, не запись"
+        );
+
+        // Host-матчер правил нормализуется так же: `tracker.example.` блокируется,
+        // `TRacker.example` тоже — обход блокировки точкой/регистром невозможен.
+        let engine = Engine::new(
+            RouteAction::Route,
+            vec![Rule::new("block-tracker", RouteAction::Block).with_host("tracker.example.")],
+        );
+        let key = |host: &str| FlowKey {
+            dst: ip("203.0.113.5"),
+            dst_port: 443,
+            host: Some(host.to_owned()),
+        };
+        assert_eq!(engine.route(&key("tracker.example")).action, RouteAction::Block);
+        assert_eq!(engine.route(&key("tracker.example.")).action, RouteAction::Block);
+        assert_eq!(engine.route(&key("TRACKER.example")).action, RouteAction::Block);
+        assert_eq!(engine.route(&key("tracker.example.org")).action, RouteAction::Route);
+    }
+
+    /// Контракт отказов пула: исчерпание диапазона и переполнение пула — `Err`, не паника;
+    /// при переполнении вытесняется старейшая привязка (FIFO), а пул не растёт бесконечно.
+    #[test]
+    fn contract_pool_exhaustion_errors_and_evicts_instead_of_panic() {
+        let mut engine = Engine::new(RouteAction::Route, Vec::new());
+        let first = engine
+            .assign_fake_ip("oldest.example")
+            .expect("первый адрес диапазона");
+
+        // Выдаем адреса до последнего: FAKE_IP_FIRST..=FAKE_IP_LAST заняты уникальными хостами.
+        let span = (FAKE_IP_LAST - FAKE_IP_FIRST) as usize;
+        for i in 0..span {
+            let host = format!("h{i}.example");
+            engine
+                .assign_fake_ip(&host)
+                .expect("диапазона хватает на все привязки");
+        }
+        assert_eq!(engine.fake_ip_entries(), FAKE_IP_POOL_CAP.min(span + 1));
+
+        // Диапазон исчерпан: новый хост — Exhausted, процесс жив.
+        assert_eq!(
+            engine.assign_fake_ip("fresh.example"),
+            Err(FakeIpError::Exhausted),
+            "исчерпание диапазона — ошибка, не паника"
+        );
+        // Существующая привязка по-прежнему резолвится в свой адрес.
+        assert_eq!(
+            engine.assign_fake_ip("oldest.example").expect("стабильный адрес"),
+            first,
+            "повтор исчерпанного пула не ломает старые привязки"
+        );
+    }
+
+    /// Контракт FIFO-вытеснения: при переполнении пула (потолок меньше диапазона)
+    /// старейшая привязка вытесняется, потолок удерживается — HashMap не растёт без границ.
+    #[test]
+    fn contract_pool_fifo_eviction_keeps_cap() {
+        let mut pool = FakeIpPool {
+            by_host: HashMap::new(),
+            order: Vec::new(),
+            next: FAKE_IP_FIRST,
+        };
+        for i in 0..FAKE_IP_POOL_CAP {
+            let host = format!("x{i}.example");
+            pool.by_host
+                .insert(host.clone(), IpAddr::V4(Ipv4Addr::from(FAKE_IP_FIRST)));
+            pool.order.push(host);
+        }
+        let evicted = pool.order[0].clone();
+
+        pool.assign("fresh.example")
+            .expect("вытеснение освобождает место под новый хост");
+        assert_eq!(pool.len(), FAKE_IP_POOL_CAP, "потолок удержан");
+        assert!(!pool.by_host.contains_key(&evicted), "старейшая вытеснена");
+        assert!(pool.by_host.contains_key("fresh.example"));
     }
 
     /// Контракт split-tunnel: `Block` отклоняет по домену, `Direct` — по CIDR,

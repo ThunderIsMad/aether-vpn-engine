@@ -203,7 +203,9 @@ mod tests {
             RouteAction::Route,
             vec![Rule::new("block", RouteAction::Block).with_host("tracker.example")],
         );
-        let fake_ip = policy.assign_fake_ip("example.com");
+        let fake_ip = policy
+            .assign_fake_ip("example.com")
+            .expect("валидный хост резервирует адрес");
 
         let k = test_key();
         let mut sender = session(k);
@@ -281,8 +283,12 @@ mod tests {
     #[test]
     fn flow_identity_is_stable_per_destination() {
         let mut policy = Engine::new(RouteAction::Route, Vec::new());
-        let fake_a = policy.assign_fake_ip("a.example");
-        let fake_b = policy.assign_fake_ip("b.example");
+        let fake_a = policy
+            .assign_fake_ip("a.example")
+            .expect("валидный хост резервирует адрес");
+        let fake_b = policy
+            .assign_fake_ip("b.example")
+            .expect("валидный хост резервирует адрес");
         let k = test_key();
         let mut sender = session(k);
         let mut binding = MemBinding::new(transport_mux::BindingCaps::QUIC);
@@ -350,8 +356,10 @@ mod tests {
     #[test]
     fn packet_through_cover_binding_roundtrip() {
         use cover_ss2022::{decode_cover_frame, SsPaddedBinding};
-        let mut policy = Engine::new(RouteAction::Route, Vec::new());
-        let fake = policy.assign_fake_ip("example.com");
+        let mut policy = Engine::new(RouteAction::Route, Vec::new());
+        let fake = policy
+            .assign_fake_ip("example.com")
+            .expect("валидный хост резервирует адрес");
         let sid = [0x5au8; 16];
         let cover =
             crypto_core::derive_cover_key(&sid, &crypto_core::derive_session(&sid, b"cover path test"));
@@ -359,7 +367,7 @@ mod tests {
         let mut sender = session(k);
         let mut binding = SsPaddedBinding::with_padding(cover, 256);
         let mut flows = std::collections::HashMap::new();
-        let packet = ipv4_packet(match fake { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"cover me");
+        let packet = ipv4_packet(match fake { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"cover me");
         let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet)
             .expect("обложка принимает запись");
         let stream = match outcome {
@@ -367,13 +375,13 @@ mod tests {
             other => panic!("ожидали Sent, получили {other:?}"),
         };
         assert!(!binding.supports().no_hol, "обложка stream-класса");
-        // Кадр обложки вынимается и вскрывается тем же ключом.
+        // Кадр обложки вынимается и вскрывается тем же ключом.
         let pending = binding.take_pending();
         assert_eq!(pending.len(), 1);
         let (_sid, frame) = &pending[0];
         let record = decode_cover_frame(&cover, frame).expect("cover-кадр вскрывается");
         assert_eq!(record.stream_id, stream);
-        // Внутри — та же запись frame-слоя: зеркало вскрывает исходные байты пакета.
+        // Внутри — та же запись frame-слоя: зеркало вскрывает исходные байты пакета.
         let mut mirror = session(k);
         mirror.open_stream(FlowId(1));
         let plaintext = mirror
@@ -393,7 +401,9 @@ mod tests {
         use cover_masque::{decode_masque_frame, MasqueBinding};
 
         let mut policy = Engine::new(RouteAction::Route, Vec::new());
-        let fake = policy.assign_fake_ip("example.org");
+        let fake = policy
+            .assign_fake_ip("example.org")
+            .expect("валидный хост резервирует адрес");
         let k = test_key();
         let mut sender = session(k);
         let mut binding = MasqueBinding::new();
