@@ -10,7 +10,7 @@
 | QUIC-туннель быстрее TCP-VPN | >2× page-load | ИЗМЕРЕНО (но PEP-контекст 2020) | QPEP (2002.05091); прямых замеров VPN-контекста нет |
 | «30–50% быстрее TCP-VPN» | 30–50% | **ГИПОТЕЗА** — выведено из QPEP, ждёт собственного бенчмарка | Phase 1 exit-критерий |
 | Reconnect | ≈1 RTT (не 0-RTT) | ПРОЕКТНО | outer QUIC TLS resumption + RESUME frame по ticket (`02 §7`) |
-| 0-RTT early data | опционально, только идемпотентный контроль | ГИПОТЕЗА (зависит от стека, Phase 0.5) | |
+| 0-RTT early data | опционально, только идемпотентный контроль; RESUME с ticket туда не кладётся | **есть** (`Connecting::into_0rtt()`, docs quinn 0.11.12); replay-оговорка библиотеки совпадает с нашим правилом | `02 §7` |
 | No-HOL | per-stream изоляция потерь | ПРОЕКТНО | только для QUIC/MASQUE-байндингов; Reality/TCP — HOL tradeoff |
 | PQ handshake overhead | +15–45 мс; размер handshake **ИЗМЕРЕНО: msg1+msg2 ≈ 7.0 KB (3568 + 3424 B)**, не +~1.2 KB | латентность — **ГИПОТЕЗА** (чужой стек, enterprise PQ VPN, 2025; RTT/loss не указан); размер — замер обёртки Clatter 2.3.0 в CI 2026-09-16 (`02 §5`): в гибридном IK едут статики KEM обеих сторон + гибридный `E` (DH+KEM); свой замер латентности — Phase 0 | cyberpath (02 §1), Clatter 2.3.0 |
 | PQ steady-state | bandwidth +10–20%, CPU +15–40% | ИЗМЕРЕНО | cyberpath (02 §1) |
@@ -33,7 +33,7 @@
 | Утверждение | Механизм | Статус |
 |-------------|----------|--------|
 | Ротация egress не рвёт Aether-сессию; payload-соединения видят смену 4-tuple | ticket resume, make-before-break | спроектировано; **Phase 0 тест обязателен**; прикладные TCP/QUIC рвутся сменой source IP (per-flow pinning — Phase 1, `05-roadmap` риск) |
-| WiFi↔cellular handoff | QUIC connection migration | зависит от стека (Phase 0.5) |
+| WiFi↔cellular handoff | QUIC connection migration | **ограничение стека (Phase 0.5):** серверная миграция в quinn 0.11.12 есть (default on, NAT-rebinding); активной клиентской в публичном API нет (только `Endpoint::rebind` на весь endpoint) → клейм снят до появления API, переоценка — Phase 1 |
 | Multi-hop без Tor-латентности | QUIC mesh + per-hop hybrid. Цель: p95 латентности ≤ 3× single-hop на 2 хопах | Phase 3, метрика приёмки |
 | Self-healing против блокировок | морф к проходящей обложке | Phase 2, research-grade |
 

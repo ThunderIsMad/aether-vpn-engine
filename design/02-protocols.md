@@ -38,9 +38,15 @@ ciphertext = XChaCha20-Poly1305(K_record, nonce = seq(8B) || sid(16B), plaintext
 ## 2. Байндинги frame-слоя к транспортам
 
 ### 2.1 QUIC-нативный байндинг (дефолт)
-- Один outer QUIC connection; `stream_id` ↔ QUIC stream → no-HOL, migration, CID rotation.
+- Один outer QUIC connection; `stream_id` ↔ QUIC stream → no-HOL, CID rotation. Migration:
+  серверная сторона в quinn есть и включена по умолчанию (`ServerConfig::migration`, NAT-rebinding
+  и смена адреса клиента), активная миграция со стороны клиента публичным API quinn 0.11.12
+  не предоставляется (только endpoint-широкий `Endpoint::rebind`) — клейм сужен (Phase 0.5,
+  `docs/phase-reports/phase-0.5.md`).
 - Control-записи (RESUME/REKEY) — отдельный QUIC stream.
 - 0-RTT early data outer QUIC — только для control-записей без побочных эффектов (KEEPALIVE),
+  — подтверждено спайком: `Connecting::into_0rtt()` в quinn 0.11.12 есть, replay-оговорка самой
+  библиотеки («never invoke non-idempotent operations») совпадает с этим правилом (`phase-0.5.md`),
   и только если стек поддерживает; иначе 1-RTT resumption через TLS tickets.
 - **Следствие v3:** `RESUME` идемпотентным больше не является — повтор того же ticket даёт
   `RESUME_NAK replay` (`§3.6`). Поэтому по умолчанию RESUME идёт после подтверждённого outer–хендшейка,
@@ -393,13 +399,15 @@ Decoy — реальные зашифрованные байты к benign-на�
 - Noise_IK не имеет 0-RTT resumption. Заявлять «0-RTT» для сессии — некорректно.
 - Реальная семантика: **reconnect ≈ 1 RTT** = outer QUIC TLS resumption (где поддерживается
   стеком) + `RESUME` frame по ticket. 0-RTT early data outer QUIC — только идемпотентный
-  контроль (и это надо верифицировать в стеке — см. roadmap Phase 0.5).
+  контроль. Спайк Phase 0.5: механизм есть (`Connecting::into_0rtt()`), библиотека сама
+  предупреждает про replay; RESUME с ticket в 0-RTT не кладётся (replay семантики ticket,
+  `§3.6`).
 
 ## 8. Сводка крипто
 
 | Плоскость | Примитив | Статус |
 |-----------|----------|--------|
-| Handshake сессии | Noise_IK + `X25519MLKEM768` | реализуемо (Clatter); наличие гибрида IK — проверка Phase 0.5 |
+| Handshake сессии | Noise_IK + `X25519MLKEM768` | реализовано: `noise_hybrid_ik()` Clatter 2.3.0, токены `-> Skem, E, ES, S, SS / <- Ekem, Skem, E, EE, SE` (Phase 0 + спайк `phase-0.5.md`) |
 | Записи сессии | `XChaCha20-Poly1305` + ratchet | реализуемо |
 | Ротация | TLS-ticket + PoP + свежий DH re-key | спроектировано до полей (`§3`), тест в Phase 0 |
 | Outer транспорт | стандартный QUIC/TLS 1.3 | классический (не PQ) — транспортная роль |

@@ -35,7 +35,7 @@ Codename архитектуры: **Liquid Tunnel**.
 | 3 | **Hybrid PQ crypto** | `X25519MLKEM768` (Noise_IK, стиль NoisePQC++) на control; `XChaCha20-Poly1305` на данные | реализуемо (Clatter); наличие гибрида IK — Phase 0.5 | 04, 2608.00954 |
 | 4 | **Federated Egress Mesh** | 1–3 хопа, per-hop handshake, chain rotation | Phase 3, research-grade; каркас в `02 §3.4` | 01 §6, 06 |
 | 5 | **App Mirage** | Декой-трафик под TLS-отпечаток популярных приложений | research-grade (FlowPaint) | 05, 2606.22717 |
-| 6 | **QUIC-native transport** | QUIC-байндинг frame-слоя: streams, migration, no-HOL | реализуемо (quinn) | 06, 2002.05091 |
+| 6 | **QUIC-native transport** | QUIC-байндинг frame-слоя: streams, no-HOL; migration — серверная (NAT-rebinding), активная клиентская в API quinn 0.11.12 нет | реализуемо (quinn), migration с ограничением | 06, 2002.05091 |
 
 ## Сравнение с существующими движками
 
@@ -47,7 +47,7 @@ Codename архитектуры: **Liquid Tunnel**.
 | Egress rotation safe | n/a | ✗ (рвёт сессии) | частично | n/a | ✅ Aether-сессия (frame-слой); прикладные TCP/QUIC на egress рвутся сменой source IP — без per-flow pinning. См. `05-roadmap` риск |
 | Multi-hop low latency | ✗ | ✗ (1 hop) | ✗ медленно | ✗ | Phase 3 |
 | App-fingerprint cover | ✗ | ✗ | ✗ | ✗ | Phase 3, research-grade |
-| 0-RTT / migration / no-HOL | ✗/✗/✗ | partial | ✗ | ✅/✅/✅ | resumption ≈1 RTT / ✅ / ✅ (QUIC-байндинг) |
+| 0-RTT / migration / no-HOL | ✗/✗/✗ | partial | ✗ | ✅/✅/✅ | resumption ≈1 RTT / ✗ (серверная только; активная клиентская в API quinn 0.11.12 нет) / ✅ (QUIC-байндинг) |
 | Stateless server | ✗ | ✗ | partial | ✗ | ✅ нет состояния, переживающего ротацию (ticket-based) |
 
 ## Review checklist (обновлён)
@@ -60,8 +60,8 @@ Codename архитектуры: **Liquid Tunnel**.
 - [x] Морфинг: механизм описан до overlap-window и границ оверхеда (`02 §4`).
 - [x] Крипто конкретна: `X25519MLKEM768` + Noise_IK + `XChaCha20-Poly1305`; байты сверены с FIPS 203.
 - [x] **Принят payload-эффект ротации:** Aether-сессия (frame-слой) ротацию переживает, но прикладные TCP/QUIC рвутся сменой source IP; per-flow pinning (старые потоки на N1 до FIN) — Phase 1.
-- [ ] **Открыто:** реализуемость 0-RTT early data в quinn — верификационный спайк (Phase 0.5).
-- [ ] **Открыто:** наличие гибридного `noise_hybrid_IK_*` в Clatter и порядок токенов — Phase 0.5 (`02 §5`).
+- [x] 0-RTT early data в quinn — **есть** (`Connecting::into_0rtt()`, docs 0.11.12), с replay-оговоркой самой библиотеки «never invoke non-idempotent operations» — совпадает с нашей спекой (`02 §7`: только идемпотентный контроль, RESUME туда не класть). Спайк Phase 0.5 (`phase-0.5.md`).
+- [x] Гибридный `noise_hybrid_ik()` в Clatter — **есть**, порядок токенов `-> Skem, E, ES, S, SS / <- Ekem, Skem, E, EE, SE` (исходник `handshakepattern.rs`), в спеке с поправками Q12/Q10 (`02 §5`).
 - [ ] **Открыто:** consumed-set теряется при рестарте узла — принято сознательно и смягчено короткими эпохами (`02 §3.6`).
 - [ ] **Открыто:** ECH сквозь quinn недоступен (клиентский ECH в rustls есть, серверный — открыт) — отложено в Phase 4, до этого полагаемся на MASQUE/Reality.
 - [ ] **Открыто:** Reality-обложка поверх TCP даёт HOL на frame-слое — задокументированный tradeoff (`02 §2.2`).

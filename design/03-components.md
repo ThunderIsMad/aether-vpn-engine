@@ -8,9 +8,10 @@
 
 | Назначение | Крейт | Примечание |
 |------------|-------|------------|
-| QUIC | `quinn` | BBR там **экспериментальный и не сопровождается** (BBRv1-класс, «use at your own risk», issue #2156: отстаёт от upstream BBR) — дефолт cubic, BBR за флагом с бенчмарком |
+| QUIC | `quinn` | BBR там **экспериментальный и не сопровождается** (BBRv1-класс, «use at your own risk», issue #2156: отстаёт от upstream BBR) — дефолт cubic, BBR за флагом с бенчмарком. Migration: серверная — есть (default on), активная клиентская в API 0.11.12 — нет (`phase-0.5.md`) |
+| Outer TLS PQ | — | **не включается:** фича quinn `__rustls-post-quantum-test` — тестовая (`__`-префикс, гейтит только тест, тянет `rustls/prefer-post-quantum` на aws-lc-rs); outer остаётся классический TLS 1.3 (Phase 0.5, Q7) |
 | HTTP/3 | `h3` + `quinn` | для MASQUE CONNECT-UDP |
-| Noise PQ | `clatter` (PQNoise, ML-KEM-768) — единственный готовый путь; `noise-protocol` + RustCrypto `ml-kem` **не композиция**: в `noise-protocol` трейты только DH/Cipher/Hash, KEM-токенов нет → форк | `snow` не подходит — только Kyber1024 round-3 (закрытый enum); `clatter` без формального аудита, своё именование PQ-примитивов → interop не гарантирован |
+| Noise PQ | `clatter` (PQNoise, ML-KEM-768) — единственный готовый путь; KEM-бэкенд — **только `use-pqclean-ml-kem`** (второй, `use-rust-crypto-ml-kem`, в workspace не тянется: транзитивный `ml-kem 0.2.1` не собирается, Q8); `noise-protocol` + RustCrypto `ml-kem` **не композиция**: в `noise-protocol` трейты только DH/Cipher/Hash, KEM-токенов нет → форк | `snow` не подходит — только Kyber1024 round-3 (закрытый enum); `clatter` без формального аудита; interop RustCrypto ⇄ PQClean доказан двунаправленным тестом (`crypto-core`) |
 | AEAD | `chacha20poly1305`, `x25519-dalek` | |
 | Reality-обложка | xray-core (Go) как **reference**; Rust-путь: `boring` (BoringSSL) c контролем ClientHello | TLS-слойного uTLS-эквивалента в Rust нет (`impersonate-rs` есть, но он HTTP-уровня) — самый дорогой cover, делать после остальных. Риск: два libcrypto в одном дереве рядом с rustls |
 | ML-классификатор | `ort` (ONNX Runtime) / TFLite | `ort` 2.0 — release candidate (2.0.0-rc.13): нужен план отката на 1.x |

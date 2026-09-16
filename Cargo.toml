@@ -13,9 +13,10 @@ edition = "2021"
 quinn = "0.11.12"
 # Набор фич задан явно: default-набор тянет ОБА KEM-бэкенда, а `use-rust-crypto-ml-kem`
 # приводит транзитивный `ml-kem 0.2.1`, который не собирается сегодня (первый прогон CI,
-# 2026-09-16: `could not compile ml-kem (lib) due to 18 previous errors`). KEM-бэкенд здесь —
-# `pqclean`; `ml-kem 0.3.2` остаётся нашей прямой зависимостью (`crypto-core`, KAT FIPS 203).
-# Подробности — `QUESTIONS.md` Q8.
+# 2026-09-16: `could not compile ml-kem (lib) due to 18 previous errors`). KEM-бэкенд —
+# ТОЛЬКО `pqclean` (решение Phase 0.5: второй бэкенд не тянется нигде); `ml-kem 0.3.2`
+# остаётся нашей прямой зависимостью (`crypto-core`, KAT FIPS 203 + interop против PQClean).
+# Подробности — `QUESTIONS.md` Q8, `DEPENDENCIES.md` → «Phase 0.5».
 clatter = { version = "2.3.0", default-features = false, features = [
     "std",
     "alloc",

@@ -74,6 +74,23 @@
 
 ---
 
+## Phase 0.5 — спайк стека (2026-09-16)
+
+Фичи, проверенные по docs.rs и исходникам тегов (не по памяти). Итоговая таблица с действиями —
+`docs/phase-reports/phase-0.5.md`.
+
+| Фича | Статус | Источник |
+|---|---|---|
+| `clatter::handshakepattern::noise_hybrid_ik()` | **ЕСТЬ**: `-> Skem, E, ES, S, SS / <- Ekem, Skem, E, EE, SE`; в msg2 `Skem` — инкапсуляция к **статическому** KEM-ключу узла | исходник `handshakepattern.rs` (jmlepisto/clatter), Phase 0 Q12 |
+| KEM-бэкенд clatter | **ОДИН** — `use-pqclean-ml-kem`; `use-rust-crypto-ml-kem` не тянется ни в одном крейте (транзитивный `ml-kem 0.2.1` не собирается) | Q8; набор зафиксирован в `Cargo.toml` |
+| quinn TLS session resumption | **ЕСТЬ** (rustls session storage в `ClientConfig`, автовозобновление при повторном подключении к тому же server name) | docs quinn 0.11.12 (`Connecting::into_0rtt` — «attempts to resume a previous TLS session») |
+| quinn 0-RTT early data | **ЕСТЬ**: `Connecting::into_0rtt() -> Result<(Connection, ZeroRttAccepted), Self>`; replay-оговорка библиотеки «vulnerable to replay attacks… never invoke non-idempotent operations» | docs quinn 0.11.12, `Connecting` |
+| quinn connection migration | **ЧАСТИЧНО**: серверная — есть, `ServerConfig::migration` default `true` (NAT-rebinding + смена адреса клиента, `migrate()` в `quinn-proto/src/connection/mod.rs`); активная клиентская миграция публичным API 0.11.12 не предоставляется — только `Endpoint::rebind()` (весь endpoint, не соединение) | исходник тега quinn-0.11.12 (`config/mod.rs:244`, `connection/mod.rs:3066`) |
+| quinn BBR | **ЭКСПЕРИМЕНТАЛЬНО и не сопровождается**: `congestion::Bbr` — «Experimental! Use at your own risk»; дефолт — `Cubic` | docs quinn 0.11.12 `congestion` |
+| Outer PQ (`__rustls-post-quantum-test` / `rustls/prefer-post-quantum`) | **НЕ ВКЛЮЧАТЬ**: тестовая `__`-фича (гейтит только один тест, требует `rustls-aws-lc-rs`); наружу как транспортная фича не выставляется — outer остаётся классический TLS 1.3 | `quinn/Cargo.toml:52` тега quinn-0.11.12; Q7 закрыт |
+
+---
+
 ## Phase 0 pins (2026-09-16 · TTL 90d → перепроверка до 2026-12-15)
 
 Версии сняты с crates.io (`max_stable_version`) в день скаффолда. Это **отдельная проверка**,
