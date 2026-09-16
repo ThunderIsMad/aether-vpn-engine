@@ -178,9 +178,11 @@ mod tests {
     }
 
     fn ipv4_packet(dst: Ipv4Addr, payload: &[u8]) -> Vec<u8> {
-        // Минимальный IPv4: version/IHL=5, total_len, протокол 6 (TCP), dst последним.
+        // Минимальный IPv4-заголовок (ровно 20 B, IHL=5): version/IHL(1), DSCP(1),
+        // total_len(2), id(2), flags/frag(2), ttl(1), proto(1), checksum(2),
+        // src(4), dst(4) — dst по смещению 16, как читает `packet_flow_key`.
         let mut p = vec![0x45, 0, 0, 0];
-        p.extend_from_slice(&[0, 0, 0, 0]); // id
+        p.extend_from_slice(&[0, 0]); // id
         p.extend_from_slice(&[0, 0]); // flags/frag
         p.push(64); // ttl
         p.push(6); // proto TCP
