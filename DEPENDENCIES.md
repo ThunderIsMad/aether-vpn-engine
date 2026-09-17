@@ -44,7 +44,7 @@
 | `ml-kem` (RustCrypto) | ML-KEM-768 | **EXISTS**, FIPS 203 | `kyberlib` (аудит против KyberSlash) | — | 2026-09-16 | 180 дней |
 | `snow` | отвергнут дизайном | **CONFIRMED отвергнут**: только Kyber1024 round-3, закрытый `KemChoice` enum | `clatter` | — | 2026-09-16 | 180 дней |
 | `chacha20poly1305`, `x25519-dalek` | AEAD + DH | EXISTS (стандарт RustCrypto); **в этом прогоне детально не перепроверялись** | — | пиннинг версий в Phase 0 | не проверялось | задать в Phase 0 |
-| `boring` | Reality-обложка, контроль ClientHello | **EXISTS** (cloudflare/boring: 4.x stable, 5.0.0-alpha.1). Риск: два libcrypto в одном дереве (конфликт символов с rustls/ring) | xray-core как Go-sidecar | — | 2026-09-16 | 180 дней |
+| `boring` | Reality-обложка, контроль ClientHello | **ПРОД-ЗАВИСИМОСТЬ с b132** (`cover-reality`), версия пина 4.22 (4.x stable; 5.0.0-alpha.1 не берём). Риск двух libcrypto в одном дереве (конфликт символов с rustls/ring) снят пробами на обеих платформах: линковка чистая, живой TLS-handshake обоих стеков в одном процессе без ошибок (`docs/phase-reports/reality-boring-probe.md`, шаги 1–6, Linux CI run 35224800408) | xray-core как Go-sidecar (запасной путь, не реализовался) | — | 2026-09-16 (аудит) / 2026-09-17 (прод) | 180 дней |
 | `xray-core` | reference для Reality | EXISTS, **не зависимость** | — | — | 2026-09-16 | ∞ |
 | `masque-go`, `quic-go` | reference-only | **CONFIRMED**: Go; `masque-go` реализует RFC 9298 | — | — | 2026-09-16 | ∞ |
 | `ort` | ONNX Runtime для классификатора | **EXISTS**, но 2.0 — release candidate (2.0.0-rc.13); multiversioning ONNX Runtime 1.17–1.24 | TFLite | — | 2026-09-16 | 90 дней |
@@ -62,8 +62,10 @@
 
 1. `MorphController`/`Classifier` на `ort` держать на 2.0-rc с планом отката на 1.x —
    rc-версия в крипто-ядре недопустима, но классификатор к ядру не относится.
-2. Перед добавлением `boring` проверить сборку рядом с rustls: конфликт символов libcrypto
-   проявится только на линковке, и лучше узнать это в Phase 1, а не в Phase 4.
+2. ~~Перед добавлением `boring` проверить сборку рядом с rustls~~ **ВЫПОЛНЕНО**
+   (2026-09-17): конфликт символов libcrypto не материализовался — пробы линковки и живого
+   handshake на Windows/GNU + Linux CI (`reality-boring-probe.md`); `boring` 4.22 добавлен
+   прод-зависимостью (`cover-reality`).
 3. Пункты 1–3 из «Что меняет дизайн» — это правки текста `03-components.md`, а не кода.
 
 ## Что не проверялось
@@ -197,7 +199,19 @@ cargo test -p e2e-harness --all-features    # шаг best-effort из ci.yml: 15
 ```
 
 Переопределения до source: `W64DEVKIT_HOME` (дефолт `~/w64devkit`),
-`PQ_SHIM_DIR` (дефолт `tools/pq-shim` в репо).
+`PQ_SHIM_DIR` (дефолт `tools/pq-shim` в репо), `BORING_TOOLS_DIR` (дефолт
+`~/Desktop/boring-probe/tools` — портативные NASM 2.16.03 и libclang из пробы).
+
+### boring-sys на Windows/GNU (2026-09-17, b132)
+
+С `boring` 4.22 прод-зависимостью (`cover-reality`) `local-env.sh` дополнительно
+настраивает то, что нужно boring-sys на этой платформе (полный рецепт —
+`reality-boring-probe.md`): `CMAKE_GENERATOR=Ninja` (MSYS Makefiles ломается о busybox-sh
+из w64devkit), портативный NASM 2.16.03 в PATH (CMakeLists BoringSSL требует ASM_NASM
+на Windows x86_64), `LIBCLANG_PATH` на PyPI-колесо libclang + `BINDGEN_EXTRA_CLANG_ARGS`
+с `-target x86_64-pc-windows-gnu` (без `-target` clang парсит mingw-заголовки как MSVC
+и падает на `__MINGW_NOTHROW`). На Linux CI ничего этого не нужно, кроме
+`cmake` + `libclang-dev` (apt) — NASM там не требуется (см. шаг 6 пробы).
 
 **Почему это важно (урок 2026-09-17):** прогон без этого окружения не даёт «ошибку:
 нет компилятора», а собирает только крейты без crypto-транзитива — в отчёте 23 passed

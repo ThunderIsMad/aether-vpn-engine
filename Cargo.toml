@@ -48,6 +48,17 @@ ed25519-dalek = "3.0.0"
 # хранилищем версии; убрать/бампать может только owner-крейт через запись в DEPENDENCIES.md.
 h3 = "0.0.8"
 
+# Reality-обложка (Phase 1, кусок 3): TLS-бэкенд контроля ClientHello (BoringSSL).
+# Первая прод-зависимость boring: линковка рядом с rustls/ring и живой TLS-handshake
+# обоих стеков в одном процессе проверены пробами на обеих платформах
+# (docs/phase-reports/reality-boring-probe.md; риск F11 DEPENDENCIES.md снят).
+# TTL 180 дней — тот же класс, что у clatter/ml-kem: перепроверка до 2027-03-16.
+# Владелец — cover-reality. Требования сборки boring-sys на Windows/GNU (NASM,
+# libclang-колесо, CMAKE_GENERATOR=Ninja) — scripts/local-env.sh (b132, был
+# boring-probe-env.sh для пробы); на Linux CI достаточно apt (cmake, libclang-dev;
+# NASM не нужен) — см. rust-job и job reality-boring-probe-linux.
+boring = "4.22.0"
+
 # Внутренние крейты. Связь `transport-mux → frame-session` — единственная, зафиксированная
 # в design/03-components.md («Порядок зависимостей для сборки», интерфейс CoverBinding).
 frame-session = { path = "crates/frame-session" }
@@ -62,5 +73,6 @@ ticket-mint = { path = "crates/ticket-mint" }
 transport-mux = { path = "crates/transport-mux" }
 cover-ss2022 = { path = "crates/cover-ss2022" }
 cover-masque = { path = "crates/cover-masque" }
+cover-reality = { path = "crates/cover-reality" }
 # E2E-лаборатория Phase 1 (ручной прогон, не CI job): см. docs/phase-reports/e2e-manual.md.
 e2e-harness = { path = "crates/e2e-harness" }

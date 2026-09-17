@@ -63,6 +63,23 @@ Rust-клиента RFC 9298 поверх quinn+h3.
   мультиплексирующий QUIC streams и шлющий QUIC DATAGRAM frames. Чекбокс «RFC 9298 interop»
   в `05-roadmap` остаётся `[ ]` до живого CONNECT-UDP к пиру.
 - Reality/TCP-байндинг: length-prefixed frames; HOL tradeoff задокументирован.
+  ⇐ Phase 1, кусок 3: реализован в `cover-reality` как **`RealityBinding` — каркас Reality-класса,
+  НЕ Reality/VLESS-interop и НЕ «DPI-resistant в смысле живого трафика»**. Из чего состоит:
+  кадр `len(4B BE) ‖ nonce(24B) ‖ AEAD(record, AAD=заявленная длина)` на ключе обложки
+  `derive_cover_key(sid, K_session)` (отдельный слой: компрометация обложки не вскрывает
+  `K_record`/`K_resume`); ClientHello под сайт-мишень строит boring (`TargetSite` параметризован —
+  SNI не хардкод; пин сертификата сайта, браузерный ALPN, verify не отключается). Механизм
+  active-probe resistance — `classify_first_record`: аутентификация первым кадром **внутри**
+  TLS-канала на `K_cover`; соединение с валидным ClientHello, но без валидного Aether-аутентификатора,
+  получает фолбэк-ответ сайта-мишени (снимок его реального ответа; в тестах — детерминированная
+  заглушка), а не ошибку/RST — один пробный запрос не отличает Reality-ноду от сайта-мишени, обе
+  причины неаутентичности выглядят наблюдаемо одинаково. Развёртка TLS-канала (сам handshake
+  boring — проверен в живой пробе, `reality-boring-probe.md` шаг 4), приёмная сторона и сплайс
+  живого сокета сайта — за границей куска (живой peer-тест). Caps — stream-класс: `no_hol: false`
+  честно (TCP-класс, `02 §2.2` tradeoff: Reality используется морф-контроллером только при
+  блокировке QUIC-путей). Проверено: юнит-тесты layout/auth/caps/contract + линковка boring рядом
+  с rustls/ring на обеих платформах (Windows/GNU + Linux CI). НЕ проверено: active-probe от
+  независимого DPI-инструмента, живой peer — чекбокс в `05-roadmap` остаётся `[ ]`.
 - SS-2022/padded байндинг (fallback, чистый Rust).
   ⇐ Phase 1, кусок 1: реализован в `cover-ss2022` как **`SsPaddedBinding` — Aether padded
   cover, НЕ SS-2022 interop** (внешних тест-векторов SS-2022 нет; клейм появится только

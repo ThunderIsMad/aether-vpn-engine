@@ -42,6 +42,15 @@ jobs:
         with:
           persist-credentials: false
 
+      # b132: boring — прод-зависимость workspace (cover-reality) → boring-sys собирается
+      # в обязательном rust-job. На Linux: cmake обязателен, libclang-dev нужен bindgen'у
+      # (apt-пакет вместо PyPI-колеса на Windows), NASM не нужен (ASM_NASM в CMakeLists
+      # BoringSSL только для Windows; см. reality-boring-probe.md шаг 6).
+      - name: Install boring-sys build dependencies (linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake libclang-dev
+
       - name: Detect workspace
         id: ws
         run: |

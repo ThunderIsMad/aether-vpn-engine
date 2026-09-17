@@ -84,6 +84,14 @@ Reality — последним, как самый дорогой).
         (SETTINGS_H3_DATAGRAM, приёмная сторона); `masque-go`/`h3-masque` — reference-only, не зависимости.
 - [ ] Reality/VLESS — последний: либо Go-sidecar с xray-core, либо `boring` с контролем ClientHello.
       uTLS-эквивалента в Rust нет — это самый дорогой пункт Phase 1.
+  - [x] **Каркас** (Rust-путь: boring встроенным; sidecar был запасным путём на провал пробы
+        линковки — провал не случился, `reality-boring-probe.md` шаги 1–6): `cover-reality::
+        RealityBinding` — кадр-обёртка на `K_cover`, `classify_first_record` (active-probe
+        resistance: неаутентифицированный канал получает фолбэк сайта-мишени), boring-коннектор
+        ClientHello под параметризованный `TargetSite`, caps stream-класс (`no_hol: false`, `02 §2.2`).
+  - [ ] **Reality live interop** — живой peer-тест: аутентифицированный клиент проходит на
+        Aether-протокол, пассивный пробник получает ответ сайта-мишени; активный пробник от
+        независимого DPI-инструмента. Игнор-тесты в крейте ждут живого пира.
 - [ ] Ручной выбор обложки в UI; измерить pass-rate каждой на тестовой сети.
 - [ ] Собственный бенчмарк производительности (закрывает ГИПОТЕЗУ из 04-advantages).
 - **Exit:** оператор выбирает обложку; PQ + stateless + (теперь) измеренные цифры.

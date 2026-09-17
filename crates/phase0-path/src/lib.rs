@@ -434,4 +434,52 @@ mod tests {
             .expect("не дубликат");
         assert_eq!(plaintext, packet);
     }
+
+    /// Phase 1, кусок 3: тот же путь, но `CoverBinding` — каркас Reality/TCP
+    /// (`RealityBinding`). Пакет проходит policy → frame-session → Reality-обёртку
+    /// (`len ‖ nonce ‖ AEAD(record)` на `K_cover`), обёртка вскрывается
+    /// `decode_reality_frame` (тот же верdict, что у classify_first_record для
+    /// аутентифицированного клиента), запись — зеркальной сессией. Caps каркаса —
+    /// stream-класс: HOL — задокументированный tradeoff TCP-класса (`02 §2.2`).
+    #[test]
+    fn packet_through_reality_binding_roundtrip() {
+        use cover_reality::{decode_reality_frame, RealityBinding};
+
+        let mut policy = Engine::new(RouteAction::Route, Vec::new());
+        let fake = policy
+            .assign_fake_ip("reality.example")
+            .expect("валидный хост резервирует адрес");
+        let sid = [0x5au8; 16];
+        let cover =
+            crypto_core::derive_cover_key(&sid, &crypto_core::derive_session(&sid, b"reality path test"));
+        let k = test_key();
+        let mut sender = session(k);
+        let mut binding = RealityBinding::new(cover, cover_reality::TargetSite::placeholder());
+        let mut flows = std::collections::HashMap::new();
+
+        let packet = ipv4_packet(match fake { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"reality me");
+        let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet)
+            .expect("байндинг принимает запись");
+        let stream = match outcome {
+            StepOutcome::Sent(s) => s,
+            other => panic!("ожидали Sent, получили {other:?}"),
+        };
+        assert!(!binding.supports().no_hol, "Reality/TCP: no-HOL не заявляем (02 §2.2)");
+
+        // Reality-обёртка вынимается и вскрывается тем же ключом обложки.
+        let pending = binding.take_pending();
+        assert_eq!(pending.len(), 1);
+        let (_sid, frame) = &pending[0];
+        let record = decode_reality_frame(&cover, frame).expect("Reality-обёртка вскрывается");
+        assert_eq!(record.stream_id, stream);
+
+        // Внутри — та же запись frame-слоя: зеркало вскрывает исходные байты пакета.
+        let mut mirror = session(k);
+        mirror.open_stream(FlowId(1));
+        let plaintext = mirror
+            .recv_record(&record)
+            .expect("вскрытие записи прошло")
+            .expect("не дубликат");
+        assert_eq!(plaintext, packet);
+    }
 }

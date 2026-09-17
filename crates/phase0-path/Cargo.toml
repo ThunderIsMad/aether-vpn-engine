@@ -17,3 +17,4 @@ crypto-core.workspace = true
 # Интеграционные тесты Phase 1 (куски 1–2): тот же путь, но через cover-байндинги.
 cover-ss2022.workspace = true
 cover-masque.workspace = true
+cover-reality.workspace = true

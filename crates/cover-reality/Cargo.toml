@@ -1,0 +1,15 @@
+[package]
+name = "cover-reality"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+frame-session.workspace = true
+transport-mux.workspace = true
+crypto-core.workspace = true
+# TLS-бэкенд контроля ClientHello (Reality-обложка). Первая прод-зависимость boring:
+# линковка рядом с rustls/ring проверена пробами на обеих платформах
+# (docs/phase-reports/reality-boring-probe.md, F11 DEPENDENCIES.md).
+# TTL и дата перепроверки — в DEPENDENCIES.md (как у остальных прод-пинов).
+boring.workspace = true

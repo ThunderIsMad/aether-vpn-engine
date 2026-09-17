@@ -130,3 +130,87 @@ SETTINGS_H3_DATAGRAM, чтение ответа узла, приёмная ст�
 - **caps no_hol/datagram** — до h3-клиента не заявляются.
 - Выбор URI Template и его валидация по §2 (level 3, ASCII, без Reserved Expansion) —
   дело h3-клиента; `ConnectUdpRequest` сегодня принимает готовый `:path`.
+
+---
+
+# Phase 1 — кусок 3: Reality/TCP, каркас (2026-09-17)
+
+Граница куска: обложка-каркас + перенос boring в прод. App Mirage, morph-controller,
+приёмная сторона, сплайс живого сокета сайта-мишени — **не начинались** (Phase 2/3).
+K_session (chaining key, Q10), Clatter, rotation-tests, живой TUN — не тронуты.
+SsPaddedBinding/MasqueBinding — не тронуты.
+
+## Что shipped
+
+| Крейт/файл | Что внутри | Тесты |
+|---|---|---|
+| `cover-reality` (новый) | `RealityBinding: CoverBinding` (каркас) + `encode/decode_reality_frame`, `classify_first_record` (верdict Authenticated/Fallback), `build_client_hello_tls` (boring-коннектор под `TargetSite`), `FallbackReply`, `TargetSite` (SNI параметризован; placeholder — не боевой домен); `DPI_PROFILE_REALITY_TCP = 0x05` (реэкспорт из transport-mux) | 10 + 2 ignored |
+| `Cargo.toml` (workspace) | `boring = "4.22.0"` — **первая прод-зависимость boring**, owner `cover-reality`, TTL 180 дней (перепроверка до 2027-03-16) | — |
+| `scripts/local-env.sh` | Дополнен boring-блоком: NASM 2.16.03 в PATH, `LIBCLANG_PATH` (PyPI-колесо), `BINDGEN_EXTRA_CLANG_ARGS=-target x86_64-pc-windows-gnu…`, `CMAKE_GENERATOR=Ninja` — раньше это был `boring-probe-env.sh` только для пробы; также фикс: sysroot-путь больше не через внешний `tr` (busybox-tr из w64devkit в PATH ломал `C:\→C:CUsers`) | — |
+| `.github/workflows/ci.yml` | rust-job: `apt-get install cmake libclang-dev` — boring-sys теперь собирается в обязательном прогоне (на Linux NASM не нужен — ASM_NASM только для Windows) | — |
+| `phase0-path` (тест) | Склейка пакета → сессия → Reality-обёртка → вскрытие | +1 |
+
+Формат кадра: `len(4B BE) ‖ nonce(24B) ‖ XChaCha20-Poly1305(record.encode())`,
+AAD — заявленный префикс длины (единственные байты, выводимые принимающим до вскрытия —
+иначе round-trip несверяем). Ключ — `derive_cover_key(sid, K_session)`, отдельный слой.
+
+## Механизм active-probe resistance (какой именно реализован)
+
+Различение происходит **внутри TLS-канала**, первым кадром после handshake:
+`classify_first_record(cover, site, frame)` проверяет AEAD-тег на `K_cover`.
+Неаутентифицированное соединение (валидный ClientHello, но чужой ключ / порча /
+мусор вместо аутентификатора) получает `FallbackReply` — снимок ответа сайта-мишени
+(в проде из конфига подписки; в тестах — детерминированная заглушка) — а **не** ошибку,
+RST или иной маркер, характерный только для Reality. Все причины неаутентичности
+схлопываются в один наблюдаемый результат. Один пробный запрос не даёт наблюдателю
+способа отличить «Reality-нода» от «просто сайт X».
+
+## Честные границы клейма
+
+- **Не DPI-resistant в смысле живого трафика.** Независимый DPI-инструмент не запускался;
+  активные пробы извне не снимались. Проверено: юнит-тесты структуры (layout, auth,
+  caps, contract) + пробы линковки/живого handshake boring+rustls на Windows/GNU и
+  Linux CI (`reality-boring-probe.md`). Это клейм «механизм реализован и юнит-проверен»,
+  не клейм «обход DPI подтверждён» — открытый вопрос в QUESTIONS.md (Q22).
+- **Не Reality/VLESS-interop.** Совместимость с xray-core не заявляется и не проверялась;
+  xray-core остаётся reference-only.
+- Чекбокс верхнего уровня в `05-roadmap` остаётся `[ ]`: закрыт только подпункт
+  «каркас реализован».
+
+## Честный caps
+
+`caps()` отдаёт `no_hol: false, datagram: false` — TCP-класс с HOL по построению
+(`02 §2.2` tradeoff, не дефект: морф-контроллер использует Reality только при явной
+блокировке QUIC-путей и уходит с него при первой возможности). `dpi_profile = 0x05`.
+Проверено тестом `caps_stream_class_not_no_hol`.
+
+## Тесты (все зелёные локально на Windows/GNU)
+
+- layout: `len ‖ nonce ‖ AEAD`, энтропия ровно под nonce, воспроизводимость при том же
+  nonce, отличие при другом (probabilistic AEAD), AAD-схема;
+- roundtrip обёртки; чужой ключ / порча / обрез / враньё в длине / пустой кадр — все
+  → один и тот же фолбэк (probe_resistance_all_failures_look_alike);
+- аутентифицированный кадр → `Authenticated(record)`;
+- boring-коннектор под сайт-мишень собирается (SNI/ALPN/пин; сам cert — RSA-2048,
+  построенный boring'ом; sign последним — находка пробы №4);
+- контракт байндинга: `TransportDown` + `Closed` ровно один раз, инжектированный
+  `Probed` один раз; backpressure — `WouldBlock`, точная арифметика кадра (57 B при
+  payload 8);
+- caps; SNI параметризован (два сайта → разные фолбэки);
+- 2 ignored до живого пира: пассивный пробник получает байт-в-байт ответ сайта-мишени;
+  аутентифицированный клиент проходит на Aether-протокол.
+
+**Прогон:** cover-reality 10 passed / 0 failed / 2 ignored; workspace — см. CI-ран
+коммита. clippy `--workspace --all-targets -D warnings` — 0 предупреждений.
+
+## Чего кусок не делает (честно)
+
+- **Сети нет**: TLS-канал не разворачивается в рантайме, async-писателя нет; handshake
+  проверен только в живой пробе вне репо. Игнор-тесты ждут живого Reality-пира —
+  interop-чекбокс не закрывается без реального внешнего пира.
+- **Приёмная сторона** (сервер: классификация первого кадра, сплайс фолбэка, проксирование
+  аутентифицированного канала) — следующий кусок; `classify_first_record` — только
+  механизм различения, не сервер.
+- **Fallback-сплайс живого сокета** сайта-мишени: `FallbackReply` сейчас — статический
+  снимок; живое перенаправление на реальный сайт — вопрос живого peer-теста.
+- **Active-probe от независимого DPI-инструмента** не прогонялся (Q22 в QUESTIONS.md).

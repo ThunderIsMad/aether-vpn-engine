@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 # local-env.sh — воспроизводимое локальное окружение сборки/тестов (Windows, toolchain windows-gnu).
 #
-# Зачем: прод-пины clatter (PQClean) и quinn (rustls, фича ring) содержат C-код. Для него
-# cc-rs ищет gcc.exe в PATH. На машине прогона компилятор — портативный w64devkit, он НЕ в
-# системном PATH, поэтому «сырой» прогон падает на build-script'ах ring/pqcrypto-internals
-# ("failed to find tool \"gcc.exe\""), а частично собранный воркспейс тихо проходит только
-# крейты без crypto-транзитива (23 теста вместо 85). Линкер — self-contained gcc из
+# Зачем: прод-пины clatter (PQClean), quinn (rustls, фича ring) и boring (BoringSSL, cover-reality)
+# содержат C/C++ код. Для него cc-rs ищет gcc.exe в PATH. На машине прогона компилятор —
+# портативный w64devkit, он НЕ в системном PATH, поэтому «сырой» прогон падает на build-script'ах
+# ring/pqcrypto-internals/boring-sys ("failed to find tool \"gcc.exe\""), а частично собранный
+# воркспейс тихо проходит только крейты без crypto-транзитива. Линкер — self-contained gcc из
 # rustup-тулчейна: gcc.exe из w64devkit для линковки rustc-бинарей не годится
 # (не находит -lgcc_eh; у rustup лежит в lib/self-contained).
 #
-# Проверено 2026-09-17 на HEAD: cargo test --workspace --all-targets → 85 passed;
-# cargo test -p e2e-harness --all-features → 15 lib + 1 bin. Подробности — DEPENDENCIES.md
-# → «Local Rust toolchain (Windows/GNU)».
+# С b132 (cover-reality) boring — прод-зависимость workspace, поэтому здесь же настраивается
+# всё, что нужно boring-sys на Windows/GNU (раньше это был отдельный boring-probe-env.sh для
+# пробы вне репо; рецепт — docs/phase-reports/reality-boring-probe.md):
+#   CMAKE_GENERATOR=Ninja      — MSYS Makefiles ломается о busybox-sh из w64devkit;
+#   NASM 2.16.03 в PATH        — CMakeLists BoringSSL требует ASM_NASM на Windows x86_64;
+#   LIBCLANG_PATH + BINDGEN_EXTRA_CLANG_ARGS — bindgen без -target парсит mingw-заголовки
+#     в режиме MSVC и падает на __MINGW_NOTHROW; libclang — PyPI-колесо (см. BORING_TOOLS_DIR).
 #
 # Философия: explicit-fail. Любой отсутствующий компонент — понятная ошибка и подсказка,
 # не тихая деградация до «23 теста прошли, остальные не собрались».
@@ -24,6 +28,8 @@
 # Переопределения (до source):
 #   W64DEVKIT_HOME=/путь/к/w64devkit source scripts/local-env.sh
 #   PQ_SHIM_DIR=/путь/к/шиму        source scripts/local-env.sh  # дефолт: tools/pq-shim в репо
+#   BORING_TOOLS_DIR=/путь/к/tools  source scripts/local-env.sh  # дефолт: ~/Desktop/boring-probe/tools
+#     (там лежат портативные nasm-2.16.03/ и libclang/clang/native/libclang.dll из пробы)
 
 # Скрипт предназначен ТОЛЬКО для source: он экспортирует переменные в текущий шелл.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
@@ -57,7 +63,12 @@ if [[ "$_local_env_host" != "x86_64-pc-windows-gnu" ]]; then
   return 1
 fi
 
-_local_env_selfcont="$(rustc --print sysroot | tr '\\' '/')/lib/rustlib/x86_64-pc-windows-gnu"
+# b132: sysroot в bash-подстановке, не через внешний `tr`: в PATH тестируемой машины
+# w64devkit стоит первым, а его busybox-tr НЕ транслирует `\`→`/` (молча оставляет как
+# есть) — путь self-contained линкера ломался в `C:CUsers...` и source падал. Bash-
+# расширение `${var//\\//}` от PATH не зависит.
+_local_env_sysroot="$(rustc --print sysroot)"
+_local_env_selfcont="${_local_env_sysroot//\\//}/lib/rustlib/x86_64-pc-windows-gnu"
 _local_env_linker="$_local_env_selfcont/bin/self-contained/x86_64-w64-mingw32-gcc.exe"
 _local_env_libdir="$_local_env_selfcont/lib/self-contained"
 
@@ -100,12 +111,54 @@ export CFLAGS="-I $_local_env_shim_win"
 export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$_local_env_linker"
 export RUSTFLAGS="-L $_local_env_libdir"
 
+# --- boring-sys (прод-зависимость с b132): Ninja + NASM + libclang/bindgen ---
+BORING_TOOLS_DIR="${BORING_TOOLS_DIR:-$HOME/Desktop/boring-probe/tools}"
+
+# 1) Ninja: MSYS Makefiles ломается о busybox-sh из w64devkit (cmake -E env не находит
+#    cmake.exe: путь в POSIX-форме, sh из busybox не понимает). Ninja уже в w64devkit.
+if [[ -z "${CMAKE_GENERATOR:-}" ]]; then
+  export CMAKE_GENERATOR=Ninja
+fi
+
+# 2) NASM 2.16.03 (портативный): enable_language(ASM_NASM) в CMakeLists BoringSSL.
+if [[ -x "$BORING_TOOLS_DIR/nasm-2.16.03/nasm.exe" ]]; then
+  case ":$PATH:" in
+    *":$BORING_TOOLS_DIR/nasm-2.16.03:"*) ;;
+    *) export PATH="$BORING_TOOLS_DIR/nasm-2.16.03:$PATH" ;;
+  esac
+else
+  _local_env_fail "nasm.exe не найден: $BORING_TOOLS_DIR/nasm-2.16.03/nasm.exe" \
+    "Скачай https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/win64/nasm-2.16.03-win64.zip" \
+    "и распакуй в $BORING_TOOLS_DIR/ или укажи BORING_TOOLS_DIR"
+  return 1
+fi
+
+# 3) libclang (PyPI-колесо) + аргументы bindgen: без -target x86_64-pc-windows-gnu clang
+#    парсит mingw-заголовки в режиме MSVC и падает на __MINGW_NOTHROW.
+_local_env_libclang_native="$BORING_TOOLS_DIR/libclang/clang/native"
+if [[ -f "$_local_env_libclang_native/libclang.dll" ]]; then
+  export LIBCLANG_PATH="$(cygpath -m "$_local_env_libclang_native")"
+  _local_env_bindgen_args="-target x86_64-pc-windows-gnu"
+  _local_env_gcc_inc="$(ls -d "$W64DEVKIT_HOME"/lib/gcc/x86_64-w64-mingw32/*/include 2>/dev/null | head -1)"
+  _local_env_mingw_inc="$W64DEVKIT_HOME/x86_64-w64-mingw32/include"
+  [[ -d "$_local_env_gcc_inc" ]] && _local_env_bindgen_args="$_local_env_bindgen_args -I$_local_env_gcc_inc"
+  [[ -d "$_local_env_mingw_inc" ]] && _local_env_bindgen_args="$_local_env_bindgen_args -I$_local_env_mingw_inc"
+  export BINDGEN_EXTRA_CLANG_ARGS="${BINDGEN_EXTRA_CLANG_ARGS:+$BINDGEN_EXTRA_CLANG_ARGS }$_local_env_bindgen_args"
+else
+  _local_env_fail "libclang.dll не найден: $_local_env_libclang_native/libclang.dll" \
+    "pip download libclang -d /tmp/libclang-wheel, распаковать wheel (это zip) в" \
+    "$BORING_TOOLS_DIR/libclang или укажи BORING_TOOLS_DIR"
+  return 1
+fi
+
 echo "local-env: экспортировано:"
-echo "  PATH      + $W64DEVKIT_HOME/bin  ($(gcc --version 2>/dev/null | head -1))"
+echo "  PATH      + $W64DEVKIT_HOME/bin + nasm-2.16.03  ($(gcc --version 2>/dev/null | head -1))"
 echo "  CFLAGS    -I $_local_env_shim_win  (шим __GNUC_PREREQ для PQClean, версионируется в репо)"
 echo "  LINKER    $_local_env_linker  (self-contained rustup: w64devkit-gcc линкером не годится, нет -lgcc_eh)"
 echo "  RUSTFLAGS -L $_local_env_libdir"
+echo "  BORING    CMAKE_GENERATOR=$CMAKE_GENERATOR  LIBCLANG_PATH=$LIBCLANG_PATH  BINDGEN_EXTRA_CLANG_ARGS=$BINDGEN_EXTRA_CLANG_ARGS"
 echo "  дальше:   cargo test --workspace --all-targets"
 
-unset _local_env_root _local_env_host _local_env_selfcont _local_env_linker \
-      _local_env_libdir _local_env_shim_win _local_env_fail
+unset _local_env_root _local_env_host _local_env_sysroot _local_env_selfcont _local_env_linker \
+      _local_env_libdir _local_env_shim_win _local_env_fail \
+      _local_env_libclang_native _local_env_bindgen_args _local_env_gcc_inc _local_env_mingw_inc
