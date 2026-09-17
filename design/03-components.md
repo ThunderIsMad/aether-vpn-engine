@@ -82,8 +82,11 @@ Rust-клиента RFC 9298 поверх quinn+h3.
   `len(4B BE) ‖ nonce(24B) ‖ AEAD(record, AAD=заявленная длина)`. ClientHello под сайт-
   мишень строит boring (`TargetSite` параметризован). Проверено: юниты гейта (валидный тег
   в окне слотов → Accept; чужой ключ/нет тега/порча CH → Relay; не-ClientHello → Reject;
-  тег покрывает все байты CH), сплайс — ignored-тест на loopback (e2e-класс), линковка
-  boring на обеих платформах. НЕ проверено: active-probe от независимого DPI-инструмента,
+  тег покрывает все байты CH), сплайс — реальный ignored-тест на loopback: два полных
+  обмена в обе стороны через `relay_to_target` (мультиплексированные направления,
+  лимиты простоя из `RelaySpec`, Windows `TimedOut`/Unix `WouldBlock`); игнор по
+  умолчанию как e2e-класс (прогон: `cargo test -p cover-reality -- --ignored`),
+  линковка boring на обеих платформах. НЕ проверено: active-probe от независимого DPI-инструмента,
   JA3/JA4-отпечаток handshake, живой peer — чекбокс в `05-roadmap` остаётся `[ ]`.
   Открытое напряжение — Q23 (сертификат для терминировки Accept-пути).
 - SS-2022/padded байндинг (fallback, чистый Rust).

@@ -226,7 +226,8 @@ pub const GATE_DECISION_BYTE: usize = 100;
 pub struct RelaySpec {
     /// IP:порт сайта-мишени (в проде — из DNS-резолва `TargetSite::sni` в момент гейта).
     pub addr: std::net::SocketAddr,
-    /// Тайм-аут установки соединения к сайту-мишени (fail-safe: не висим вечно).
+    /// Тайм-аут установки соединения к сайту-мишени (fail-safe: не висим вечно);
+    /// тот же лимит — предел простоя каждого направления сплайса (`relay_to_target`).
     pub connect_timeout: std::time::Duration,
     /// Потолок байт в каждую сторону (fail-safe: не держим бесконечный релей).
     pub max_relay_bytes: u64,
@@ -359,84 +360,142 @@ pub enum RelayOutcome {
 /// Живой сплайс (b132-2): двунаправленный raw TCP-релей между пробником и сайтом-мишенью.
 ///
 /// `probe` — сторона пробника (сокет, с которого пришёл непрошедший гейт ClientHello);
-/// первые прочитанные байты (ClientHello) уже в нём — они пересылаются сайту первыми,
-/// чтобы релей был прозрачен для TLS-сессии, НАЧАТОЙ пробником. Ни одна сторона сплайса
-/// не интерпретирует байты (в т.ч. мы): пробник разговаривает с настоящим сайтом.
+/// первые прочитанные байты (ClientHello) уже в нём (`buffered`) — они пересылаются сайту
+/// первыми, чтобы релей был прозрачен для TLS-сессии, НАЧАТОЙ пробником. Ни одна сторона
+/// сплайса не интерпретирует байты (в т.ч. мы): пробник разговаривает с настоящим сайтом.
 ///
-/// Синхронная реализация (два потока-копировальщика) — как у пробы handshake (шаг 4);
-/// перенос в tokio-splice — вопрос приёмной стороны, не контракта.
-/// Fail-safe (Q22): тайм-аут коннекта и потолок байт — параметры `spec`; ошибки релея
-/// не паникуют и не отдают наблюдателю характерных сигналов — соединение просто
-/// закрывается, как у любого обычного сайта.
+/// Реализация — два независимых потока-копировальщика (F-04, аудит 3): направления не
+/// блокируют друг друга, ответ сайта доходит до пробника за ~RTT. Последовательный
+/// цикл «прочитал у пробника → прочитал у сайта» держал ответ сайта до тайм-аута
+/// блокирующего чтения — наблюдаемая аномалия против Q22 (любой пробник с разумным
+/// тайм-аутом её видел). Тайм-ауты сокетов берутся из `spec.connect_timeout` (не
+/// хардкод) и работают как лимит простоя направления: истёкший read-timeout даёт
+/// `WouldBlock` (Unix) или `TimedOut` (Windows) — обрабатываются оба. Любая
+/// ошибка/закрытие/лимит простоя/квота завершают релей: оба сокета получают shutdown,
+/// второй копировальщик выходит из блокирующего чтения, а не ждёт до тайм-аута. Ошибки
+/// релея не паникуют и не отдают наблюдателю характерных сигналов (Q22) — соединение
+/// просто закрывается, как у любого обычного сайта. Перенос в tokio-splice — вопрос
+/// приёмной стороны, не контракта (крейт синхронный по дизайну).
 pub fn relay_to_target(
     spec: &RelaySpec,
     probe: &mut std::net::TcpStream,
     buffered: &[u8],
 ) -> RelayOutcome {
-    use std::io::{Read, Write};
+    use std::io::Write;
     use std::net::TcpStream;
-    use std::time::Duration;
-
-    probe.set_read_timeout(Some(Duration::from_secs(300))).ok();
-    probe.set_write_timeout(Some(Duration::from_secs(300))).ok();
+    use std::sync::atomic::AtomicU64;
+    use std::sync::Arc;
 
     // Аплинк к сайту-мишени с тайм-аутом: недоступен → тихое закрытие (не сигнал Reality).
     let mut upstream = match TcpStream::connect_timeout(&spec.addr, spec.connect_timeout) {
         Ok(s) => s,
         Err(_) => return RelayOutcome::UpstreamUnreachable,
     };
-    upstream.set_read_timeout(Some(Duration::from_secs(300))).ok();
-    upstream.set_write_timeout(Some(Duration::from_secs(300))).ok();
+
+    // Тайм-ауты сокетов — из `spec` (не хардкод): тот же лимит — предел простоя
+    // направления (read-timeout истёк → данных нет достаточно долго, релей закрывается).
+    let idle = Some(spec.connect_timeout);
+    probe.set_read_timeout(idle).ok();
+    probe.set_write_timeout(idle).ok();
+    upstream.set_read_timeout(idle).ok();
+    upstream.set_write_timeout(idle).ok();
 
     // Первые байты пробника (ClientHello) — upstream'у, чтобы TLS-сессия пробника
     // началась корректно (мы — прозрачный TCP-релей, байты не читаем).
     if upstream.write_all(buffered).is_err() {
         return RelayOutcome::UpstreamUnreachable;
     }
+    if buffered.len() as u64 >= spec.max_relay_bytes {
+        return RelayOutcome::QuotaExhausted;
+    }
 
-    // Двунаправленная копия с общим потолком байт. Читаем из `r`, пишем в `w`;
-    // первая ошибка/закрытие любой стороны завершает релей (Completed/Quota).
-    let mut total: u64 = buffered.len() as u64;
-    let mut buf = [0u8; 16 * 1024];
-    let (probe_read, probe_write) = (probe.try_clone(), probe.try_clone());
-    let (up_read, mut up_write) = (upstream.try_clone(), upstream);
-    let (Ok(mut probe_read), Ok(mut probe_write), Ok(mut up_read)) =
-        (probe_read, probe_write, up_read)
-    else {
-        return RelayOutcome::UpstreamUnreachable;
+    // Потолок байт общий для обоих направлений (счётчик разделяется потоками).
+    let quota = Arc::new(AtomicU64::new(buffered.len() as u64));
+
+    let mut probe_read = match probe.try_clone() {
+        Ok(s) => s,
+        Err(_) => return RelayOutcome::UpstreamUnreachable,
+    };
+    let mut probe_write = match probe.try_clone() {
+        Ok(s) => s,
+        Err(_) => return RelayOutcome::UpstreamUnreachable,
+    };
+    let mut up_read = match upstream.try_clone() {
+        Ok(s) => s,
+        Err(_) => return RelayOutcome::UpstreamUnreachable,
+    };
+    let mut up_write = match upstream.try_clone() {
+        Ok(s) => s,
+        Err(_) => return RelayOutcome::UpstreamUnreachable,
     };
 
-    // Чередование направлений через простое мультиплексирование read-готовности:
-    // без tokio — poll на два сокета (std::os::fd), перенос в tokio::select! — задача
-    // приёмной стороны. Здесь — детерминированный контракт сплайса для юнит-тестов.
-    let _ = &mut up_write;
+    // «Пробник → сайт» — отдельный поток: пока основной читает у сайта, байты пробника
+    // уходят без ожидания (F-04: направления мультиплексированы, а не чередуются).
+    let quota_to_site = Arc::clone(&quota);
+    let max_relay_bytes = spec.max_relay_bytes;
+    let to_site = std::thread::spawn(move || {
+        copy_relay_dir(&mut probe_read, &mut up_write, &quota_to_site, max_relay_bytes)
+    });
+    // Основной поток — «сайт → пробник».
+    let to_probe = copy_relay_dir(&mut up_read, &mut probe_write, &quota, spec.max_relay_bytes);
+
+    let to_site_outcome = to_site.join().unwrap_or(RelayOutcome::Completed);
+    if to_probe == RelayOutcome::QuotaExhausted || to_site_outcome == RelayOutcome::QuotaExhausted {
+        RelayOutcome::QuotaExhausted
+    } else {
+        RelayOutcome::Completed
+    }
+}
+
+/// Копирует одно направление сплайса до закрытия/ошибки/квоты/лимита простоя. По любому
+/// исходу закрывает оба сокета (`Shutdown::Both` будит все клоны — второй копировальщик
+/// выходит из блокирующего чтения вместо ожидания до тайм-аута).
+fn copy_relay_dir(
+    r: &mut std::net::TcpStream,
+    w: &mut std::net::TcpStream,
+    quota: &std::sync::atomic::AtomicU64,
+    max_relay_bytes: u64,
+) -> RelayOutcome {
+    use std::io::{Read, Write};
+    use std::net::Shutdown;
+    use std::sync::atomic::Ordering;
+
+    let terminate = |r: &mut std::net::TcpStream, w: &mut std::net::TcpStream| {
+        let _ = r.shutdown(Shutdown::Both);
+        let _ = w.shutdown(Shutdown::Both);
+    };
+
+    let mut buf = [0u8; 16 * 1024];
     loop {
-        if total >= spec.max_relay_bytes {
-            return RelayOutcome::QuotaExhausted;
-        }
-        // Пробник → сайт (основной поток байт TLS-сессии пробника).
-        match probe_read.read(&mut buf) {
-            Ok(0) => return RelayOutcome::Completed, // пробник закрыл — нормальный конец
-            Ok(n) => {
-                if up_write.write_all(&buf[..n]).is_err() {
-                    return RelayOutcome::Completed; // сайт закрыл — тоже нормальный конец
-                }
-                total += n as u64;
+        match r.read(&mut buf) {
+            Ok(0) => {
+                terminate(r, w);
+                return RelayOutcome::Completed;
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(_) => return RelayOutcome::Completed,
-        }
-        // Сайт → пробник (ответы сайта). non-blocking-ish: read_timeout у обоих.
-        match up_read.read(&mut buf) {
-            Ok(0) => return RelayOutcome::Completed,
             Ok(n) => {
-                if probe_write.write_all(&buf[..n]).is_err() {
+                if w.write_all(&buf[..n]).is_err() {
+                    terminate(r, w);
                     return RelayOutcome::Completed;
                 }
-                total += n as u64;
+                let total = quota.fetch_add(n as u64, Ordering::Relaxed) + n as u64;
+                if total >= max_relay_bytes {
+                    terminate(r, w);
+                    return RelayOutcome::QuotaExhausted;
+                }
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(_) => return RelayOutcome::Completed,
+            // Лимит простоя исчерпан (Windows: TimedOut, Unix: WouldBlock — оба кода
+            // означают «данных нет в течение лимита») → релей закрывается (F-04).
+            Err(ref e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut =>
+            {
+                terminate(r, w);
+                return RelayOutcome::Completed;
+            }
+            Err(_) => {
+                terminate(r, w);
+                return RelayOutcome::Completed;
+            }
         }
     }
 }
@@ -1017,31 +1076,82 @@ mod tests {
 
     // ---------- ignored: живой peer / сплайс (до живого пира и CI-сети) ----------
 
-    /// ИГНОР до CI-сети (e2e-класс): живой сплайс на loopback. Loopback TCP-сервер
-    /// (эхо) — сайт-мишень; пробник шлёт ClientHello без тега → гейт даёт Relay →
-    /// `relay_to_target` проксирует байты в обе стороны; пробник получает эхо СВОИХ
-    /// байт через релей (у настоящего сайта вместо эхо — настоящий TLS-handshake).
+    /// ИГНОР (сокеты loopback — e2e-класс): живой сплайс по-настоящему (F-04).
+    /// Эхо-сервер — сайт-мишень; пробник → гейт (байты ClientHello в `buffered`, как в
+    /// реальном Accept-пути) → `relay_to_target`. Два полных обмена в обе стороны в
+    /// lockstep-режиме (следующий кусок — только после эха предыдущего): на старом
+    /// последовательном цикле второй обмен ждал бы блокирующего чтения у молчащего
+    /// пробника до лимита простоя — тест падал бы по read-timeout, а не проходил.
     #[test]
     #[ignore = "live splice: требует сокетов (e2e-класс, как rotation/e2e-harness)"]
     fn live_splice_probe_gets_real_site_bytes() {
         use std::io::{Read, Write};
-        use std::net::TcpListener;
+        use std::net::{TcpListener, TcpStream};
+        use std::time::{Duration, Instant};
 
+        // Сайт-мишень: эхо двух кусков, затем закрытие (нормальный конец релея).
         let site = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let site_addr = site.local_addr().expect("addr");
         let server = std::thread::spawn(move || {
             let (mut sock, _) = site.accept().expect("accept");
-            let mut buf = [0u8; 512];
-            let n = sock.read(&mut buf).expect("read");
-            sock.write_all(&buf[..n]).expect("echo"); // эхо: сайт отвечает пробнику
+            let mut buf = [0u8; 1024];
+            for round in 0..2 {
+                let n = sock.read(&mut buf).expect("site read");
+                assert!(n > 0, "round {round}: пустое чтение");
+                sock.write_all(&buf[..n]).expect("echo");
+            }
+            // Сокет закрывается при drop — релей увидит Ok(0) у стороны сайта.
         });
 
-        // Пробник: шлёт «ClientHello» без аутентификатора → гейт → Relay → сплайс.
-        let probe = std::net::TcpStream::connect("127.0.0.1:1") /* placeholder */;
-        let _ = probe;
-        let _ = server.join();
-        let _ = site_addr;
-        unimplemented!("живой сплайс: probe → gate Relay → relay_to_target → эхо сайта");
+        // Гейт-сторона: слушатель, к которому подключается пробник; гейт уже вырезал
+        // первые байты (ClientHello) в `buffered` — ровно как в реальном Accept-пути.
+        let gate = TcpListener::bind("127.0.0.1:0").expect("bind gate");
+        let mut probe =
+            TcpStream::connect(gate.local_addr().expect("gate addr")).expect("probe connect");
+        let (mut gate_sock, _) = gate.accept().expect("gate accept");
+
+        probe.set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("probe timeout");
+        let hello: Vec<u8> = (0..64u8).collect();
+        probe.write_all(&hello).expect("probe write CH");
+        let mut buffered = vec![0u8; hello.len()];
+        gate_sock.read_exact(&mut buffered).expect("gate read CH");
+
+        let spec = RelaySpec {
+            addr: site_addr,
+            connect_timeout: Duration::from_secs(5), // и коннект, и лимит простоя
+            max_relay_bytes: 1 << 20,
+        };
+
+        let started = Instant::now();
+        let relay =
+            std::thread::spawn(move || relay_to_target(&spec, &mut gate_sock, &buffered));
+
+        // Обмен 1: эхо ClientHello доходит через сплайс (направление «сайт → пробник»).
+        let mut echoed = vec![0u8; hello.len()];
+        probe.read_exact(&mut echoed).expect("probe read echo 1");
+        assert_eq!(echoed, hello, "пробник получил эхо своих байт через релей");
+
+        // Обмен 2: пробник молчал до эха 1 — на старом цикле релей стоял бы в
+        // блокирующем чтении у пробника, и это эхо не пришло бы до лимита простоя.
+        let msg: Vec<u8> = (0..32u8).map(|b| b ^ 0xA5).collect();
+        probe.write_all(&msg).expect("probe write 2");
+        let mut echoed2 = vec![0u8; msg.len()];
+        probe.read_exact(&mut echoed2).expect("probe read echo 2");
+        assert_eq!(echoed2, msg, "второй обмен прошёл за ~RTT (мультиплексирование)");
+
+        drop(probe);
+        assert_eq!(
+            relay.join().expect("relay thread"),
+            RelayOutcome::Completed,
+            "релей завершился закрытием сайта"
+        );
+        server.join().expect("echo server");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "обмен занял {:?} — сплайс не мультиплексирован?",
+            started.elapsed()
+        );
     }
 
     /// ИГНОР до живого Reality-пира: легитимный клиент с валидным аутентификатором
