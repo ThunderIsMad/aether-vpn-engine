@@ -296,8 +296,16 @@ pub fn gate_decision(
         let redacted = redact_authenticator(client_hello, tag);
         for s in [slot.saturating_sub(1), slot, slot + 1] {
             let expected = crypto_core::probe_tag(k_probe, &redacted, (s.saturating_sub(1), s + 1));
-            if tag.len() == PROBE_AUTHENTICATOR_LEN && tag[..PROBE_AUTHENTICATOR_LEN] == expected {
-                return GateDecision::Accept;
+            // Constant-time сверка (Q24, аудит F-05): вход — секретный HMAC, обычное
+            // `==` на массивах фиксированной длины для масивов к struct+PartialEq
+            // компилятор разворачивает в memcmp — время зависит от данных.
+            if tag.len() == PROBE_AUTHENTICATOR_LEN {
+                let tag_arr: [u8; PROBE_AUTHENTICATOR_LEN] =
+                    tag[..PROBE_AUTHENTICATOR_LEN].try_into().expect("len проверен выше");
+                let expected_arr: [u8; PROBE_AUTHENTICATOR_LEN] = expected;
+                if crypto_core::tags_equal_ct(&tag_arr, &expected_arr) {
+                    return GateDecision::Accept;
+                }
             }
         }
     }
@@ -807,9 +815,15 @@ mod tests {
 
     // ---------- b132-2: гейт по открытому ClientHello (peek-before-decrypt) ----------
 
+    /// Q24 (аудит F-05): гейт живёт на fleet-ключе из флотского корня (манифеста),
+    /// а не на сессионном `K_probe` — bootstrap первого входа (главный сценарий:
+    /// QUIC заблокирован, Reality — единственный путь входа) и O(1) lookup на сервере.
     fn k_probe() -> crypto_core::KProbe {
-        crypto_core::derive_probe_key(&SID, &derive_session(&SID, b"gate test hash"))
+        crypto_core::derive_probe_fleet_key(&FLEET_ROOT)
     }
+
+    /// Детерминированный тестовый флотский корень (в проде — из манифеста подписки).
+    const FLEET_ROOT: [u8; 32] = [0x42u8; 32];
 
     /// Сырой скелет TLS-записи ClientHello (форма как у настоящего; random — нули).
     /// Расширение session_ticket с 24-байтным местом тега в конце.
@@ -847,6 +861,29 @@ mod tests {
         }
     }
 
+    /// Q24 (аудит F-05): «первый вход без сессии» — главный сценарий Reality-обложки.
+    /// Гейт на fleet-ключе принимает клиента, у которого ещё нет ни `sid`, ни `K_session`:
+    /// тег считается из ключа, выведенного из флотского корня до всякой сессии.
+    #[test]
+    fn gate_accepts_first_entry_without_session() {
+        let kp = k_probe();
+        let ch = client_hello_skeleton();
+        let pos = ch.len() - 24;
+        let mut redacted = ch.clone();
+        redacted[pos..].fill(0);
+        let slot = 900u64;
+        let tag = client_authenticator(&kp, &redacted, slot);
+        let mut ch_tagged = ch.clone();
+        ch_tagged[pos..].copy_from_slice(&tag);
+
+        // У клиента нет сессии: ни sid, ни K_session не участвуют в вычислении тега.
+        assert_eq!(
+            gate_decision(&kp, &ch_tagged, Some(&tag), slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            GateDecision::Accept,
+            "первый вход через Reality без какой-либо сессии принимается гейтом"
+        );
+    }
+
     /// Решение гейта (без сети): правильный тег в правильном слоте → Accept;
     /// чужой ключ/чужой тег/нет тега → Relay; не ClientHello → Reject.
     #[test]
@@ -881,8 +918,9 @@ mod tests {
             "вне окна слотов → Relay"
         );
 
-        // Чужой ключ → Relay (наблюдателю неотличимо от «просто клиент сайта»).
-        let other = crypto_core::derive_probe_key(&SID, &derive_session(&SID, b"other gate"));
+        // Чужой fleet-корень → Relay (наблюдателю неотличимо от «просто клиент сайта»). 
+        let other_root: [u8; 32] = core::array::from_fn(|i| (i as u8) ^ 0x5E);
+        let other = crypto_core::derive_probe_fleet_key(&other_root);
         assert_eq!(
             gate_decision(&other, &ch_tagged, Some(&tag), slot, relay_spec("127.0.0.1:443".parse().unwrap())),
             GateDecision::Relay(relay_spec("127.0.0.1:443".parse().unwrap()))

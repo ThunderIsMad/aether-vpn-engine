@@ -178,6 +178,10 @@ pub const LABEL_RECORD: &[u8] = b"aether v3 record";
 /// не вскрывает session/record ключи.
 pub const LABEL_COVER: &[u8] = b"aether v3 cover";
 pub const LABEL_PROBE: &[u8] = b"aether v3 reality probe";
+/// Метка fleet-ключа гейта Reality (Q24, аудит F-05): выводится из флотского корня
+/// (манифеста подписки), а не из `sid`/`K_session` конкретной сессии — bootstrap
+/// первого входа (главный сценарий Reality: QUIC заблокирован) и O(1) lookup на сервере.
+pub const LABEL_PROBE_FLEET: &[u8] = b"aether v3 reality probe fleet";
 
 /// Гибридный IK-хендшейк: X25519 + ML-KEM-768 (PQClean-бэкенд), ChaCha20-Poly1305, SHA-256.
 pub type HybridIk = HybridHandshake<X25519, PqMlKem768, PqMlKem768, ChaChaPoly, ClatterSha256>;
@@ -471,11 +475,33 @@ pub fn derive_cover_key(session_id: &[u8; 16], k_session: &KSession) -> KCover {
 /// Ключ гейта Reality-обложки из `K_session`: соль — `session_id`, метка — `LABEL_PROBE`.
 /// Домен отдельен от `K_cover` (`LABEL_PROBE` ≠ `LABEL_COVER`): компрометация/утечка
 /// ключа гейта не вскрывает обложку и наоборот.
+///
+/// Q24 (аудит F-05): сессионный `K_probe` не пригоден для гейта первого входа — у
+/// впервые приходящего клиента `K_session` ещё не существует. Гейт Q22 использует
+/// `derive_probe_fleet_key`; эта функция остаётся как per-session слой (Phase 2
+/// сужение гейта), не используется прод-гейтом.
 pub fn derive_probe_key(session_id: &[u8; 16], k_session: &KSession) -> KProbe {
     KProbe(hkdf32(
         Some(session_id),
         &k_session.0,
         LABEL_PROBE,
+    ))
+}
+
+/// Fleet-ключ гейта Reality-обложки (Q24, аудит F-05):
+/// `KProbe(HKDF-SHA256(ikm = K_fleet_root, info = LABEL_PROBE_FLEET))`.
+///
+/// `k_fleet_root` — флотский корневой секрет из манифеста подписки (тот же корень,
+/// что выдаёт `client_identity`; отдельный INFO-лейбл — домен отделён от всех
+/// существующих слоёв). Клиент и сервер вычисляют ключ **до всякой сессии** из уже
+/// доверенного материала — bootstrap первого входа работает, lookup на сервере O(1)
+/// (один HMAC × 3 слота окна на ClientHello). Компрометация = компрометация манифеста
+/// (существующая threat-модель, не новый класс).
+pub fn derive_probe_fleet_key(k_fleet_root: &[u8; 32]) -> KProbe {
+    KProbe(hkdf32(
+        None,
+        k_fleet_root,
+        LABEL_PROBE_FLEET,
     ))
 }
 
@@ -495,6 +521,18 @@ pub fn probe_tag(k_probe: &KProbe, client_hello: &[u8], window: (u64, u64)) -> [
     let mut tag = [0u8; 24];
     tag.copy_from_slice(&out[..24]);
     tag
+}
+
+/// Constant-time сверка тегов гейта (Q24, аудит F-05): вход — секретный HMAC,
+/// сравнение обязано быть постоянным по времени. Реализация — XOR-аккумуляция
+/// (24 байта, без ветвлений по данным); crate subtle уже в дереве, но ради
+/// трёхстрочной локальной логики отдельная зависимость не нужна.
+pub fn tags_equal_ct(a: &[u8; 24], b: &[u8; 24]) -> bool {
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 /// `K_session` (Q10, вариант «спека под Clatter»): ikm — **chaining key** симметричного
@@ -827,6 +865,53 @@ mod tests {
         assert_eq!(ok(window), ok(window));
         let (lo, hi) = window;
         assert!(lo < hi, "окно осмысленно");
+    }
+
+    /// Q24 (аудит F-05): fleet-ключ гейта выводится из флотского корня ДО всякой сессии.
+    /// Детерминированный вектор + домен: fleet-ключ ≠ сессионный `K_probe` ≠ `K_cover`
+    /// при том же материале; изменение одного байта корня меняет ключ целиком.
+    #[test]
+    fn contract_probe_fleet_key_bootstrap_and_domain() {
+        let root: [u8; 32] = core::array::from_fn(|i| (i * 3 + 1) as u8);
+        let fleet = derive_probe_fleet_key(&root);
+
+        // Детерминированный вектор (фиксация формулы):
+        let hex: String = fleet.0.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            hex,
+            "99738ba50a03b5fa98dc97c3a22591ab3f64a5cacec4eac5d49791a36ef0073b",
+            "K_probe_fleet = HKDF-SHA256(ikm=fleet_root, info=LABEL_PROBE_FLEET)"
+        );
+
+        // Bootstrap-семантика: ключ не зависит ни от sid, ни от K_session — только от
+        // флотского корня, который есть у клиента до первой сессии.
+        let sid = [0x11u8; 16];
+        let session_probe = derive_probe_key(&sid, &derive_session(&sid, b"any"));
+        assert_ne!(fleet.0, session_probe.0, "fleet-ключ — отдельный слой от сессионного");
+
+        // Домен: тот же корень с другой меткой даёт другой ключ (LABEL_PROBE_FLEET уникален).
+        let cover_from_root = hkdf_sha256(&[], &root, LABEL_COVER);
+        assert_ne!(fleet.0, cover_from_root);
+
+        // Чувствительность: байт корня — другой ключ.
+        let mut root2 = root;
+        root2[5] ^= 1;
+        assert_ne!(fleet.0, derive_probe_fleet_key(&root2).0);
+    }
+
+    /// Q24 (аудит F-05): constant-time сверка тегов гейта — семантика обычного ==
+    /// (порог на совпадение/различие), но без memcmp-раннего выхода.
+    #[test]
+    fn contract_tags_equal_ct_semantics() {
+        let a: [u8; 24] = core::array::from_fn(|i| i as u8);
+        assert!(tags_equal_ct(&a, &a));
+        let mut b = a;
+        b[0] ^= 1;
+        assert!(!tags_equal_ct(&a, &b));
+        let mut c = a;
+        c[23] ^= 1; // различие в последнем байте — та же ложь, что и в первом
+        assert!(!tags_equal_ct(&a, &c));
+        assert!(tags_equal_ct(&[0u8; 24], &[0u8; 24]));
     }
 
     /// Контракт seal/open: nonce ровно 24 B (`seq || sid`), неверный tag → `OpenFailed`.
