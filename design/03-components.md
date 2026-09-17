@@ -62,6 +62,17 @@ Rust-клиента RFC 9298 поверх quinn+h3.
   `no_hol: false, datagram: false`: no-HOL/datagram заявит только реальный h3-клиент,
   мультиплексирующий QUIC streams и шлющий QUIC DATAGRAM frames. Чекбокс «RFC 9298 interop»
   в `05-roadmap` остаётся `[ ]` до живого CONNECT-UDP к пиру.
+  ⇐ Phase 1, кусок 4 (2026-09-18): **live-слой добавлен** — `h3_live::MasqueH3Client` поверх
+  `h3 0.0.8 + h3-quinn 0.0.10 (фича datagram) + h3-datagram 0.0.2` (пины и факты совместимости —
+  `DEPENDENCIES.md` → «Phase 1: MASQUE live interop»): Extended CONNECT-UDP по сети (2xx → датаграммы),
+  HTTP/3 DATAGRAM с Quarter Stream ID (RFC 9297 §4 кодирует h3-datagram; сам h3 API датаграмм не
+  имеет — факт спайка), вычерпывание `Outbox` каркаса в датаграммы. Двусторонний прогон на живом
+  quinn: прод-клиент ↔ лабораторный h3-CONNECT-UDP-сервер (`e2e-harness/masque_lab`), 3 капсулы
+  туда-обратно байт в байт. Caps live-слоя: `datagram: true`, `no_hol: false` — no-HOL остаётся
+  незаявленным до приёмной стороны с UDP-проксированием (прод-узел, отдельный кусок). Тот же
+  прогон вскрыл и починил латентный дефект лаборатории: самоподписанный CA-как-leaf сертификат
+  отвергается webpki (`CaUsedAsEndEntity`) — лабораторные сертификаты переведены на цепочку
+  CA→leaf (тот же урок, что в boring-пробе, находка №3).
 - Reality/TCP-байндинг: length-prefixed frames; HOL tradeoff задокументирован.
   ⇐ Phase 1, кусок 3: реализован в `cover-reality` как **`RealityBinding` — каркас Reality-класса,
   НЕ Reality/VLESS-interop и НЕ «DPI-resistant в смысле живого трафика»**.

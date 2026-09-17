@@ -6,6 +6,18 @@ publish = false
 
 [dependencies]
 # Обложка Phase 1 (кусок 2): кадрирует уже sealed records frame-слоя в MASQUE-капсулы.
-# quinn/h3-клиент — следующий шаг; новые внешние крейты не тянутся (DEPENDENCIES.md).
 frame-session.workspace = true
 transport-mux.workspace = true
+# Кусок 4 (live-слой RFC 9298): собственный h3-клиент на quinn. Пины workspace-ные,
+# факты совместимости — Cargo.toml (корень) и DEPENDENCIES.md → «Phase 1: MASQUE live».
+# Обложка остаётся sync-структурой: async живёт в `MasqueH3Session` (tokio), который
+# вычерпывает Outbox байндинга и кодирует DATAGRAM-капсулы в HTTP/3-датаграммы.
+h3.workspace = true
+h3-datagram.workspace = true
+# Транспорт-адаптер: типы Connection/BidiStream, которые требуют ext-трейты h3-datagram.
+h3-quinn.workspace = true
+# Тип входа live-слоя — живое quinn-соединение (тот же workspace-пин, что transport-mux).
+quinn.workspace = true
+bytes.workspace = true
+# Extended CONNECT-запрос: http::Request (тип h3-стека), версия/метод/заголовки.
+http.workspace = true

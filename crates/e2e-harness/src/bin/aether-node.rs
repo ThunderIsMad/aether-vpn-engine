@@ -164,7 +164,12 @@ async fn run(port: u16, seed: [u8; 32], manifest_path: std::path::PathBuf, node_
     let cert = quic_lab::self_signed_cert();
     let (endpoint, bound_port) =
         quic_lab::server_endpoint(port, &cert).expect("QUIC endpoint на localhost:PORT");
-    e2e_harness::write_manifest(&keys, node_id, bound_port, &cert.cert_der, &manifest_path)
+    // В манифест идёт CA цепочки (корень доверия клиента); leaf сервер отдаст сам.
+    let ca_der = cert
+        .ca_cert_der
+        .clone()
+        .expect("лабораторный сертификат — цепочка CA→leaf");
+    e2e_harness::write_manifest(&keys, node_id, bound_port, &ca_der, &manifest_path)
         .expect("записать манифест узла");
     println!(
         "[node{node_id}] QUIC listening on 127.0.0.1:{bound_port} | identity#={} | static#={} | eph#={} | manifest={}",
