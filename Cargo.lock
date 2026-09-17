@@ -429,6 +429,7 @@ dependencies = [
  "clatter",
  "ed25519-dalek",
  "hkdf",
+ "hmac",
  "ml-kem 0.3.2",
  "sha2 0.11.0",
  "x25519-dalek 3.0.0",

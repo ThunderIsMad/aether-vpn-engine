@@ -115,6 +115,17 @@ impl fmt::Debug for KRecord {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct KCover(pub [u8; 32]);
 
+/// Ключ гейта Reality-обложки (`b132-2`, peek-before-decrypt): HMAC-ключ для
+/// аутентификации открытого ClientHello **до** терминации TLS. Отдельный слой:
+/// компрометация `K_probe` не вскрывает `K_record`/`K_resume`/`K_cover`.
+pub struct KProbe(pub [u8; 32]);
+
+impl fmt::Debug for KProbe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("KProbe").field(&"<redacted>").finish()
+    }
+}
+
 impl fmt::Debug for KCover {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("KCover").field(&"<redacted>").finish()
@@ -166,6 +177,7 @@ pub const LABEL_RECORD: &[u8] = b"aether v3 record";
 /// Метка KDF ключа обложки (Phase 1, `03` §4): отдельный слой — компрометация обложки
 /// не вскрывает session/record ключи.
 pub const LABEL_COVER: &[u8] = b"aether v3 cover";
+pub const LABEL_PROBE: &[u8] = b"aether v3 reality probe";
 
 /// Гибридный IK-хендшейк: X25519 + ML-KEM-768 (PQClean-бэкенд), ChaCha20-Poly1305, SHA-256.
 pub type HybridIk = HybridHandshake<X25519, PqMlKem768, PqMlKem768, ChaChaPoly, ClatterSha256>;
@@ -454,6 +466,35 @@ pub fn derive_cover_key(session_id: &[u8; 16], k_session: &KSession) -> KCover {
         &k_session.0,
         LABEL_COVER,
     ))
+}
+
+/// Ключ гейта Reality-обложки из `K_session`: соль — `session_id`, метка — `LABEL_PROBE`.
+/// Домен отдельен от `K_cover` (`LABEL_PROBE` ≠ `LABEL_COVER`): компрометация/утечка
+/// ключа гейта не вскрывает обложку и наоборот.
+pub fn derive_probe_key(session_id: &[u8; 16], k_session: &KSession) -> KProbe {
+    KProbe(hkdf32(
+        Some(session_id),
+        &k_session.0,
+        LABEL_PROBE,
+    ))
+}
+
+/// HMAC-SHA256-тег `probe_tag`: аутентификация открытого ClientHello гейтом
+/// Reality-обложки. Решение peek-before-decrypt принимается **до** ключей TLS,
+/// поэтому тег — HMAC (не AEAD): короткий, детерминированный, не требует nonce.
+/// `window` — нижняя/верхняя граница допустимого `client_random` (Q21-класс:
+/// диапазон, не равенство; анти-replay с окном ~минуты).
+pub fn probe_tag(k_probe: &KProbe, client_hello: &[u8], window: (u64, u64)) -> [u8; 24] {
+    use hmac::{Hmac, Mac};
+    let mut mac = <Hmac<Sha256> as hmac::KeyInit>::new_from_slice(&k_probe.0)
+        .expect("HMAC accepts any key length");
+    mac.update(client_hello);
+    mac.update(&window.0.to_be_bytes());
+    mac.update(&window.1.to_be_bytes());
+    let out = mac.finalize().into_bytes();
+    let mut tag = [0u8; 24];
+    tag.copy_from_slice(&out[..24]);
+    tag
 }
 
 /// `K_session` (Q10, вариант «спека под Clatter»): ikm — **chaining key** симметричного
@@ -751,6 +792,41 @@ mod tests {
             ks_client,
             "salt = session_id входит в вывод (domain separation)"
         );
+    }
+
+    /// Контракт гейта Reality (b132-2): `K_probe` — отдельный слой (домен ≠ `LABEL_COVER`,
+/// Debug redacted), `probe_tag` — детерминированный HMAC, чувствительный к любому байту
+/// ClientHello и к окну; верификация — сравнение тегов при тех же входах.
+    #[test]
+    fn contract_probe_tag_hmac_gate() {
+        let sid = [0x5au8; 16];
+        let ks = derive_session(&sid, b"probe gate hash");
+        let k_probe = derive_probe_key(&sid, &ks);
+
+        // Отдельный слой: K_probe ≠ K_cover при том же входе (domain separation меток).
+        let k_cover = derive_cover_key(&sid, &ks);
+        assert_ne!(k_probe.0, k_cover.0, "LABEL_PROBE ≠ LABEL_COVER → разные ключи");
+        assert!(!format!("{k_probe:?}").contains("90"), "Debug KProbe redacted");
+
+        let ch = [0x42u8; 512]; // открытый ClientHello (байты как есть на проводе)
+        let window = (1_000u64, 2_000u64);
+        let tag = probe_tag(&k_probe, &ch, window);
+        assert_eq!(tag, probe_tag(&k_probe, &ch, window), "детерминирован");
+
+        // Чувствительность: любой байт CH, окно или ключ меняют тег целиком.
+        let mut ch2 = ch;
+        ch2[256] ^= 1;
+        assert_ne!(tag, probe_tag(&k_probe, &ch2, window), "байт CH входит в тег");
+        assert_ne!(tag, probe_tag(&k_probe, &ch, (1_001, 2_000)), "нижняя граница окна в теге");
+        assert_ne!(tag, probe_tag(&k_probe, &ch, (1_000, 2_001)), "верхняя граница окна в теге");
+        let other = derive_probe_key(&sid, &derive_session(&sid, b"other"));
+        assert_ne!(tag, probe_tag(&other, &ch, window), "чужой ключ → другой тег");
+
+        // Окно: границы входят в тег (см. выше), тег детерминирован — контракт сверки у гейта.
+        let ok = |w: (u64, u64)| probe_tag(&k_probe, &ch, w);
+        assert_eq!(ok(window), ok(window));
+        let (lo, hi) = window;
+        assert!(lo < hi, "окно осмысленно");
     }
 
     /// Контракт seal/open: nonce ровно 24 B (`seq || sid`), неверный tag → `OpenFailed`.

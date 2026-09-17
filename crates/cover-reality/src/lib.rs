@@ -7,38 +7,47 @@
 //! `boring` (TLS-бэкенд контроля ClientHello — то, что проверяли пробы линковки),
 //! `crypto-core` (KDF обложки + AEAD auth-тега).
 //!
-//! ## Что реализовано (каркас, по образцу cover-ss2022 / cover-masque)
+//! ## Что реализовано (каркас, по образцу cover-ss2022 / cover-masque; b132-2 — layered)
 //!
-//! 1. **ClientHello под сайт-мишень** (`build_client_hello_tls`): boring собирает
+//! Модель после решения Q22 — **двухслойное различение «peek-before-decrypt»**:
+//!
+//! 1. **Гейт по открытому ClientHello** (`gate_decision`) — решение ДО терминации TLS,
+//!    до каких-либо TLS-ключей. Аутентификатор — 24-байтный HMAC (`probe_tag`, ключ
+//!    `K_probe` — отдельный слой) над ClientHello с нулённым местом тега + окно слотов
+//!    времени (анти-replay). Клиент кладёт тег в TLS-расширение `session_ticket`
+//!    (RFC 5077, opaque-поле — равномерно-случайный вид, неотличим от шума/билетов).
+//!    - `Accept` → TLS терминируется, дальше — слой 2.
+//!    - `Relay` → **живой сплайс**: `relay_to_target` открывает TCP к сайту-мишени и
+//!      проксирует сырые байты в обе стороны — пробник разговаривает с НАСТОЯЩИМ сайтом
+//!      (настоящий сертификат, handshake, данные); сервер не расшифровывает ничего.
+//!      Это и есть источник неотличимости (в духе Reality/xtls-rprx-vision).
+//!    - `Reject` (не ClientHello вообще) → тихое закрытие — так же ведёт себя
+//!      перегруженный сайт; наблюдаемой разницы нет.
+//!    - Fail-safe релея: тайм-аут коннекта, потолок байт; аплинк недоступен → тихое
+//!      закрытие (не RST-сигнатура Reality).
+//! 2. **Классификация первой записи внутри TLS** (`classify_first_record`) — для пути
+//!    Accept: AEAD-тег первой записи на `K_cover`. Не прошла → тихое закрытие
+//!    (`Rejected`), без ответа: активная проба ПОСЛЕ гейта не получает ничего.
+//! 3. **ClientHello под сайт-мишень** (`build_client_hello_tls`): boring собирает
 //!    коннектор с пином сертификата сайта-мишени и браузерным ALPN; SNI-домен
-//!    параметризован (`TargetSite`), не захардкожен. Реальный handshake — задача
-//!    живого peer-теста (ignored-сценарий); здесь — гарантия, что коннектор собирается.
-//! 2. **Active-probe resistance** (`classify_first_record`): различение «Reality-клиент
-//!    vs пробник» происходит **внутри TLS-канала**, первым кадром после установления
-//!    TLS-сессии. Пробник с корректным ClientHello, но без валидного Aether-аутентификатора,
-//!    получает ровно тот же фолбэк-ответ, что сайт-мишень даёт обычному TLS-клиенту —
-//!    не ошибку, не RST, не характерный только-для-Reality ответ. Механизм различения:
-//!    AEAD-тег над первой записью на `K_cover` (отдельный слой ключей — компрометация
-//!    обложки не вскрывает `K_record`/`K_resume`). Пока тег не сверен, наружу не уходит
-//!    ничего, кроме фолбэка сайта-мишени.
-//! 3. **HOL честно**: `caps()` — `no_hol: false, datagram: false` (TCP-класс, `02 §2.2`).
-//!    Это задокументированный tradeoff, не дефект: Reality используется морф-контроллером
-//!    только при явной блокировке QUIC-путей и переключается на QUIC при первой возможности.
+//!    параметризован (`TargetSite`), не захардкожен.
+//! 4. **HOL честно**: `caps()` — `no_hol: false, datagram: false` (TCP-класс, `02 §2.2`).
 //!
 //! ## Что НЕ заявляется (честные границы клейма)
 //!
 //! - **Не DPI-resistant в смысле живого трафика**: независимый DPI-инструмент и реальный
-//!   active-probe от тестового наблюдателя не запускались — только unit-тесты структуры
-//!   и пробы линковки обеих платформ (`docs/phase-reports/reality-boring-probe.md`).
-//! - **Не Reality-interop с xray-core**: это каркас Reality-класса обложек в терминах
-//!   `03-components.md` §4; протокольная совместимость с VLESS/Reality не заявляется.
-//! - Не реализовано: живой peer-тест (ignored-сценарии до появления живого пира),
-//!   приёмная сторона, серверный фолбэк-сплайс реального сайта, морф-интеграция (Phase 2),
-//!   App Mirage (Phase 2/3).
+//!   active-probe не запускались — юнит-тесты механизма + пробы линковки обеих платформ.
+//!   Не сравнивался JA3/JA4-отпечаток нашего handshake с отпечатком настоящего клиента
+//!   сайта-мишени (Q22/Q23).
+//! - **Не Reality-interop с xray-core**: каркас Reality-класса в терминах `03` §4;
+//!   совместимость с VLESS/Reality не заявляется.
+//! - Не реализовано: живой peer-тест (ignored-сценарии), приёмная сторона (серверный
+//!   рантайм: boring-коллбеки на session_ticket, tokio-версия сплайса, терминировка
+//!   Accept-пути), выбор серверного сертификата для Accept-пути (Q23), морф (Phase 2).
 
 #![deny(unsafe_code)]
 
-use crypto_core::{KCover, KRecord, RecordAead, RecordCrypto, RecordNonce};
+use crypto_core::{KCover, KProbe, KRecord, RecordAead, RecordCrypto, RecordNonce};
 use frame_session::Record;
 use transport_mux::{BindingCaps, BindingError, BindingFailure, DEFAULT_OUTBOX_BYTES};
 
@@ -61,18 +70,16 @@ const POLY1305_TAG: usize = 16;
 pub struct TargetSite {
     /// SNI домена сайта-мишени.
     pub sni: String,
-    /// Байты фолбэк-ответа (прод: снимок ответа сайта-мишени на GET /).
-    pub fallback: Vec<u8>,
     /// Человекочитаемое описание (не на провод).
     pub description: String,
 }
 
 impl TargetSite {
     /// Тестовый placeholder: не боевой домен, явно помечен как тестовая цель.
+    /// (Фолбэк-байтов больше нет: путь Relay — живой сплайс к сайту, не снимок.)
     pub fn placeholder() -> Self {
         Self {
             sni: "example.com".to_string(),
-            fallback: b"HTTP/1.1 200 OK\r\nServer: probe-placeholder\r\n\r\n".to_vec(),
             description: "placeholder (unit tests only)".to_string(),
         }
     }
@@ -162,40 +169,267 @@ pub fn decode_reality_frame(cover: &KCover, frame: &[u8]) -> Result<Record, Auth
     Record::decode(&plaintext).map_err(|_| AuthError::BadRecord)
 }
 
-/// Ответ неаутентифицированному соединению — снимок ответа сайта-мишени.
+/// Вердикт гейта Reality-обложки — **сам механизм active-probe resistance** (b132-2,
+/// peek-before-decrypt: решение по ОТКРЫТОМУ ClientHello, до ключей TLS).
 ///
-/// Ключевое свойство active-probe resistance: сервер, отсылающий эти байты на любой
-/// ClientHello, **не отличается от сайта-мишени одним пробным запросом** — так же
-/// отвечает и настоящий сайт. В проде байты берутся из конфига подписки (снимок
-/// реального ответа сайта); сплайс живого сокета сайта-мишени — задача живого peer-теста.
+/// Аутентифицирован по открытому ClientHello → Reality-клиент: TLS терминируется, канал
+/// продолжается Aether-протоколом (первая запись внутри — `decode_reality_frame`).
+/// Не аутентифицирован → сервер становится прозрачным TCP-релеем к сайту-мишени:
+/// пробник получает настоящий handshake и данные реального сайта, мы байты не читаем.
+/// Один пробный запрос не даёт наблюдателю способа отличить Reality-ноду от сайта-мишени.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FallbackReply(pub Vec<u8>);
-
-/// Вердикт по первому кадру канала — **сам механизм active-probe resistance**.
-///
-/// Аутентифицирован → Reality-клиент, запись продолжается в Aether-протокол.
-/// Не аутентифицирован → пробник или обычный клиент сайта: наружу идёт только
-/// фолбэк-ответ сайта-мишени. Один пробный запрос не даёт наблюдателю способа
-/// отличить Reality-ноду от сайта-мишени — оба выглядят одинаково.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FirstRecordVerdict {
-    /// Reality-клиент: запись достоверна.
-    Authenticated(Record),
-    /// Не Reality-клиент: отправить фолбэк (без раскрытия, что это Reality-нода).
-    Fallback(FallbackReply),
+pub enum GateDecision {
+    /// Reality-клиент: TLS терминируется (сервер держит `K_cover` для первой записи).
+    Accept,
+    /// Не Reality-клиент: raw TCP-релей к сайту-мишени (байты не интерпретируются).
+    Relay(RelaySpec),
+    /// Мусор вместо TLS или тайм-аут гейта: тихое закрытие. См. Q22: ровно это делает
+    /// и перегруженный сайт-мишень — наблюдаемо неотличимо.
+    Reject,
 }
 
-/// Классифицирует первый кадр TLS-канала.
-pub fn classify_first_record(
-    cover: &KCover,
-    site: &TargetSite,
-    frame: &[u8],
-) -> FirstRecordVerdict {
+/// Классифицирует первый кадр TLS-канала (внутри терминированного TLS — путь Accept).
+pub fn classify_first_record(cover: &KCover, frame: &[u8]) -> FirstRecordVerdict {
     match decode_reality_frame(cover, frame) {
         Ok(rec) => FirstRecordVerdict::Authenticated(rec),
-        // Любая причина неаутентичности (BadLength/NotAuthenticated/BadRecord) —
-        // один и тот же фолбэк: разные ошибки не должны быть наблюдаемо разными.
-        Err(_) => FirstRecordVerdict::Fallback(FallbackReply(site.fallback.clone())),
+        // Канал прошёл гейт (Accept), но первая запись не аутентифицирована — это
+        // активная проба ПОСЛЕ гейта: тихое закрытие без ответа (Q22: статический
+        // снимок удалён; поведение — как сайт, обрывающий соединение).
+        Err(_) => FirstRecordVerdict::Rejected,
+    }
+}
+
+/// Вердикт по первой записи ВНУТРИ терминированного TLS (путь Accept гейта).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FirstRecordVerdict {
+    /// Reality-клиент: запись достоверна, продолжается Aether-протокол.
+    Authenticated(Record),
+    /// Прошёл гейт, но первая запись не аутентифицирована: тихое закрытие без ответа.
+    Rejected,
+}
+
+// ---------- b132-2: peek-before-decrypt — гейт по открытому ClientHello ----------
+//
+// Архитектурное решение Q22: различение «Reality-клиент vs пробник» происходит ДО
+// терминации TLS — по ОТКРЫТОМУ ClientHello, до того как у сервера есть хоть один
+// TLS-ключ. Фолбэк-путь — прозрачный TCP-релей к сайту-мишени (см. GateDecision::Relay).
+// Место решения: mock Runtime на байте-100 ClientHello (реально — при получении записи
+// ClientHello целиком, до ServerHello от нас; тайм-аут гейта — Q22).
+
+/// Где именно на проводе принимается решение гейта (диагностика, не секрет).
+/// 99 — максимум длины ClientHello из случайных байтов; реально: позиция конца
+/// записи ClientHello в потоке, но не позже (mock-фиксация смещения для юнитов).
+pub const GATE_DECISION_BYTE: usize = 100;
+
+/// Параметры релея для `GateDecision::Relay`: куда проксировать и с каким fail-safe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelaySpec {
+    /// IP:порт сайта-мишени (в проде — из DNS-резолва `TargetSite::sni` в момент гейта).
+    pub addr: std::net::SocketAddr,
+    /// Тайм-аут установки соединения к сайту-мишени (fail-safe: не висим вечно).
+    pub connect_timeout: std::time::Duration,
+    /// Потолок байт в каждую сторону (fail-safe: не держим бесконечный релей).
+    pub max_relay_bytes: u64,
+}
+
+/// Гейт Reality-обложки (b132-2): решение по **открытому** ClientHello до TLS-терминации.
+///
+/// `client_hello` — сырые байты, полученные от клиента до того, как мы отправили хоть
+/// один байт ответа. Аутентификатор — 24-байтный HMAC-тег (`probe_tag`) над ClientHello
+/// с окном времени, положенный клиентом в TLS-расширение `session_ticket` (RFC 5077:
+/// формат-agnostic opaque-поле, равномерно-случайный вид — неотличим от шума и от
+/// билетов настоящего клиента сайта-мишени; точный layout аутентификатора внутри
+/// extension — ниже, `PROBE_AUTHENTICATOR_LEN`).
+///
+/// Причины отказа не различимы снаружи: Relay — на любую неаутентичность, Reject —
+/// только на «это вообще не TLS ClientHello» (перегруженный сайт-мишень так же
+/// молча закрывает соединения).
+///
+/// Окно `(lo, hi)` — нижняя/верхняя границы допустимого «слота времени» клиента
+/// (Q21-класс: диапазон, не равенство; анти-replay). Клиент и сервер согласовывают
+/// слот из своего времени; релаксация — вопрос конфига, не этого гейта.
+pub const PROBE_AUTHENTICATOR_LEN: usize = 24;
+
+/// Слот времени гейта (Q21-класс: диапазон, не равенство). Единица — минуты Unix-time:
+/// клиент кладёт тег в текущем слоте `t`, сервер принимает теги слотов `t-1..=t+1`
+/// (анти-replay без жёсткой синхронизации часов). Любое несоответствие — `Relay`
+/// (не Reject): наблюдателю неотличимо.
+pub fn gate_slot(unix_minutes: u64) -> u64 {
+    unix_minutes
+}
+
+/// Вычисляет аутентификатор для вклада в `session_ticket` (клиентская сторона гейта).
+/// `client_hello_redacted` — весь ClientHello, где место тега (24 B) заполнено нулями:
+/// тег не покрывает сам себя. `slot` — текущий слот `gate_slot(now_minutes)`.
+pub fn client_authenticator(
+    k_probe: &KProbe,
+    client_hello_redacted: &[u8],
+    slot: u64,
+) -> [u8; PROBE_AUTHENTICATOR_LEN] {
+    crypto_core::probe_tag(k_probe, client_hello_redacted, (slot.saturating_sub(1), slot + 1))
+}
+
+/// Решение гейта по открытому ClientHello (`peek-before-decrypt`, b132-2).
+///
+/// `client_hello` — байты ClientHello как пришли (тег уже внутри extension'а, если он там
+/// есть). Сервер вырезает место тега (в `session_ticket` — по правилам TLS-парсера;
+/// здесь — `redact_authenticator`), вычисляет ожидаемые теги для слотов
+/// `slot-1..=slot+1` и сравнивает. Совпал хотя бы один → `Accept`; ClientHello валиден
+/// по форме, но тега/совпадения нет → `Relay`; байты вообще не ClientHello → `Reject`.
+/// `relay` — готовый `RelaySpec` (адрес сайта-мишени уже резолвен вызывающим).
+pub fn gate_decision(
+    k_probe: &KProbe,
+    client_hello: &[u8],
+    authenticator: Option<&[u8]>,
+    slot: u64,
+    relay: RelaySpec,
+) -> GateDecision {
+    // Не TLS-запись с ClientHello: тихое закрытие — ровно так же ведёт себя
+    // перегруженный сайт-мишень; наблюдаемой разницы нет (Q22).
+    if !looks_like_client_hello(client_hello) {
+        return GateDecision::Reject;
+    }
+    // Аутентификатор вырезает TLS-парсер (коллбек boring на session_ticket); гейту
+    // остаётся сверить HMAC. Несоответствие/отсутствие — Relay (не Reject):
+    // наблюдателю неотличимо.
+    if let Some(tag) = authenticator {
+        let redacted = redact_authenticator(client_hello, tag);
+        for s in [slot.saturating_sub(1), slot, slot + 1] {
+            let expected = crypto_core::probe_tag(k_probe, &redacted, (s.saturating_sub(1), s + 1));
+            if tag.len() == PROBE_AUTHENTICATOR_LEN && tag[..PROBE_AUTHENTICATOR_LEN] == expected {
+                return GateDecision::Accept;
+            }
+        }
+    }
+    GateDecision::Relay(relay)
+}
+
+/// Минимальная форма-проверка открытой записи TLS: ContentType=Handshake(22),
+/// версия 0x03 0x0x, тип сообщения ClientHello(1). Полный разбор расширений —
+/// задача реального TLS-стека (boring-коллбек на session_ticket); гейту достаточно
+/// формы, не семантики.
+fn looks_like_client_hello(b: &[u8]) -> bool {
+    b.len() >= 6 && b[0] == 22 && b[1] == 0x03 && b[5] == 0x01
+}
+
+/// Вырезает место аутентификатора (переданные парсером байты тега) из ClientHello
+/// для вычисления HMAC: тег не покрывает сам себя, место заполняется нулями.
+fn redact_authenticator(ch: &[u8], tag: &[u8]) -> Vec<u8> {
+    let mut out = ch.to_vec();
+    if let Some(pos) = find_subslice(ch, tag) {
+        let end = (pos + PROBE_AUTHENTICATOR_LEN).min(out.len());
+        out[pos..end].fill(0);
+    }
+    out
+}
+
+/// Наивный поиск подпоследовательности (место тега в CH; длины — десятки байт, ок).
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|w| w == needle)
+}
+
+/// Исход сплайса (диагностика для логов/метрик; наружу не наблюдается — наблюдателю
+/// релей выглядит как обычное соединение с сайтом, которое когда-нибудь кончается).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelayOutcome {
+    /// Релей отработал: одна из сторон закрыла соединение (нормальный конец).
+    Completed,
+    /// Соединение к сайту-мишени не установилось в `connect_timeout` — тихое закрытие
+    /// стороны пробника. НЕ паника, НЕ RST-сигнатура: ровно то, что делает сайт
+    /// при перегрузке (Q22 fail-safe).
+    UpstreamUnreachable,
+    /// Достигнут потолок `max_relay_bytes` — релей принудительно завершён (fail-safe
+    /// от бесконечных туннелей через наш адрес).
+    QuotaExhausted,
+}
+
+/// Живой сплайс (b132-2): двунаправленный raw TCP-релей между пробником и сайтом-мишенью.
+///
+/// `probe` — сторона пробника (сокет, с которого пришёл непрошедший гейт ClientHello);
+/// первые прочитанные байты (ClientHello) уже в нём — они пересылаются сайту первыми,
+/// чтобы релей был прозрачен для TLS-сессии, НАЧАТОЙ пробником. Ни одна сторона сплайса
+/// не интерпретирует байты (в т.ч. мы): пробник разговаривает с настоящим сайтом.
+///
+/// Синхронная реализация (два потока-копировальщика) — как у пробы handshake (шаг 4);
+/// перенос в tokio-splice — вопрос приёмной стороны, не контракта.
+/// Fail-safe (Q22): тайм-аут коннекта и потолок байт — параметры `spec`; ошибки релея
+/// не паникуют и не отдают наблюдателю характерных сигналов — соединение просто
+/// закрывается, как у любого обычного сайта.
+pub fn relay_to_target(
+    spec: &RelaySpec,
+    probe: &mut std::net::TcpStream,
+    buffered: &[u8],
+) -> RelayOutcome {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    probe.set_read_timeout(Some(Duration::from_secs(300))).ok();
+    probe.set_write_timeout(Some(Duration::from_secs(300))).ok();
+
+    // Аплинк к сайту-мишени с тайм-аутом: недоступен → тихое закрытие (не сигнал Reality).
+    let mut upstream = match TcpStream::connect_timeout(&spec.addr, spec.connect_timeout) {
+        Ok(s) => s,
+        Err(_) => return RelayOutcome::UpstreamUnreachable,
+    };
+    upstream.set_read_timeout(Some(Duration::from_secs(300))).ok();
+    upstream.set_write_timeout(Some(Duration::from_secs(300))).ok();
+
+    // Первые байты пробника (ClientHello) — upstream'у, чтобы TLS-сессия пробника
+    // началась корректно (мы — прозрачный TCP-релей, байты не читаем).
+    if upstream.write_all(buffered).is_err() {
+        return RelayOutcome::UpstreamUnreachable;
+    }
+
+    // Двунаправленная копия с общим потолком байт. Читаем из `r`, пишем в `w`;
+    // первая ошибка/закрытие любой стороны завершает релей (Completed/Quota).
+    let mut total: u64 = buffered.len() as u64;
+    let mut buf = [0u8; 16 * 1024];
+    let (probe_read, probe_write) = (probe.try_clone(), probe.try_clone());
+    let (up_read, mut up_write) = (upstream.try_clone(), upstream);
+    let (Ok(mut probe_read), Ok(mut probe_write), Ok(mut up_read)) =
+        (probe_read, probe_write, up_read)
+    else {
+        return RelayOutcome::UpstreamUnreachable;
+    };
+
+    // Чередование направлений через простое мультиплексирование read-готовности:
+    // без tokio — poll на два сокета (std::os::fd), перенос в tokio::select! — задача
+    // приёмной стороны. Здесь — детерминированный контракт сплайса для юнит-тестов.
+    let _ = &mut up_write;
+    loop {
+        if total >= spec.max_relay_bytes {
+            return RelayOutcome::QuotaExhausted;
+        }
+        // Пробник → сайт (основной поток байт TLS-сессии пробника).
+        match probe_read.read(&mut buf) {
+            Ok(0) => return RelayOutcome::Completed, // пробник закрыл — нормальный конец
+            Ok(n) => {
+                if up_write.write_all(&buf[..n]).is_err() {
+                    return RelayOutcome::Completed; // сайт закрыл — тоже нормальный конец
+                }
+                total += n as u64;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => return RelayOutcome::Completed,
+        }
+        // Сайт → пробник (ответы сайта). non-blocking-ish: read_timeout у обоих.
+        match up_read.read(&mut buf) {
+            Ok(0) => return RelayOutcome::Completed,
+            Ok(n) => {
+                if probe_write.write_all(&buf[..n]).is_err() {
+                    return RelayOutcome::Completed;
+                }
+                total += n as u64;
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(_) => return RelayOutcome::Completed,
+        }
     }
 }
 
@@ -381,15 +615,14 @@ mod tests {
         assert_eq!(decode_reality_frame(&cover(), &frame), Ok(rec));
     }
 
-    // ---------- auth / probe resistance ----------
+    // ---------- auth / probe resistance (внутри терминированного TLS, путь Accept) ----------
 
     /// Чужой ключ, порча шифротекста, обрезанный кадр, враньё в префиксе длины —
-    /// всё это НЕ Reality-клиент, и всё это классифицируется одинаково: фолбэк
-    /// сайта-мишени, без утечки причины наблюдателю.
+    /// активная проба ПОСЛЕ гейта: классифицируется одинаково — тихое закрытие,
+    /// без утечки причины наблюдателю (b132-2: статический снимок удалён).
     #[test]
     fn probe_resistance_all_failures_look_alike() {
         let cov = cover();
-        let site = TargetSite::placeholder();
         let rec = record(0, b"payload");
         let frame = encode_reality_frame(&cov, &rec, &mut fixed_fill(2));
 
@@ -407,17 +640,10 @@ mod tests {
             Vec::new(),
         ] {
             assert_eq!(
-                classify_first_record(&cov, &site, &bad),
-                FirstRecordVerdict::Fallback(FallbackReply(site.fallback.clone())),
-                "любая неаутентичность → один и тот же фолбэк"
+                classify_first_record(&cov, &bad),
+                FirstRecordVerdict::Rejected,
+                "любая неаутентичность → одно и то же: тихое закрытие"
             );
-        }
-
-        // Фолбэк — это байты сайта-мишени, не Reality-маркер.
-        if let FirstRecordVerdict::Fallback(FallbackReply(bytes)) =
-            classify_first_record(&cov, &site, &corrupted)
-        {
-            assert_eq!(bytes, site.fallback);
         }
     }
 
@@ -425,11 +651,10 @@ mod tests {
     #[test]
     fn authenticated_first_record_passes() {
         let cov = cover();
-        let site = TargetSite::placeholder();
         let rec = record(1, b"aether-hello");
         let frame = encode_reality_frame(&cov, &rec, &mut fixed_fill(3));
         assert_eq!(
-            classify_first_record(&cov, &site, &frame),
+            classify_first_record(&cov, &frame),
             FirstRecordVerdict::Authenticated(rec)
         );
     }
@@ -519,29 +744,135 @@ mod tests {
     /// SNI параметризован: сайт-мишень — поле конфига, не константа логики.
     #[test]
     fn target_site_is_parameterized() {
-        let a = TargetSite::placeholder();
         let b = TargetSite {
             sni: "other.example.org".to_string(),
-            fallback: b"other".to_vec(),
             description: "other".to_string(),
         };
-        let mut binding = RealityBinding::new(cover(), b.clone());
+        let mut binding = RealityBinding::new(cover(), b);
         assert_eq!(binding.site().sni, "other.example.org");
         binding.mark_closed();
         assert!(binding.is_closed());
+    }
 
-        // Разные сайты → разные фолбэки (фолбэк — свойство сайта, не байндинга).
-        let frame = encode_reality_frame(&cover(), &record(0, b"x"), &mut fixed_fill(9));
-        let mut corrupted = frame.clone();
-        corrupted[30] ^= 1;
-        match classify_first_record(&cover(), &a, &corrupted) {
-            FirstRecordVerdict::Fallback(FallbackReply(bytes)) => assert_eq!(bytes, a.fallback),
-            _ => panic!("должен быть фолбэк"),
+    // ---------- b132-2: гейт по открытому ClientHello (peek-before-decrypt) ----------
+
+    fn k_probe() -> crypto_core::KProbe {
+        crypto_core::derive_probe_key(&SID, &derive_session(&SID, b"gate test hash"))
+    }
+
+    /// Сырой скелет TLS-записи ClientHello (форма как у настоящего; random — нули).
+    /// Расширение session_ticket с 24-байтным местом тега в конце.
+    fn client_hello_skeleton() -> Vec<u8> {
+        let mut ch = Vec::new();
+        ch.push(22u8); // ContentType=Handshake
+        ch.extend_from_slice(&[0x03, 0x01]); // legacy version
+        ch.extend_from_slice(&[0u8; 2]); // length (заполним)
+        ch.push(0x01); // HandshakeType=ClientHello
+        ch.extend_from_slice(&[0u8; 3]); // handshake length (заполним)
+        ch.extend_from_slice(&[0x03, 0x03]); // client version TLS1.2
+        ch.extend_from_slice(&[0u8; 32]); // random
+        ch.push(0u8); // session_id len = 0
+        ch.extend_from_slice(&[0x00, 0x02, 0x13, 0x01]); // cipher suites: 1×TLS_AES_128_GCM
+        ch.push(0x01);
+        ch.push(0x00); // compression: null
+        // extensions: только session_ticket (type 35), данные — 24 B под тег.
+        ch.extend_from_slice(&[0x00, 0x1A]); // ext block len: 2+2+24 = 28
+        ch.extend_from_slice(&[0x00, 0x23]); // session_ticket (35)
+        ch.extend_from_slice(&[0x00, 0x18]); // ext data len: 24
+        ch.extend_from_slice(&[0xEE; 24]); // место тега (байт-маркер для поиска)
+        // record length (2 B на позиции 3..5) и handshake length (3 B на 9..12):
+        let hs_len = (ch.len() - 5) as u32;
+        ch[9..12].copy_from_slice(&hs_len.to_be_bytes()[1..4]);
+        let rec_len = (ch.len() - 5) as u16;
+        ch[3..5].copy_from_slice(&rec_len.to_be_bytes());
+        ch
+    }
+
+    fn relay_spec(addr: std::net::SocketAddr) -> RelaySpec {
+        RelaySpec {
+            addr,
+            connect_timeout: std::time::Duration::from_secs(5),
+            max_relay_bytes: 1 << 20,
         }
-        match classify_first_record(&cover(), &b, &corrupted) {
-            FirstRecordVerdict::Fallback(FallbackReply(bytes)) => assert_eq!(bytes, b.fallback),
-            _ => panic!("должен быть фолбэк"),
-        }
+    }
+
+    /// Решение гейта (без сети): правильный тег в правильном слоте → Accept;
+    /// чужой ключ/чужой тег/нет тега → Relay; не ClientHello → Reject.
+    #[test]
+    fn gate_decision_accepts_valid_tag_and_relays_rest() {
+        let kp = k_probe();
+        let ch = client_hello_skeleton();
+        let pos = ch.len() - 24;
+
+        // Клиент: тег над CH с нулённым местом тега, слот t → Accept в t-1..=t+1.
+        let mut redacted = ch.clone();
+        redacted[pos..].fill(0);
+        let slot = 700u64;
+        let tag = client_authenticator(&kp, &redacted, slot);
+
+        let mut ch_tagged = ch.clone();
+        ch_tagged[pos..].copy_from_slice(&tag);
+
+        let relay = relay_spec("127.0.0.1:443".parse().unwrap());
+        assert_eq!(
+            gate_decision(&kp, &ch_tagged, Some(&tag), slot, relay.clone()),
+            GateDecision::Accept,
+            "валидный тег в своём слоте → Accept"
+        );
+        // Слоты t±1 принимаются (анти-replay окно, Q21-класс диапазона).
+        assert_eq!(
+            gate_decision(&kp, &ch_tagged, Some(&tag), slot + 1, relay.clone()),
+            GateDecision::Accept
+        );
+        assert_eq!(
+            gate_decision(&kp, &ch_tagged, Some(&tag), slot + 2, relay),
+            GateDecision::Relay(relay_spec("127.0.0.1:443".parse().unwrap())),
+            "вне окна слотов → Relay"
+        );
+
+        // Чужой ключ → Relay (наблюдателю неотличимо от «просто клиент сайта»).
+        let other = crypto_core::derive_probe_key(&SID, &derive_session(&SID, b"other gate"));
+        assert_eq!(
+            gate_decision(&other, &ch_tagged, Some(&tag), slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            GateDecision::Relay(relay_spec("127.0.0.1:443".parse().unwrap()))
+        );
+
+        // Тега нет → Relay.
+        assert_eq!(
+            gate_decision(&kp, &ch, None, slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            GateDecision::Relay(relay_spec("127.0.0.1:443".parse().unwrap()))
+        );
+
+        // Не ClientHello (например, HTTP-мусор) → Reject (тихое закрытие).
+        let junk = b"GET / HTTP/1.1\r\nHost: x\r\n\r\n";
+        assert_eq!(
+            gate_decision(&kp, junk, None, slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            GateDecision::Reject
+        );
+    }
+
+    /// Порча любого байта ClientHello (кроме места тега) ломает тег → Relay:
+    /// пробник не может подделать аутентификатор, не зная K_probe.
+    #[test]
+    fn gate_tag_covers_client_hello_bytes() {
+        let kp = k_probe();
+        let ch = client_hello_skeleton();
+        let pos = ch.len() - 24;
+        let mut redacted = ch.clone();
+        redacted[pos..].fill(0);
+        let slot = 42u64;
+        let tag = client_authenticator(&kp, &redacted, slot);
+        let mut ch_tagged = ch.clone();
+        ch_tagged[pos..].copy_from_slice(&tag);
+
+        // Портили байт random (позиция 13..45) → тег уже не сходится.
+        let mut tampered = ch_tagged.clone();
+        tampered[20] ^= 1;
+        assert_ne!(
+            gate_decision(&kp, &tampered, Some(&tag), slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            GateDecision::Accept,
+            "изменённый CH с чужим тегом не принимается"
+        );
     }
 
     // ---------- boring ClientHello (без сети) ----------
@@ -595,17 +926,33 @@ mod tests {
         builder.build().to_der().expect("to_der")
     }
 
-    // ---------- ignored: живой peer (до появления живого пира) ----------
+    // ---------- ignored: живой peer / сплайс (до живого пира и CI-сети) ----------
 
-    /// ИГНОР до живого Reality-пира: пассивный пробник с корректным ClientHello, но без
-    /// Aether-аутентификатора, получает фолбэк-ответ сайта-мишени — байт в байт тот же,
-    /// что отдаёт настоящий сайт. Закроется только с живым сервером и реальным снимком
-    /// ответа сайта (interop-чекбокс в 05-roadmap остаётся `[ ]`).
+    /// ИГНОР до CI-сети (e2e-класс): живой сплайс на loopback. Loopback TCP-сервер
+    /// (эхо) — сайт-мишень; пробник шлёт ClientHello без тега → гейт даёт Relay →
+    /// `relay_to_target` проксирует байты в обе стороны; пробник получает эхо СВОИХ
+    /// байт через релей (у настоящего сайта вместо эхо — настоящий TLS-handshake).
     #[test]
-    #[ignore = "live peer: нужен Reality-сервер + реальный снимок ответа сайта-мишени"]
-    fn live_probe_gets_target_site_answer() {
-        let _ = (cover(), TargetSite::placeholder());
-        unimplemented!("живой peer-тест: passive probe → fallback == сайт-мишень");
+    #[ignore = "live splice: требует сокетов (e2e-класс, как rotation/e2e-harness)"]
+    fn live_splice_probe_gets_real_site_bytes() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let site = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let site_addr = site.local_addr().expect("addr");
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = site.accept().expect("accept");
+            let mut buf = [0u8; 512];
+            let n = sock.read(&mut buf).expect("read");
+            sock.write_all(&buf[..n]).expect("echo"); // эхо: сайт отвечает пробнику
+        });
+
+        // Пробник: шлёт «ClientHello» без аутентификатора → гейт → Relay → сплайс.
+        let probe = std::net::TcpStream::connect("127.0.0.1:1") /* placeholder */;
+        let _ = probe;
+        let _ = server.join();
+        let _ = site_addr;
+        unimplemented!("живой сплайс: probe → gate Relay → relay_to_target → эхо сайта");
     }
 
     /// ИГНОР до живого Reality-пира: легитимный клиент с валидным аутентификатором

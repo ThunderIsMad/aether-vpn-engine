@@ -438,9 +438,9 @@ mod tests {
     /// Phase 1, кусок 3: тот же путь, но `CoverBinding` — каркас Reality/TCP
     /// (`RealityBinding`). Пакет проходит policy → frame-session → Reality-обёртку
     /// (`len ‖ nonce ‖ AEAD(record)` на `K_cover`), обёртка вскрывается
-    /// `decode_reality_frame` (тот же верdict, что у classify_first_record для
-    /// аутентифицированного клиента), запись — зеркальной сессией. Caps каркаса —
-    /// stream-класс: HOL — задокументированный tradeoff TCP-класса (`02 §2.2`).
+    /// `decode_reality_frame` (путь Accept гейта: первая запись аутентифицированного
+    /// канала), запись — зеркальной сессией. Caps каркаса — stream-класс: HOL —
+    /// задокументированный tradeoff TCP-класса (`02 §2.2`).
     #[test]
     fn packet_through_reality_binding_roundtrip() {
         use cover_reality::{decode_reality_frame, RealityBinding};

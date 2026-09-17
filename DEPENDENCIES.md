@@ -168,6 +168,7 @@ TTL перепроверки — вместе с Phase 0 pins (до 2026-12-15):
 | Крейт | Версия | Кто тянет | Зачем | TTL |
 |---|---|---|---|---|
 | `getrandom` | 0.3 | `ticket-mint` | случайный 24 B nonce тикета: AEAD обязан быть probabilistic; без RNG узел не может безопасно минтить билет (аудит: детерминированный `sha256(plain)`-nonce). API — `getrandom::fill`, системный CSPRNG | 180 дней |
+| `hmac` | 0.13 | `crypto-core` (b132-2) | `probe_tag` — HMAC-SHA256-аутентификация открытого ClientHello в гейте Reality-обложки (peek-before-decrypt, Q22): решение до TLS-ключей, поэтому тег — HMAC (детерминированный, без nonce), не AEAD. Общий корень RustCrypto-стека, digest 0.11 — поколение с hkdf/sha2 | 180 дней |
 
 Прямая зависимость осознанная: тянуть весь `crypto-core` (clatter + PQClean) в узловой
 крейт ради 32 байт случайности — неоправданная связанность; `getrandom` — общий корень
