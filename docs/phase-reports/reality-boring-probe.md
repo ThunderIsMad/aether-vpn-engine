@@ -553,6 +553,36 @@ rustls: конфиги готовы (ring-провайдер, цепочка CA�
 === ИТОГ: 6 живых TLS-соединений (3 boring + 3 rustls), паник/сегфолтов/порчи нет ===
 ```
 
+## Шаг 6 — подтверждение на Linux CI (platform parity)
+
+Та же разведка линковки на CI-раннере (ubuntu-latest, Linux — не Windows/GNU):
+job `reality-boring-probe-linux` в `.github/workflows/ci.yml` (continue-on-error,
+разведка платформы, не блокирует обязательные проверки). Пробный крейт
+`ci-probes/boring-linux/` — вне workspace (явный `exclude` в корневом Cargo.toml:
+надёжно против ancestor-поиска workspace, отличие видно в главном манифесте);
+boring по-прежнему не в прод-зависимостях.
+
+**Зависимости на Linux — отличие от Windows/GNU** (проверено по исходникам
+boring-sys 4.22 и вендоренному CMakeLists.txt BoringSSL, не по памяти):
+
+| Звено | Windows/GNU (шаг 2) | Linux CI |
+|---|---|---|
+| CMake-генератор | обязателен Ninja (busybox-sh) | не задан — дефолтный Makefiles работает (полноценный sh) |
+| NASM | обязателен (2.16.03 портативный) | **не нужен**: `CMakeLists.txt` включает `ASM_NASM` только для Windows x86/x86_64 (строки 48–52), Linux-asm идёт через C-компилятор — в job всё равно установлен как документирование |
+| libclang | PyPI-колесо + `BINDGEN_EXTRA_CLANG_ARGS` с `-target` | `libclang-dev` из apt; `-target` не нужен (нативная сборка, sysroot системный) |
+
+**Результат: сборка прошла** ([run 35224800408](https://github.com/ThunderIsMad/aether-vpn-engine/actions/runs/35224800408),
+коммит `1b6cde3`, 2026-09-17): job «Reality boring probe (linux, recon)» —
+`success`, все шаги зелёные (apt-зависимости → `cargo build` → запуск бинаря);
+холодная сборка BoringSSL+cargo на раннере ~40–50 c из 67 c job'а (установку apt
+и checkout считаем отдельно; полная job ~1 мин). Параллельно обязательные
+«Rust (test + clippy)» (64 с) и «Validate skills» (6 с) — тоже success, job
+никого не заблокировал и не замедлил.
+
+Итог по F11 после двух платформ: **линковка boring рядом с rustls/ring чистая
+на Windows/GNU (локально) и на Linux (CI); живой handshake в одном процессе
+проверен на Windows/GNU (шаг 4)**.
+
 ## Шаг 5 — архитектурная карточка: boring встроенный vs Go-sidecar
 
 **Контекст решения.** Go-sidecar (xray-core отдельным процессом) был запасным путём
