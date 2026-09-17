@@ -451,7 +451,6 @@ pub struct RealityBinding {
     closed: bool,
     /// Событие `Closed` уже выставлено (ровно один раз на закрытие, не на каждый send).
     closed_reported: bool,
-    counter: u64,
 }
 
 impl RealityBinding {
@@ -464,7 +463,6 @@ impl RealityBinding {
             failure: None,
             closed: false,
             closed_reported: false,
-            counter: 0,
         }
     }
 
@@ -500,8 +498,14 @@ impl RealityBinding {
 }
 
 /// Тестовый/детерминированный источник энтропии — тот же паттерн, что в `cover-ss2022`:
-/// nonce кадра обязан лишь не повторяться на ключе (гарантирует счётчик в `send`),
-/// а в unit-тестах даёт детерминизм. В проде — системный RNG.
+/// НЕ крипто-RNG и НЕ достижим из прод-конструктора байндинга: доступен только тестам
+/// (приватен, в прод-пути `send()` — CSPRNG). Прод-дефект F-01 (аудит, High): раньше
+/// именно эта функция стояла в `send()` — общая nonce-последовательность у всех
+/// деплоев и повтор nonce при пересоздании байндинга на том же `K_cover`.
+/// Текущим тестам хватает `fixed_fill`; функция сохранена как зарезервированный
+/// детерминированный хелпер (поручено фиксом F-01), `allow(dead_code)` — test-only.
+#[cfg(test)]
+#[allow(dead_code)]
 fn deterministic_fill(counter: u64, index: u64) -> impl FnMut(&mut [u8]) {
     move |buf: &mut [u8]| {
         let mut state = counter
@@ -528,9 +532,16 @@ impl transport_mux::CoverBinding for RealityBinding {
             }
             return Err(BindingError::TransportDown);
         }
-        self.counter = self.counter.wrapping_add(1);
-        let mut fill = deterministic_fill(self.counter, 0);
-        let frame = encode_reality_frame(&self.cover, rec, &mut fill);
+        // Nonce кадра — из системного CSPRNG (F-01): AEAD probabilistic, без повторов
+        // nonce на ключе независимо от истории создания байндинга. Детерминированный
+        // xorshift от счётчика давал одинаковую nonce-последовательность у всех клиентов
+        // (DPI-отпечаток) и повтор nonce при пересоздании байндинга на том же `K_cover`
+        // (реконнект/морф) — раскрытие keystream'ов и подделка Poly1305-тега.
+        // `expect` допустим: единственная ошибка `getrandom::fill` — системный RNG
+        // недоступен (тот же explicit-fail контракт, что в `ticket-mint::mint_at`).
+        let frame = encode_reality_frame(&self.cover, rec, &mut |buf: &mut [u8]| {
+            getrandom::fill(buf).expect("system CSPRNG unavailable: cannot encrypt a reality frame");
+        });
         // Кадр обложки кладём напрямую в Outbox: `BindingCore::enqueue` кодирует
         // дефолтный кадр без auth-обёртки — обложка формирует кадр сама (как у ss2022).
         self.outbox.push(rec.stream_id, frame)
@@ -694,6 +705,46 @@ mod tests {
         assert_eq!(binding.send(&rec), Err(BindingError::TransportDown));
         assert_eq!(binding.on_failure(), None, "Closed тоже ровно один раз");
         assert!(binding.take_pending().is_empty(), "в закрытый канал ничего не ушло");
+    }
+
+    /// F-01 (аудит, High): prod-nonce байндинга — CSPRNG, не детерминированный счётчик.
+    /// Два инстанса байндинга на одном `K_cover` (реконнект/морф = пересоздание) НЕ
+    /// повторяют nonce: до фикса второй байндинг начинал ту же xorshift-последовательность,
+    /// что и первый, — повтор nonce на ключе (раскрытие keystream'ов XChaCha20).
+    #[test]
+    fn prod_nonce_never_repeats_across_binding_instances() {
+        let cov = cover();
+        let extract_nonce = |frame: &[u8]| -> [u8; AUTH_NONCE_LEN] {
+            let mut n = [0u8; AUTH_NONCE_LEN];
+            n.copy_from_slice(&frame[FRAME_LEN_BYTES..FRAME_LEN_BYTES + AUTH_NONCE_LEN]);
+            n
+        };
+
+        let mut seen: std::collections::HashSet<[u8; AUTH_NONCE_LEN]> =
+            std::collections::HashSet::new();
+        let rec = record(0, b"nonce uniqueness probe");
+
+        // Первое время жизни байндинга: N записей.
+        let mut first = RealityBinding::new(cov, TargetSite::placeholder());
+        for _ in 0..8 {
+            first.send(&rec).expect("очередь не переполнена");
+            for (_, frame) in first.take_pending() {
+                assert!(seen.insert(extract_nonce(&frame)), "nonce повторился внутри одного байндинга");
+            }
+        }
+
+        // Пересоздание байндинга на ТОМ ЖЕ ключе (реконнект/морф): ещё N записей.
+        let mut second = RealityBinding::new(cov, TargetSite::placeholder());
+        for _ in 0..8 {
+            second.send(&rec).expect("очередь не переполнена");
+            for (_, frame) in second.take_pending() {
+                assert!(
+                    seen.insert(extract_nonce(&frame)),
+                    "nonce повторился после пересоздания байндинга — F-01 регрессия"
+                );
+            }
+        }
+        assert_eq!(seen.len(), 16, "все 16 nonce уникальны на одном K_cover");
     }
 
     /// Backpressure: потолок очереди в байтах, переполнение — `WouldBlock`, а не рост памяти.

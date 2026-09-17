@@ -8,6 +8,9 @@ publish = false
 frame-session.workspace = true
 transport-mux.workspace = true
 crypto-core.workspace = true
+# Системный CSPRNG для nonce прод-пути (F-01: детерминированный xorshift в send()
+# был прод-дефектом). Тот же паттерн explicit-fail, что в ticket-mint.
+getrandom = "0.3"
 # TLS-бэкенд контроля ClientHello (Reality-обложка). Первая прод-зависимость boring:
 # линковка рядом с rustls/ring проверена пробами на обеих платформах
 # (docs/phase-reports/reality-boring-probe.md, F11 DEPENDENCIES.md).

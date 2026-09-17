@@ -32,7 +32,9 @@
 //!
 //! Ключ обложки — `derive_cover_key(sid, K_session)` с меткой `LABEL_COVER`: отдельный
 //! слой, компрометация обложки не вскрывает `K_record`/`K_resume`. Nonce кадра —
-//! монотонный счётчик байндинга (24 B, без повторов на ключе — условие AEAD).
+//! системный CSPRNG (24 B, probabilistic AEAD): детерминированный xorshift-nonce был
+//! прод-дефектом (аудит F-01) — общая последовательность у всех деплоев как DPI-отпечаток
+//! и повтор nonce на одном `K_cover` при пересоздании байндинга (раскрытие keystream'ов).
 
 #![deny(unsafe_code)]
 
@@ -173,9 +175,6 @@ pub struct SsPaddedBinding {
     outbox: transport_mux::Outbox,
     failure: Option<BindingFailure>,
     closed: bool,
-    /// Монотонный счётчик nonce: без повторов на ключе (условие AEAD); в тестах даёт
-    /// детерминизм, в проде XOR-ится с системной энтропией.
-    counter: u64,
 }
 
 impl SsPaddedBinding {
@@ -192,7 +191,6 @@ impl SsPaddedBinding {
             outbox: transport_mux::Outbox::new(DEFAULT_OUTBOX_BYTES),
             failure: None,
             closed: false,
-            counter: 0,
         }
     }
 
@@ -228,8 +226,13 @@ impl SsPaddedBinding {
 }
 
 /// Тестовый/детерминированный источник энтропии: xorshift от `(counter, index)`.
-/// Не крипто-RNG: nonce кадра обязан лишь не повторяться на ключе (гарантирует
-/// счётчик), а паддинг скрыт AEAD. В проде `rng_fill` — системный RNG.
+/// НЕ крипто-RNG и НЕ достижим из прод-конструктора байндинга: доступен только
+/// тестам этого крейта (приватен, в прод-пути `send()` используется CSPRNG).
+/// Прод-дефект F-01 (аудит, High): раньше именно эта функция стояла в `send()`.
+/// Текущим тестам хватает `fixed_fill`; функция сохранена как зарезервированный
+/// детерминированный хелпер (поручено фиксом F-01), `allow(dead_code)` — test-only.
+#[cfg(test)]
+#[allow(dead_code)]
 fn deterministic_fill(counter: u64, index: u64) -> impl FnMut(&mut [u8]) {
     move |buf: &mut [u8]| {
         let mut state = counter
@@ -251,9 +254,16 @@ impl CoverBinding for SsPaddedBinding {
             self.failure = Some(BindingFailure::Closed);
             return Err(BindingError::TransportDown);
         }
-        self.counter = self.counter.wrapping_add(1);
-        let mut fill = deterministic_fill(self.counter, 0);
-        let frame = encode_cover_frame(&self.cover, rec, self.padding_budget, &mut fill);
+        // Nonce и padding — из системного CSPRNG (F-01): AEAD probabilistic, без
+        // повторов nonce на ключе независимо от истории создания байндинга. Детерминированный
+        // xorshift от счётчика давал одинаковую nonce-последовательность у всех клиентов
+        // (DPI-отпечаток) и повтор nonce при пересоздании байндинга на том же `K_cover`
+        // (реконнект/морф) — раскрытие keystream'ов и подделка Poly1305-тега.
+        // `expect` допустим: единственная ошибка `getrandom::fill` — системный RNG
+        // недоступен (тот же explicit-fail контракт, что в `ticket-mint::mint_at`).
+        let frame = encode_cover_frame(&self.cover, rec, self.padding_budget, &mut |buf: &mut [u8]| {
+            getrandom::fill(buf).expect("system CSPRNG unavailable: cannot encrypt a cover frame");
+        });
         // Кадр обложки кладём напрямую в Outbox (не через BindingCore::enqueue —
         // тот кодирует дефолтный кадр без AEAD/padding).
         self.outbox.push(rec.stream_id, frame)
@@ -443,5 +453,44 @@ mod tests {
             small.send(&record(1, &big_payload)),
             Err(BindingError::WouldBlock)
         );
+    }
+
+    /// F-01 (аудит, High): prod-nonce байндинга — CSPRNG, не детерминированный счётчик.
+    /// Два инстанса байндинга на одном `K_cover` (реконнект/морф = пересоздание) НЕ
+    /// повторяют nonce: до фикса второй байндинг начинал ту же xorshift-последовательность,
+    /// что и первый, — повтор nonce на ключе (раскрытие keystream'ов XChaCha20).
+    #[test]
+    fn prod_nonce_never_repeats_across_binding_instances() {
+        let cov = cover();
+        let extract_nonce = |frame: &[u8]| -> [u8; NONCE_LEN] {
+            let mut n = [0u8; NONCE_LEN];
+            n.copy_from_slice(&frame[FRAME_LEN_BYTES..FRAME_LEN_BYTES + NONCE_LEN]);
+            n
+        };
+
+        let mut seen: std::collections::HashSet<[u8; NONCE_LEN]> = std::collections::HashSet::new();
+        let rec = record(0, b"nonce uniqueness probe");
+
+        // Первое время жизни байндинга: N записей.
+        let mut first = SsPaddedBinding::new(cov);
+        for _ in 0..8 {
+            first.send(&rec).expect("очередь не переполнена");
+            for (_, frame) in first.take_pending() {
+                assert!(seen.insert(extract_nonce(&frame)), "nonce повторился внутри одного байндинга");
+            }
+        }
+
+        // Пересоздание байндинга на ТОМ ЖЕ ключе (реконнект/морф): ещё N записей.
+        let mut second = SsPaddedBinding::new(cov);
+        for _ in 0..8 {
+            second.send(&rec).expect("очередь не переполнена");
+            for (_, frame) in second.take_pending() {
+                assert!(
+                    seen.insert(extract_nonce(&frame)),
+                    "nonce повторился после пересоздания байндинга — F-01 регрессия"
+                );
+            }
+        }
+        assert_eq!(seen.len(), 16, "все 16 nonce уникальны на одном K_cover");
     }
 }

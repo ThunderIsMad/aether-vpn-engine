@@ -369,6 +369,7 @@ dependencies = [
  "boring",
  "crypto-core",
  "frame-session",
+ "getrandom 0.3.4",
  "transport-mux",
 ]
 
@@ -378,6 +379,7 @@ version = "0.0.0"
 dependencies = [
  "crypto-core",
  "frame-session",
+ "getrandom 0.3.4",
  "transport-mux",
 ]
 
