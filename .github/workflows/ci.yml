@@ -80,3 +80,38 @@ jobs:
         if: steps.ws.outputs.found == 'true'
         continue-on-error: true
         run: cargo test -p e2e-harness --all-features
+
+  # Разведка platform parity для Reality-обложки (DEPENDENCIES.md F11): линкуется ли
+  # boring 4.x на Linux-раннере так же чисто, как на локальной Windows/GNU машине
+  # (docs/phase-reports/reality-boring-probe.md, шаги 1–3).
+  # НЕ Reality: никаких логики ClientHello/active-probe — только сборка+запуск
+  # минимального пробного крейта ci-probes/boring-linux (вне workspace, exclude в
+  # корневом Cargo.toml; boring в прод-зависимости не добавлен).
+  # continue-on-error на уровне job (как e2e-шаг выше): это разведка ПЛАТФОРМЫ, не
+  # прод-код — падение сборки BoringSSL на чужом раннере не должно блокировать
+  # обязательные проверки (skills, rust test/clippy). Снятый/неснятый риск фиксируется
+  # в reality-boring-probe.md, а не цветом чека.
+  # Отличия от Windows/GNU-пробы (по исходникам boring-sys 4.22 и вендоренному
+  # CMakeLists.txt BoringSSL): NASM на Linux НЕ нужен (CMakeLists включает ASM_NASM
+  # только для Windows x86/x86_64, Linux-asm идёт через компилятор C); ninja-build не
+  # обязателен (сломанный busybox-sh был только на Windows); libclang нужен bindgen'у
+  # как и на Windows, но здесь это apt-пакет, а не PyPI-колесо.
+  reality-boring-probe-linux:
+    name: Reality boring probe (linux, recon)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install boring-sys build dependencies (linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake nasm libclang-dev
+
+      - name: cargo build (ci-probes/boring-linux)
+        run: cargo build --manifest-path ci-probes/boring-linux/Cargo.toml
+
+      - name: run probe
+        run: ci-probes/boring-linux/target/debug/boring-linux-probe

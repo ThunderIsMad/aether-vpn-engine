@@ -1,0 +1,13 @@
+[package]
+name = "boring-linux-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# РАЗВЕДКА (platform parity): проверка линковки boring-sys на Linux CI-раннере —
+# та же разведка, что и локальная Windows/GNU проба из
+# docs/phase-reports/reality-boring-probe.md, только на другой платформе.
+# Не прод-зависимость: boring НЕ добавлен в [workspace.dependencies], crates/ не
+# тронут; крейт исключён из workspace резолвера через exclude в корневом Cargo.toml.
+[dependencies]
+boring = "4"

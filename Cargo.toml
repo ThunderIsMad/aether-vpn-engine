@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
+# ci-probes/boring-linux — разведочный крейт (boring на Linux CI, platform parity,
+# docs/phase-reports/reality-boring-probe.md). Не member и не прод-зависимость:
+# без exclude cargo при сборке из каталога крейта найдёт корневой workspace по
+# предкам и упадёт ("believes it's in a workspace"). Исключение видит каждый, кто
+# открывает корневой манифест — в отличие от неявной «вне дерева».
+exclude = ["ci-probes/boring-linux"]
 
 [workspace.package]
 version = "0.0.0"
