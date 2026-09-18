@@ -1,0 +1,181 @@
+name: Toolchain probe (temporary, self-reporting)
+
+# ВРЕМЕННЫЙ workflow — удаляется отдельным коммитом после прогона (см. третий-audit F-11).
+#
+# Зачем: rust-toolchain.toml пинит версию компилятора. Нужно подтвердить на РЕАЛЬНОМ
+# Linux-раннере, а не «выглядит логично»:
+#   (а) старый пин с host-триплетом там действительно ломался — и как именно;
+#   (б) текущий version-only пин даёт нативный linux-компилятор и проходит обязательные
+#       шаги rust-job из ci.yml (fmt / clippy / tests + e2e-фича + boring-sys на linux).
+#
+# Как возвращается результат: репозиторий приватный, Actions API снаружи недоступен (404),
+# gh CLI и токена в окружении нет. Поэтому лог пишется коммитом в служебную ветку
+# `ci-probe-results` встроенным GITHUB_TOKEN самого раннера — только git-операции,
+# никаких внешних токенов и никаких секретов.
+#
+# Ветка `ci-probe-results` — служебная: перезаписывается (--force) каждым прогоном пробы.
+# На third-audit-fixes этот workflow ничего не пишет.
+#
+# push сюда триггерит ТОЛЬКО этот файл: ci.yml в этой ветке слушает push лишь в main.
+
+on:
+  push:
+    branches: [third-audit-fixes]
+
+permissions:
+  contents: write # исключительно для возврата лога в служебную ветку
+
+jobs:
+  toolchain-probe:
+    name: rust-toolchain.toml on linux (probe)
+    runs-on: ubuntu-latest
+    env:
+      EVIDENCE_BRANCH: ci-probe-results
+      LOG: ci-probe/probe-log.txt
+    steps:
+      # persist-credentials: true — единственное отличие от остальных job'ов ci.yml
+      # (там false): здесь нужен push лога обратно в репозиторий.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: true
+
+      # То же, что в обязательном rust-job: boring-sys собирается и на linux (bindgen).
+      - name: Install boring-sys build dependencies (linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake libclang-dev
+
+      - name: Prepare log
+        run: |
+          mkdir -p ci-probe
+          : > "$LOG"
+
+      # Маркер «прогон стартовал»: отличает «workflow не триггернулся / нет прав на push
+      # в служебную ветку» от «прогон ещё идёт». continue-on-error — чтобы сбой маркера
+      # не отменял сбор основного лога.
+      - name: Evidence marker (started)
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$EVIDENCE_BRANCH"
+          {
+            echo "probe started"
+            echo "run: $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
+            echo "sha: $GITHUB_SHA"
+            echo "ref: $GITHUB_REF"
+            date -u
+          } > ci-probe/STARTED.txt
+          git add ci-probe/STARTED.txt
+          git commit -m "probe: run started ($GITHUB_SHA)"
+          git push --force origin "HEAD:refs/heads/$EVIDENCE_BRANCH"
+
+      # (а) Эксперимент: что Linux-раннер делает со СТАРЫМ пином (полный триплет).
+      # Каталог вне репозитория, чтобы файл из репо не подмешивался (rustup ищет
+      # rust-toolchain.toml вверх по дереву). Авто-установка здесь — это и есть предмет
+      # проверки: скачает ли раннер компилятор для Windows и что будет при запуске.
+      - name: "Experiment (a): old pin - host triple - on linux"
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/old-pin && cd /tmp/old-pin
+          printf '[toolchain]\nchannel = "1.98.1-x86_64-pc-windows-gnu"\n' > rust-toolchain.toml
+          {
+            echo
+            echo "================ (а) СТАРЫЙ пин: channel = \"1.98.1-x86_64-pc-windows-gnu\" ================"
+            echo "cwd: $(pwd)  файл: rust-toolchain.toml (вне репозитория)"
+            echo "--- rustup show ---"
+            rustup show 2>&1; echo "exit=$?"
+            echo "--- rustc -vV ---"
+            rustc -vV 2>&1; echo "exit=$?"
+            echo "--- rustup toolchain list -v ---"
+            rustup toolchain list -v 2>&1
+          } >> "$GITHUB_WORKSPACE/$LOG" 2>&1
+          cd "$GITHUB_WORKSPACE"
+
+      # (б) Предмет: текущий (исправленный) пин из репозитория + те же проверки, что
+      # делает новый шаг «Verify toolchain pin (linux)» в ci.yml.
+      - name: "Repo pin (b): resolve + guard"
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          {
+            echo
+            echo "================ (б) ТЕКУЩИЙ пин из репозитория (version-only) ================"
+            echo "--- rust-toolchain.toml ---"
+            cat rust-toolchain.toml
+            echo "--- rustup show ---"
+            rustup show 2>&1; echo "exit=$?"
+          } >> "$LOG" 2>&1
+          want="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' rust-toolchain.toml)"
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          release="$(rustc -vV | sed -n 's/^release: //p')"
+          {
+            echo "resolved: channel=$want host=$host release=$release"
+            case "$want" in
+              *-windows-*|*-apple-*|*-linux-*|*-unknown-*) echo "GUARD-toolchain-file: FAIL";;
+              *) echo "GUARD-toolchain-file: ok";;
+            esac
+            case "$host" in
+              *-windows-*|*-apple-*) echo "GUARD-host: FAIL ($host)";;
+              *) echo "GUARD-host: ok";;
+            esac
+            if [[ "$want" == *.* ]] && [ "$release" != "$want" ]; then
+              echo "GUARD-version: FAIL ($release != $want)"
+            else
+              echo "GUARD-version: ok"
+            fi
+          } >> "$LOG" 2>&1
+
+      # Те самые шаги обязательного rust-job (плюс best-effort e2e из ci.yml).
+      - name: "Mandatory rust job steps (fmt / clippy / tests)"
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          {
+            echo
+            echo "================ ОБЯЗАТЕЛЬНЫЕ ШАГИ rust-job на ubuntu ================"
+            echo "\$ cargo fmt --all --check"
+            cargo fmt --all --check 2>&1 | tail -n 20
+            echo "exit=${PIPESTATUS[0]}"
+          } >> "$LOG" 2>&1
+          {
+            echo
+            echo "\$ cargo test --locked --workspace --all-targets"
+            out="$(cargo test --locked --workspace --all-targets 2>&1)"; rc=$?
+            echo "$out" | grep -E "^test result:" | awk '{p+=$4; f+=$6; i+=$8} END {print "итог: passed="p" failed="f" ignored="i}'
+            echo "exit=$rc"
+          } >> "$LOG" 2>&1
+          {
+            echo
+            echo "\$ cargo clippy --locked --workspace --all-targets -- -D warnings"
+            cargo clippy --locked --workspace --all-targets -- -D warnings 2>&1 | tail -n 20
+            echo "exit=${PIPESTATUS[0]}"
+          } >> "$LOG" 2>&1
+          {
+            echo
+            echo "\$ cargo clippy --locked -p e2e-harness --all-targets --all-features -- -D warnings"
+            cargo clippy --locked -p e2e-harness --all-targets --all-features -- -D warnings 2>&1 | tail -n 20
+            echo "exit=${PIPESTATUS[0]}"
+          } >> "$LOG" 2>&1
+          {
+            echo
+            echo "\$ cargo test --locked -p e2e-harness --all-features"
+            out="$(cargo test --locked -p e2e-harness --all-features 2>&1)"; rc=$?
+            echo "$out" | grep -E "^test result:" | awk '{p+=$4; f+=$6} END {print "итог: passed="p" failed="f}'
+            echo "exit=$rc"
+          } >> "$LOG" 2>&1
+
+      # Возврат лога. if: always() — лог нужен и когда что-то из шагов выше упало
+      # (все они continue-on-error, так что до сюда доходим всегда).
+      - name: Return evidence (commit log to the scratch branch)
+        if: always()
+        run: |
+          set -euxo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$EVIDENCE_BRANCH"
+          git add -A ci-probe
+          git commit -m "probe: rust-toolchain.toml evidence on linux ($GITHUB_SHA)"
+          git push --force origin "HEAD:refs/heads/$EVIDENCE_BRANCH"
