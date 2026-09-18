@@ -182,6 +182,7 @@ QUIC/TLS 1.3 — классический (не PQ), транспортная р
 | `tokio` | 1 | рантайм бинов и wire-слоя | неопционально в крейте (wire.rs компилируется всегда); прод-крейты async не используют |
 | `rustls` | 0.23, default-features = false, features = `[ring, std, tls12]` | TLS QUIC-лаборатории | фича `ring` — тот же криптобэкенд, что у прод-пинов; провайдер задаётся явно (`rustls::crypto::ring::default_provider`) |
 | `rcgen` | 0.13, features = `[ring, pem]` | самоподписанный сертификат узла на лету | Ed25519-ключ; SAN `localhost` + `127.0.0.1` |
+| `rcgen` (workspace, Q23) | 0.13, features = `[ring, pem]` | скелет сертификата Accept-пути Reality (`build_reality_cert`) | Ed25519-скелет; CN обязателен, SAN не ставится; поле подписи перезаписывается per-handshake |
 
 TTL перепроверки — вместе с Phase 0 pins (до 2026-12-15): снять `max_stable_version`
 той же командой, при мажорном апгрейде rustls/rcgen перечитать API лаборатории

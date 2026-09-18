@@ -41,9 +41,11 @@
 //!   сайта-мишени (Q22/Q23).
 //! - **Не Reality-interop с xray-core**: каркас Reality-класса в терминах `03` §4;
 //!   совместимость с VLESS/Reality не заявляется.
-//! - Не реализовано: живой peer-тест (ignored-сценарии), приёмная сторона (серверный
-//!   рантайм: boring-коллбеки на session_ticket, tokio-версия сплайса, терминировка
-//!   Accept-пути), выбор серверного сертификата для Accept-пути (Q23), морф (Phase 2).
+//! - Не реализовано: приёмная сторона рантайма (tokio-версия сплайса, boring-коллбеки
+//!   на session_ticket), клиентская верификация сертификата (T1: доступ к keyshare,
+//!   QUESTIONS.md), интеграция gate→accept в полный сервер, морф (Phase 2).
+//!   Q23-каркас: `RealityCertState`/`build_reality_cert`/`AcceptServer` — серверная
+//!   сторона Accept-пути, проверена изолированно (roundtrip-векторы + loopback handshake).
 
 #![deny(unsafe_code)]
 
@@ -520,6 +522,307 @@ fn copy_relay_dir(
     }
 }
 
+// ============================== Q23: Accept-путь Reality ==============================
+
+/// Ошибка Accept-пути (Q23): сборка сертификата/терминировка TLS.
+#[derive(Debug)]
+pub enum AcceptError {
+    /// rcgen не собрал скелет (генерация per-process Ed25519-пары/DER).
+    CertSkeleton(rcgen::Error),
+    /// boring-машина отвергла конфигурацию (setup acceptor'а).
+    Boring(boring::error::ErrorStack),
+    /// ECDH с keyshare клиента не состоялся (all-zero shared secret — RFC 7748).
+    Crypto(crypto_core::CryptoError),
+    /// Переписываемый хвост DER не выглядит как signatureValue Ed25519
+    /// (`03 42 00 ‖ 64 B`): не пишем слепо в чужое место (explicit fail).
+    BadSkeleton,
+    /// TLS-handshake не завершился (setup/handshake-ошибка или mid-handshake
+    /// WouldBlock на сокете с тайм-аутом): соединение закрывается — как обычный сайт.
+    /// Прод-рантайм (tokio) поведёт MidHandshake дальше; каркас — нет.
+    Handshake,
+}
+
+impl std::fmt::Display for AcceptError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AcceptError::CertSkeleton(e) => write!(f, "cert skeleton: {e}"),
+            AcceptError::Boring(e) => write!(f, "boring: {e}"),
+            AcceptError::Crypto(e) => write!(f, "crypto: {e:?}"),
+            AcceptError::BadSkeleton => write!(f, "skeleton tail is not an Ed25519 signature"),
+            AcceptError::Handshake => write!(f, "TLS handshake did not complete"),
+        }
+    }
+}
+
+impl std::error::Error for AcceptError {}
+
+/// Per-process состояние сертификата Accept-пути (Q23; решение — QUESTIONS.md Q23).
+///
+/// Скелет — self-signed Ed25519-сертификат (rcgen), SPKI-паб которого и есть `cert_pub`.
+/// Скелет и Ed25519-пара стабильны в пределах процесса (per-process, не per-handshake:
+/// стабильная идентичность без churn-сигнала; рестарт = «сайт сменил сертификат», как и
+/// у upstream temp-cert). per-handshake меняется ТОЛЬКО поле подписи — см.
+/// `build_reality_cert`.
+///
+/// Честное отличие от upstream (xtls/reality): upstream держит subject/SAN пустыми;
+/// rcgen требует непустой CN — каркас ставит нейтральный CN и НЕ ставит SAN (подменять
+/// нечего; T2 в QUESTIONS.md).
+#[derive(Clone)]
+pub struct RealityCertState {
+    node_reality: crypto_core::NodeRealityKey,
+    /// PKCS#8 DER Ed25519-ключа сертификата: boring подписывает CertificateVerify —
+    /// handshake криптографически честен (Q23 п. 5).
+    cert_key_pkcs8: Vec<u8>,
+    /// Сырой DER скелета (оригинальное поле подписи — перезаписывается per-handshake).
+    skeleton_der: Vec<u8>,
+    /// `cert_pub` — сырые 32 B публичного ключа Ed25519 из SPKI скелета.
+    cert_pub: Vec<u8>,
+}
+
+impl std::fmt::Debug for RealityCertState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RealityCertState")
+            .field("node_reality", &"<redacted>")
+            .field("cert_key_pkcs8", &"<redacted>")
+            .field("skeleton_der.len", &self.skeleton_der.len())
+            .field("cert_pub", &self.cert_pub)
+            .finish()
+    }
+}
+
+impl RealityCertState {
+    /// Собирает per-process состояние: Ed25519-пара (системный RNG) + self-signed скелет.
+    pub fn new(node_reality: crypto_core::NodeRealityKey) -> Result<Self, AcceptError> {
+        let cert_key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519)
+            .map_err(AcceptError::CertSkeleton)?;
+        // CN обязателен (ограничение rcgen); SAN не ставим — скелет не должен нести
+        // привязку к SNI (T2, QUESTIONS.md Q23).
+        let params = rcgen::CertificateParams::new(vec!["aether".to_string()])
+            .map_err(AcceptError::CertSkeleton)?;
+        let cert = params
+            .self_signed(&cert_key)
+            .map_err(AcceptError::CertSkeleton)?;
+        // rcgen serialize_der отдаёт PKCS#8 **v2** (RFC 5958, version=1 — формат ring:
+        // 30 51 02 01 01 …). boring `d2i_PKCS8_PRIV_KEY_INFO` (private_key_from_pkcs8)
+        // понимает только **v1** — падает WRONG_TAG на attributes. Пересобираем v1-PKCS#8
+        // из seed (последние 32 B ring-документа — privateKey OCTET STRING):
+        //   SEQUENCE(46){ INTEGER 0, SEQ{OID 1.3.101.112}, OCTET STRING(34){seed 32B} }.
+        let ring_doc = cert_key.serialize_der();
+        // Seed ищем по маркеру OCTET STRING(32) — `04 20`; берём ПОСЛЕДНЕЕ вхождение
+        // (в ring-документе это privateKey, publicKey раньше уже лежит в [1] как BIT STRING).
+        let seed_pos = ring_doc
+            .windows(2)
+            .rposition(|w| w == [0x04, 0x20])
+            .ok_or(AcceptError::BadSkeleton)?;
+        let seed: [u8; 32] = ring_doc
+            .get(seed_pos + 2..seed_pos + 34)
+            .and_then(|s| <[u8; 32]>::try_from(s).ok())
+            .ok_or(AcceptError::BadSkeleton)?;
+        let mut pkcs8_v1 = Vec::with_capacity(48);
+        pkcs8_v1.extend_from_slice(&[
+            0x30, 0x2e, // SEQUENCE, len 46
+            0x02, 0x01, 0x00, // INTEGER version = 0 (v1)
+            0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, // SEQ{OID 1.3.101.112 (Ed25519)}
+            0x04, 0x22, // OCTET STRING len 34
+            0x04, 0x20, // OCTET STRING len 32 (CurvePrivateKey = seed)
+        ]);
+        pkcs8_v1.extend_from_slice(&seed);
+        Ok(Self {
+            node_reality,
+            cert_key_pkcs8: pkcs8_v1,
+            cert_pub: cert_key.public_key_raw().to_vec(),
+            skeleton_der: cert.der().as_ref().to_vec(),
+        })
+    }
+
+    /// `cert_pub` — байты, покрываемые HMAC-подписью (`reality_cert_signature`).
+    pub fn cert_pub(&self) -> &[u8] {
+        &self.cert_pub
+    }
+
+    /// Сырой DER скелета (тесты/диагностика: сверка «TBS не тронут, хвост переписан»).
+    pub fn skeleton_der(&self) -> &[u8] {
+        &self.skeleton_der
+    }
+}
+
+/// Строит сертификат Accept-пути для ОДНОГО handshake (Q23; серверная сторона).
+///
+/// `ch_keyshare_pub` — публичный keyshare x25519 из ОТКРЫТОГО ClientHello (серверу
+/// приватный keyshare клиента не нужен; доступ клиента к своему — T1); `ch_random` —
+/// 32 B random того же CH.
+///
+/// `AuthKey = HKDF-SHA256(salt = ch_random[..20],
+/// ikm = X25519(node_reality_priv, ch_keyshare_pub), info = LABEL_REALITY_CERT)`
+/// (crypto-core); возвращаемый DER — скелет с перезаписанными последними 64 байтами
+/// (signatureValue Ed25519): `HMAC-SHA512(AuthKey, cert_pub)`. TBS/SPKI не трогаются:
+/// `cert_pub` стабилен в процессе, salt per-handshake — replay поля подписи между
+/// handshakes невозможен.
+pub fn build_reality_cert(
+    state: &RealityCertState,
+    ch_keyshare_pub: &crypto_core::X25519Pub,
+    ch_random: &[u8; 32],
+) -> Result<Vec<u8>, AcceptError> {
+    let auth_key =
+        crypto_core::derive_reality_auth_key(&state.node_reality, ch_keyshare_pub, ch_random)
+            .map_err(AcceptError::Crypto)?;
+    let sig = crypto_core::reality_cert_signature(&auth_key, &state.cert_pub);
+
+    let mut der = state.skeleton_der.clone();
+    let tail = der
+        .len()
+        .checked_sub(sig.len())
+        .ok_or(AcceptError::BadSkeleton)?;
+    // Форма signatureValue Ed25519 в кодировке rcgen 0.13: BIT STRING `03 41 00 ‖ 64 B`
+    // (64 байта подписи + 1 байт unused-bits). Проверка перед записью — не пишем слепо
+    // в чужое место. (Расчёт `03 42 00` из Q23 предполагал len=66; DER-проба показала
+    // len=65 — по байту короче, содержание то же.)
+    if der.get(tail - 3..tail) != Some(&[0x03, 0x41, 0x00][..]) {
+        return Err(AcceptError::BadSkeleton);
+    }
+    der[tail..].copy_from_slice(&sig);
+    Ok(der)
+}
+
+/// Извлекает 32 B random открытого ClientHello (Q23-парсер, сырые байты как на проводе).
+/// Layout: record(5) ‖ hs-type(1) ‖ hs-len(3) ‖ legacy-ver(2) → random на 11..43.
+/// Каркас assumes CH одной записью — то же допущение, что у гейта (`looks_like_client_hello`).
+pub fn ch_client_random(client_hello: &[u8]) -> Option<[u8; 32]> {
+    client_hello
+        .get(11..43)
+        .and_then(|r| <[u8; 32]>::try_from(r).ok())
+}
+
+/// Извлекает публичный keyshare x25519 (группа 0x001F, 32 B) из открытого ClientHello:
+/// полный минимальный проход расширений (bounds-checked, не «поиск подстроки»).
+pub fn parse_ch_key_share_x25519(client_hello: &[u8]) -> Option<[u8; 32]> {
+    let mut p = 43usize;
+    // session_id: 1B len.
+    p += 1 + *client_hello.get(p)? as usize;
+    // cipher_suites: 2B len.
+    let cs = u16::from_be_bytes([*client_hello.get(p)?, *client_hello.get(p + 1)?]) as usize;
+    p += 2 + cs;
+    // compression_methods: 1B len.
+    p += 1 + *client_hello.get(p)? as usize;
+    // extensions: 2B total len, затем пары (type u16, len u16, data).
+    let ext_total = u16::from_be_bytes([*client_hello.get(p)?, *client_hello.get(p + 1)?]) as usize;
+    p += 2;
+    let end = (p + ext_total).min(client_hello.len());
+    while p + 4 <= end {
+        let etype = u16::from_be_bytes([*client_hello.get(p)?, *client_hello.get(p + 1)?]);
+        let elen =
+            u16::from_be_bytes([*client_hello.get(p + 2)?, *client_hello.get(p + 3)?]) as usize;
+        let data = client_hello.get(p + 4..p + 4 + elen)?;
+        if etype == 0x0033 {
+            return key_share_x25519_from_ext(data);
+        }
+        p += 4 + elen;
+    }
+    None
+}
+
+/// Живой Accept-сервер (Q23): boring-акцептор, per-handshake подменяющий сертификат
+/// в select-certificate callback (boring API: callback до основной обработки CH,
+/// `ClientHello::ssl_mut()` даёт per-connection SslRef).
+///
+/// На каждый handshake callback читает random+key_share из CH boring-машины, строит
+/// `build_reality_cert` и ставит сертификат + Ed25519-ключ (CertificateVerify —
+/// настоящая подпись ключа сертификата; «нестандартна» только клиентская верификация,
+/// Q23 п. 5–6). CH без key_share (TLS 1.2-класс) → handshake abort: такие соединения
+/// гейт не пускает на Accept (аутентификатор кладёт только наш TLS 1.3-клиент).
+///
+/// Проводка в полный серверный рантайм (gate_decision → accept/relay splice, ALPN
+/// сайта-мишени, tokio) — приёмная сторона Phase 1, не этот каркас.
+pub struct AcceptServer {
+    acceptor: std::sync::Arc<boring::ssl::SslAcceptor>,
+    /// Копия `cert_pub` для диагностики/тестов (само состояние уходит в callback).
+    cert_pub: Vec<u8>,
+}
+
+impl AcceptServer {
+    /// Строит acceptor с per-handshake callback (состояние клонируется в замыкание;
+    /// все поля — owned-байты, потокобезопасны по построению).
+    pub fn new(state: RealityCertState) -> Result<Self, AcceptError> {
+        let mut builder =
+            boring::ssl::SslAcceptor::mozilla_intermediate_v5(boring::ssl::SslMethod::tls())
+                .map_err(AcceptError::Boring)?;
+        // cert_pub для диагностики — до move замыкания (состояние целиком уходит в него).
+        let cert_pub = state.cert_pub().to_vec();
+        builder.set_select_certificate_callback(move |mut ch: boring::ssl::ClientHello<'_>| {
+            let res = (|| {
+                let random: [u8; 32] = ch.random().try_into().ok()?;
+                #[cfg(test)]
+                eprintln!("Q23-DBG: random ok");
+                let ks_ext_opt = ch.get_extension(boring::ssl::ExtensionType::KEY_SHARE);
+                let ks = parse_key_share_ext_x25519(ks_ext_opt?)?;
+                let der = build_reality_cert(&state, &crypto_core::X25519Pub(ks), &random).ok()?;
+                let cert = boring::x509::X509::from_der(&der).ok()?;
+                // Ключ — PKCS#8 Ed25519 (rcgen serialize_der); d2i_AutoPrivateKey
+                // (private_key_from_der) его не принимает, нужен явный PKCS#8-парсер.
+                let key = boring::pkey::PKey::private_key_from_pkcs8(&state.cert_key_pkcs8).ok()?;
+                ch.ssl_mut().set_certificate(&cert).ok()?;
+                ch.ssl_mut().set_private_key(&key).ok()?;
+                // Контракт: ключ сертификата обязан соответствовать SPKI скелета
+                // (проверяется live-тестом; здесь — та же пара из state).
+                Some(())
+            })();
+            if res.is_some() {
+                Ok(())
+            } else {
+                Err(boring::ssl::SelectCertError::ERROR)
+            }
+        });
+        let acceptor = builder.build();
+        Ok(Self {
+            acceptor: std::sync::Arc::new(acceptor),
+            cert_pub,
+        })
+    }
+
+    /// `cert_pub` активного скелета (диагностика/тесты).
+    pub fn cert_pub(&self) -> &[u8] {
+        &self.cert_pub
+    }
+
+    /// Терминирует TLS на сокете пробника (Accept-путь; сосед `relay_to_target` — путь
+    /// Relay). Байты CH уже peeked гейтом и НЕ потреблены — boring читает их сам.
+    /// Возвращает установленный канал для frame-слоя (`decode_reality_frame` и дальше).
+    /// Любой незавершённый handshake → `AcceptError::Handshake` (см. вариант).
+    pub fn accept<'a>(
+        &self,
+        probe: &'a mut std::net::TcpStream,
+    ) -> Result<boring::ssl::SslStream<&'a mut std::net::TcpStream>, AcceptError> {
+        self.acceptor.accept(probe).map_err(|e| match e {
+            boring::ssl::HandshakeError::SetupFailure(e) => AcceptError::Boring(e),
+            _ => AcceptError::Handshake,
+        })
+    }
+}
+
+/// Разбор client_shares из ДАННЫХ расширения key_share (RFC 8446 §4.2.8):
+/// `2B длина списка ‖ пары (group u16, klen u16, key)`. boring `get_extension`
+/// отдаёт ровно этот data. Общий хелпер для сырого CH-парсера и boring-callback.
+fn key_share_x25519_from_ext(ext: &[u8]) -> Option<[u8; 32]> {
+    let list_len = u16::from_be_bytes([*ext.first()?, *ext.get(1)?]) as usize;
+    let end = (2 + list_len).min(ext.len());
+    let mut q = 2usize;
+    while q + 4 <= end {
+        let group = u16::from_be_bytes([ext[q], ext[q + 1]]);
+        let klen = u16::from_be_bytes([ext[q + 2], ext[q + 3]]) as usize;
+        let key = ext.get(q + 4..q + 4 + klen)?;
+        if group == 0x001D && klen == 32 {
+            let arr: [u8; 32] = key.try_into().ok()?;
+            return Some(arr);
+        }
+        q += 4 + klen;
+    }
+    None
+}
+
+fn parse_key_share_ext_x25519(ext: &[u8]) -> Option<[u8; 32]> {
+    key_share_x25519_from_ext(ext)
+}
+
 /// Reality/TCP-байндинг (03 §4, 02 §2.2).
 ///
 /// Структура повторяет `SsPaddedBinding`: `Outbox` с потолком байтов (backpressure),
@@ -670,6 +973,165 @@ mod tests {
 
     fn fixed_fill(byte: u8) -> impl FnMut(&mut [u8]) {
         move |buf: &mut [u8]| buf.fill(byte)
+    }
+
+    // ---------- Q23: Accept-путь (сертификат/терминировка) ----------
+
+    /// Синтетический ClientHello TLS 1.3 с key_share x25519 (Q23-тесты). Тест сам
+    /// генерирует клиентскую пару — обе стороны известны по построению, T1 не нужен.
+    fn synthetic_client_hello(client_priv: &[u8; 32], random: &[u8; 32]) -> Vec<u8> {
+        use crypto_core::x25519_keypair as kp;
+        let share = kp(client_priv).public;
+        let mut ch = Vec::new();
+        ch.push(22u8);
+        ch.extend_from_slice(&[0x03, 0x01]);
+        ch.extend_from_slice(&[0u8; 2]);
+        ch.push(0x01);
+        ch.extend_from_slice(&[0u8; 3]);
+        ch.extend_from_slice(&[0x03, 0x03]);
+        ch.extend_from_slice(random);
+        ch.push(0u8); // session_id: пуст
+        ch.extend_from_slice(&[0x00, 0x02, 0x13, 0x01]);
+        ch.push(0x01);
+        ch.push(0x00);
+        // extensions: key_share(0x0033): len(2B) = 2+2+2+32 = 38; entry: group 0x001F, len 32.
+        ch.extend_from_slice(&[0x00, 0x2A]); // ext total len = 2+2+38 = 42 = 0x2A
+        ch.extend_from_slice(&[0x00, 0x33]);
+        ch.extend_from_slice(&[0x00, 0x26]); // data len 38
+        ch.extend_from_slice(&[0x00, 0x26]); // client_shares len 38
+        ch.extend_from_slice(&[0x00, 0x1D]); // x25519 (IANA: 29 = 0x001D)
+        ch.extend_from_slice(&[0x00, 0x20]); // 32
+        ch.extend_from_slice(&share);
+        // Честная TLS-геометрия (в отличие от самосогласованного скелета гейта, где
+        // hs-len пишется в 9..12 и затирает version/random[0]): hs-len — 6..9,
+        // rec-len — 3..5, random остаётся на 11..43 — как читает ch_client_random.
+        let hs_len = (ch.len() - 9) as u32;
+        ch[6..9].copy_from_slice(&hs_len.to_be_bytes()[1..4]);
+        let rec_len = (ch.len() - 5) as u16;
+        ch[3..5].copy_from_slice(&rec_len.to_be_bytes());
+        ch
+    }
+
+    /// Серверная сторона изолированно (T1 не задействован): скелет стабилен (TBS/SPKI не
+    /// тронуты), поле подписи — ровно HMAC(AuthKey(node, keyshare, random), cert_pub);
+    /// клиентская верификация в тесте считает тот же AuthKey из симметричного ECDH.
+    /// Полный клиент-сервер handshake с Aether-верификацией живым клиентом — T1
+    /// (QUESTIONS.md); здесь boring-клиент не участвует.
+    #[test]
+    fn q23_reality_cert_roundtrip_without_t1() {
+        let node_priv: [u8; 32] = core::array::from_fn(|i| (i * 5 + 1) as u8);
+        let client_priv: [u8; 32] = core::array::from_fn(|i| (i * 9 + 7) as u8);
+        let random: [u8; 32] = core::array::from_fn(|i| (i * 3 + 1) as u8);
+
+        let state = RealityCertState::new(crypto_core::NodeRealityKey(node_priv))
+            .expect("скелет собирается");
+        let ch = synthetic_client_hello(&client_priv, &random);
+
+        // Парсеры гейта читают открытый CH: random и публичный keyshare.
+        assert_eq!(ch_client_random(&ch), Some(random));
+        let ks = parse_ch_key_share_x25519(&ch).expect("key_share x25519 найден");
+        assert_eq!(ks, crypto_core::x25519_keypair(&client_priv).public);
+
+        // Сертификат Accept-пути для этого handshake.
+        let der = build_reality_cert(&state, &crypto_core::X25519Pub(ks), &random)
+            .expect("сертификат строится");
+
+        // Скелет: TBS/SPKI не тронуты, отличается только хвост (signatureValue).
+        let skeleton = state.skeleton_der();
+        assert_eq!(der.len(), skeleton.len(), "длина DER не менялась");
+        assert_eq!(
+            &der[..der.len() - 64],
+            &skeleton[..skeleton.len() - 64],
+            "всё кроме подписи — байт в байт скелет"
+        );
+        assert_ne!(&der[der.len() - 64..], &skeleton[skeleton.len() - 64..]);
+        // Форма signatureValue Ed25519 на месте записи (rcgen: 03 41 00).
+        assert_eq!(&der[der.len() - 67..der.len() - 64], &[0x03, 0x41, 0x00]);
+
+        // Клиентская верификация (тестовая, не прод-клиент — T1): тот же AuthKey из
+        // симметричного ECDH + HMAC по cert_pub из SPKI полученного сертификата.
+        let node_pub = crypto_core::X25519Pub(crypto_core::x25519_keypair(&node_priv).public);
+        let ss = crypto_core::x25519_dh(&client_priv, &node_pub).expect("ECDH");
+        let auth_key =
+            crypto_core::hkdf_sha256(&random[..20], &ss, crypto_core::LABEL_REALITY_CERT);
+        // cert_pub клиента — из SPKI сертификата (boring), а не из state: проверяем,
+        // что HMAC ложится именно на ключ, который клиент видит на проводе.
+        let cert = boring::x509::X509::from_der(&der).expect("DER валиден для boring");
+        let spki = cert.public_key().expect("SPKI читается");
+        let mut spki_buf = [0u8; 64];
+        let spki_raw = spki.raw_public_key(&mut spki_buf).expect("raw pubkey");
+        assert_eq!(spki_raw.len(), 32, "Ed25519 pub — 32 B");
+        assert_eq!(spki_raw, state.cert_pub(), "SPKI == cert_pub скелета");
+        let expected = crypto_core::reality_cert_signature(&auth_key, spki_raw);
+        assert_eq!(
+            &der[der.len() - 64..],
+            &expected,
+            "подпись = HMAC(AuthKey, cert_pub)"
+        );
+
+        // Salt per-handshake: другой random → другая подпись при том же скелете.
+        let mut random2 = random;
+        random2[19] ^= 1; // внутри salt[..20]
+        let der2 = build_reality_cert(&state, &crypto_core::X25519Pub(ks), &random2)
+            .expect("второй handshake");
+        assert_eq!(
+            &der2[..der2.len() - 64],
+            &der[..der.len() - 64],
+            "TBS/SPKI между handshakes стабильны"
+        );
+        assert_ne!(
+            &der2[der2.len() - 64..],
+            &der[der.len() - 64..],
+            "подпись per-handshake (replay поля подписи невозможен)"
+        );
+
+        // Кривой CH без key_share/с другим кривым хвостом не проходит по форме.
+        assert_eq!(ch_client_random(&ch[..20]), None);
+    }
+
+    /// ИГНОР до решения T1 (клиентский доступ к своему keyshare): живой loopback-
+    /// handshake boring-клиента (verify-none заглушка — проверяет ТОЛЬКО, что TLS-машина
+    /// принимает наш перезаписанный DER) с AcceptServer. Полный клиент-сервер handshake
+    /// с Aether-верификацией сертификата — T1; серверная сторона проверена изолированно
+    /// (см. q23_reality_cert_roundtrip_without_t1 и design/03-components.md).
+    #[test]
+    #[ignore = "T1: серверная сторона изолирована; живой peer с Aether-верификацией — T1"]
+    fn live_accept_handshake_terminates_tls() {
+        use std::io::{Read, Write};
+        let node_priv: [u8; 32] = core::array::from_fn(|i| (i * 7 + 2) as u8);
+        let state = RealityCertState::new(crypto_core::NodeRealityKey(node_priv)).expect("state");
+        let server = AcceptServer::new(state).expect("acceptor");
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let handle = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().expect("accept tcp");
+            let mut tls = server.accept(&mut sock).expect("TLS handshake");
+            let mut buf = [0u8; 5];
+            tls.read_exact(&mut buf).expect("client data");
+        });
+
+        let probe = std::net::TcpStream::connect(addr).expect("connect");
+        let mut builder =
+            boring::ssl::SslConnector::builder(boring::ssl::SslMethod::tls()).expect("connector");
+        builder.set_verify(boring::ssl::SslVerifyMode::NONE); // заглушка: verify — T1
+                                                              // set_verify(NONE) глушит проверку цепочки, но не custom-verify и не статус:
+                                                              // boring с NONE всё равно вызывает custom_verify при его наличии. Наша заглушка —
+                                                              // пустой custom-verify (Ok): живой HMAC-verify сертификата — T1.
+        builder.set_custom_verify_callback(boring::ssl::SslVerifyMode::NONE, |_ssl| Ok(()));
+        // Дефолтные группы boring начинаются с P-256 (проба: key_share ext был P-256);
+        // Reality-пути нужен x25519 — единственная группа клиента.
+        builder.set_curves_list("X25519").expect("curves");
+        // Сигалги: наш сертификат Ed25519 — сервер будет подписывать CertificateVerify
+        // ed25519; включаем его у клиента (иначе — HANDSHAKE_FAILURE_ON_CLIENT_HELLO
+        // при выборе схемы подписи сервера).
+        builder.set_sigalgs_list("ed25519").expect("sigalgs");
+        let connector = builder.build();
+        let config = connector.configure().expect("configure");
+        // config.connect проводит полный handshake и возвращает готовый SslStream.
+        let mut client = config.connect("aether", probe).expect("TLS handshake");
+        client.write_all(b"hello").expect("write");
+        handle.join().expect("server thread");
     }
 
     // ---------- layout ----------

@@ -86,6 +86,14 @@ frame-session = { path = "crates/frame-session" }
 bytes = "1"
 # Тип запроса h3-стека (http::Request) — MASQUE live-слой; уже в дереве через h3.
 http = "1"
+# Скелет сертификата Accept-пути Reality (Q23): rcgen собирает self-signed Ed25519-
+# сертификат, поле подписи которого перезаписывается HMAC-SHA512(AuthKey, cert_pub)
+# per-handshake (механизм xtls/reality). boring 4.22 штатно Ed25519-сертификат не
+# подписывает (MessageDigest::null недоступен — docs/phase-reports/reality-boring-probe.md);
+# альтернативы отклонены в QUESTIONS.md Q23. Тот же пин/фичи, что уже проверены в
+# e2e-лаборатории (quic_lab): ring-провайдер подписи, без default-features.
+# Владелец — cover-reality.
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
 
 # Объявлены для dev-dependencies интеграционного крейта `rotation-tests` (спеки ротации Phase 0),
 # рабочего крейта `phase0-path` (склейка однохопового пути) и `cover-ss2022` (Phase 1, кусок 1:

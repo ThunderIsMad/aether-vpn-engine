@@ -99,7 +99,27 @@ Rust-клиента RFC 9298 поверх quinn+h3.
   умолчанию как e2e-класс (прогон: `cargo test -p cover-reality -- --ignored`),
   линковка boring на обеих платформах. НЕ проверено: active-probe от независимого DPI-инструмента,
   JA3/JA4-отпечаток handshake, живой peer — чекбокс в `05-roadmap` остаётся `[ ]`.
-  Открытое напряжение — Q23 (сертификат для терминировки Accept-пути).
+  ⇐ Q23 (решение+реализация, 2026-09-18): **сертификат Accept-пути Reality** — схема
+  xtls/reality: per-node X25519 `node_reality` (новый ключевой класс из манифеста,
+  домен-разделён с Q24 `K_probe_fleet` — разные корни, `LABEL_REALITY_CERT`), per-process
+  Ed25519-пара ключа сертификата. Сервер достаёт **публичный** key_share из открытого
+  ClientHello (`x25519 = 0x001D`), `ss = X25519(node_reality_priv, ch_keyshare_pub)`,
+  `AuthKey = HKDF-SHA256(salt = ch_random[..20], ikm = ss, info = LABEL_REALITY_CERT)`,
+  поле подписи rcgen-скелета перезаписывается на `HMAC-SHA512(AuthKey, cert_pub)`
+  per-handshake (`select_certificate`-callback boring, `SslRef::set_certificate`).
+  Клиент верифицирует HMAC вместо цепочки (Q23). Реализовано: `crypto_core::
+  derive_reality_auth_key`/`reality_cert_signature` (KAT-векторы, домен-отделение,
+  clamp-чувствительность), `cover_reality::RealityCertSkeleton` (per-process, rcgen 0.13
+  Ed25519, CN обязателен/SAN нет), `build_reality_cert` (перезапись подписи в DER,
+  форма BIT STRING 65B `03 41 00 ‖ 64B` подтверждена по факту кодирования rcgen),
+  `accept_terminator` (per-handshake подмена сертификата на живом acceptor'е).
+  Серверная сторона проверена изолированно: юнит roundtrip на синтетическом ClientHello
+  (обе стороны keyshare известны по построению — без T1) + ignored live-loopback тест
+  с реальным boring-клиентом (x25519 keyshare + ed25519 sigalgs): полный TLS 1.3
+  handshake, CertificateVerify настоящим Ed25519-ключом, данные ходят. **Полный
+  клиент-сервер handshake с Aether-верификацией HMAC ждёт T1** (клиентский доступ к
+  своему эфемерному keyshare — отдельная запись в `QUESTIONS.md`, блокирует e2e,
+  не блокирует серверный код). Чекбокс interop в `05-roadmap` остаётся `[ ]`.
 - SS-2022/padded байндинг (fallback, чистый Rust).
   ⇐ Phase 1, кусок 1: реализован в `cover-ss2022` как **`SsPaddedBinding` — Aether padded
   cover, НЕ SS-2022 interop** (внешних тест-векторов SS-2022 нет; клейм появится только

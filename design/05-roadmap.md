@@ -98,9 +98,16 @@ Reality — последним, как самый дорогой).
         RealityBinding` — кадр-обёртка на `K_cover`, `classify_first_record` (active-probe
         resistance: неаутентифицированный канал получает фолбэк сайта-мишени), boring-коннектор
         ClientHello под параметризованный `TargetSite`, caps stream-класс (`no_hol: false`, `02 §2.2`).
+  - [x] **Сертификат Accept-пути (Q23)** (2026-09-18): схема xtls/reality — per-node X25519
+        `node_reality` (`LABEL_REALITY_CERT`, домен-разделён с `K_probe_fleet`), per-process
+        Ed25519-скелет (rcgen), подпись = `HMAC-SHA512(AuthKey, cert_pub)` перезаписывается
+        в DER per-handshake; AuthKey из публичного key_share ClientHello. Реализовано и
+        проверено: юниты + ignored live-loopback (полный TLS 1.3 handshake с реальным
+        boring-клиентом). Полный клиент-сервер handshake с Aether-верификацией ждёт T1
+        (`QUESTIONS.md`) — клиентский доступ к своему эфемерному keyshare.
   - [ ] **Reality live interop** — живой peer-тест: аутентифицированный клиент проходит на
         Aether-протокол, пассивный пробник получает ответ сайта-мишени; активный пробник от
-        независимого DPI-инструмента. Игнор-тесты в крейте ждут живого пира.
+        независимого DPI-инструмента. Игнор-тесты в крейте ждут живого пира (T1 — первый шаг).
 - [ ] Ручной выбор обложки в UI; измерить pass-rate каждой на тестовой сети.
 - [ ] Собственный бенчмарк производительности (закрывает ГИПОТЕЗУ из 04-advantages).
 - **Exit:** оператор выбирает обложку; PQ + stateless + (теперь) измеренные цифры.

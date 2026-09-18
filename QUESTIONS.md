@@ -618,6 +618,20 @@
   reality.go (X25519+HKDF); все прочитаны в разведке этой сессии.
 - **Статус: закрыт 2026-09-18** (решение зафиксировано до кода; приёмная сторона
   Accept-пути начинается только после подтверждения).
+- **Реализация (2026-09-18, после подтверждения):** crypto-core — `LABEL_REALITY_CERT`,
+  `NodeRealityKey`, `derive_reality_auth_key`, `reality_cert_signature` (детерминированные
+  векторы, домен-отделение, чувствительность к байтам; живая находка: инверсия битов
+  0..2/254..255 скаляра X25519 не меняет ключ — clamp RFC 7748, тест фиксирует бит 248).
+  cover-reality — `RealityCertState` (per-process скелет, rcgen Ed25519 + v1-PKCS#8 для
+  boring: ring отдаёт v2, boring принимает только v1 — WRONG_TAG, конверсия в коде),
+  `build_reality_cert` (перезапись signatureValue; фактическая форма rcgen `03 41 00`
+  против расчётной `03 42 00` — на байт короче, содержание то же, зафиксировано),
+  `parse_ch_key_share_x25519`/`ch_client_random` (живая находка: x25519 = 0x001D, а не
+  0x001F — IANA; юнит-тест был самосогласован с ошибкой, live-тест поймал),
+  `AcceptServer` (boring select-certificate callback: per-handshake random+keyshare →
+  cert+key в SslRef; клиенту нужны `set_curves_list("X25519")` + `set_sigalgs_list(
+  "ed25519")` — дефолты boring: P-256-группы и без ed25519-сигалгов). Тесты: roundtrip
+  без T1 + live loopback handshake (pass) + ignored e2e-вариант за T1.
 
 ### Q24. Гейт Reality: `K_probe` из сессии не даёт bootstrap и не constant-time (находка F-05 третьего аудита, 2026-09-18) — РЕШЕНО: fleet-ключ
 
@@ -731,3 +745,24 @@ Phase 0/1 — НЕ забыты, но сознательно не решаютс
   FIN нигде не нарушается; с реальными долгоживущими потоками (Phase 1 transport-mux)
   потребуется честная обработка закрытия (анти-дедуп по закрытым потокам, окно дедупа
   против переоткрытия seq).
+
+### T1. Клиентский доступ к своему эфемерному TLS-keyshare — открыт, блокирует e2e Accept-путь, НЕ блокирует серверный код
+
+- **Суть:** клиент Accept-пути Reality (Q23) для верификации сертификата должен знать
+  свой **эфемерный X25519-private keyshare**, который TLS-стек сгенерировал при сборке
+  ClientHello: `AuthKey' = HKDF(X25519(клиентский keyshare_priv, node_reality_pub), ...)`.
+  boring-коннектор (и rustls в меньшей степени) не отдаёт сгенерированный keyshare —
+  это тот же класс задачи, что инъекция аутентификатора в `session_ticket` (Q22):
+  клиенту нужен самостоятельный контроль над сборкой ClientHello (uTLS-эквивалент;
+  известное ограничение из `design/03`).
+- **Что уже сделано без T1 (2026-09-18, Q23-код):** серверная сторона Accept-пути
+  полностью — `RealityCertState`/`build_reality_cert`/`AcceptServer` в cover-reality,
+  `LABEL_REALITY_CERT`/`derive_reality_auth_key`/`reality_cert_signature` в crypto-core;
+  проверено детерминированными векторами + roundtrip-тестом, где тест сам генерирует
+  клиентскую пару (обе стороны известны по построению) + live loopback handshake с
+  boring-клиентом (verify-заглушка).
+- **Что остаётся за T1:** живой клиент с Aether-верификацией сертификата
+  (`HMAC-SHA512(AuthKey', cert_pub) == cert.Signature`) на реальном handshake —
+  один механизм сборки CH обслуживает и инъекцию тега Q22, и keyshare-верификацию Q23.
+- **Статус: открыт** (блокирует полный e2e Accept-путь с настоящей клиентской
+  верификацией; не блокирует серверный код — он завершён и проверен изолированно).

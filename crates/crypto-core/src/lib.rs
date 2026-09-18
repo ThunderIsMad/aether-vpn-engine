@@ -187,6 +187,13 @@ pub const LABEL_PROBE: &[u8] = b"aether v3 reality probe";
 /// (манифеста подписки), а не из `sid`/`K_session` конкретной сессии — bootstrap
 /// первого входа (главный сценарий Reality: QUIC заблокирован) и O(1) lookup на сервере.
 pub const LABEL_PROBE_FLEET: &[u8] = b"aether v3 reality probe fleet";
+/// Метка ключа сертификации Accept-пути Reality (Q23): `AuthKey = HKDF-SHA256(
+/// salt = ch_random[..20], ikm = X25519(node_reality_priv, ch_keyshare_pub),
+/// info = LABEL_REALITY_CERT)`. Домен отделён от PROBE/PROBE_FLEET: компрометация
+/// fleet-ключа гейта (Q24) не даёт материала сертификата Accept-пути, и наоборот.
+/// Механизм подмены поля подписи — xtls/reality `reality.go` +
+/// `handshake_server_tls13.go` (HMAC-SHA512 поверх X25519+HKDF от ClientHello).
+pub const LABEL_REALITY_CERT: &[u8] = b"aether v3 reality cert";
 
 /// Гибридный IK-хендшейк: X25519 + ML-KEM-768 (PQClean-бэкенд), ChaCha20-Poly1305, SHA-256.
 pub type HybridIk = HybridHandshake<X25519, PqMlKem768, PqMlKem768, ChaChaPoly, ClatterSha256>;
@@ -496,6 +503,48 @@ pub fn derive_probe_key(session_id: &[u8; 16], k_session: &KSession) -> KProbe {
 /// (существующая threat-модель, не новый класс).
 pub fn derive_probe_fleet_key(k_fleet_root: &[u8; 32]) -> KProbe {
     KProbe(hkdf32(None, k_fleet_root, LABEL_PROBE_FLEET))
+}
+
+/// CoverReality: per-node приватный ключ X25519 Accept-пути (Q23). Публичная половина
+/// публикуется в манифесте подписки (как `node_identity`); домен отличен от
+/// `node_identity` (подписи) и `cover` (ss2022-обложка).
+#[derive(Clone, Copy)]
+pub struct NodeRealityKey(pub [u8; 32]);
+
+/// Q23: AuthKey сертификата Accept-пути Reality.
+/// `ss = X25519(node_reality_priv, ch_keyshare_pub)` — ECDH с **публичным** keyshare
+/// открытого ClientHello (серверу приватный keyshare клиента не нужен; доступ клиента
+/// к своему keyshare — отдельная задача T1). Затем `AuthKey = HKDF-SHA256(
+/// salt = ch_random[..20], ikm = ss, info = LABEL_REALITY_CERT)`. Salt per-handshake —
+/// replay поля подписи между handshakes невозможен.
+///
+/// Ошибка `HandshakeFailed` — ECDH дал нулевой выход (all-zero shared secret,
+/// RFC 7748 §6.1 требует отбраковки); лёгитимный ClientHello такого не даёт.
+pub fn derive_reality_auth_key(
+    node_reality: &NodeRealityKey,
+    ch_keyshare_pub: &X25519Pub,
+    ch_random: &[u8; 32],
+) -> Result<[u8; 32], CryptoError> {
+    let ss = x25519_dh(&node_reality.0, ch_keyshare_pub)?;
+    if ss.iter().all(|&b| b == 0) {
+        return Err(CryptoError::HandshakeFailed);
+    }
+    Ok(hkdf_sha256(&ch_random[..20], &ss, LABEL_REALITY_CERT))
+}
+
+/// Q23: подмена поля подписи сертификата — `HMAC-SHA512(AuthKey, cert_pub)`.
+/// Это не криптографическая подпись: 64 байта маскируются под signatureValue
+/// сертификата Ed25519. Клиент (T1) верифицирует
+/// `HMAC-SHA512(AuthKey', cert_pub) == cert.Signature` вместо проверки цепочки CA
+/// (xtls/reality `reality.go`). Сгенерированная сторона — здесь; сверку с
+/// constant-time делает верифицирующая сторона.
+pub fn reality_cert_signature(auth_key: &[u8; 32], cert_pub: &[u8]) -> [u8; 64] {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha512;
+    let mut mac = <Hmac<Sha512> as hmac::KeyInit>::new_from_slice(auth_key)
+        .expect("HMAC accepts any key length");
+    mac.update(cert_pub);
+    mac.finalize().into_bytes().into()
 }
 
 /// HMAC-SHA256-тег `probe_tag`: аутентификация открытого ClientHello гейтом
@@ -930,6 +979,124 @@ mod tests {
         let mut root2 = root;
         root2[5] ^= 1;
         assert_ne!(fleet.0, derive_probe_fleet_key(&root2).0);
+    }
+
+    /// Q23 (Accept-путь Reality): AuthKey/подпись — детерминированные векторы + домен.
+    /// AuthKey выводится из ECDH с *публичным* keyshare открытого CH (серверу приватный
+    /// keyshare клиента не нужен); домен отделён от fleet-ключа гейта (Q24) и обложки;
+    /// подпись — HMAC-SHA512(AuthKey, cert_pub), чувствительна к каждому входу.
+    #[test]
+    fn contract_reality_cert_auth_key_and_signature() {
+        // Фиксированные стороны: node_reality (сервер) и клиентский keyshare (приватный
+        // нужен только тесту, чтобы вывести его публичную половину; прод-сервер её читает
+        // из байтов ClientHello).
+        let node_priv: [u8; 32] = core::array::from_fn(|i| (i * 7 + 3) as u8);
+        let client_priv: [u8; 32] = core::array::from_fn(|i| (i * 11 + 5) as u8);
+        let ch_keyshare_pub = X25519Pub(x25519_keypair(&client_priv).public);
+        let ch_random: [u8; 32] = core::array::from_fn(|i| (i * 13 + 2) as u8);
+
+        let node = NodeRealityKey(node_priv);
+        let auth_key = derive_reality_auth_key(&node, &ch_keyshare_pub, &ch_random)
+            .expect("легитимные стороны ECDH не дают all-zero");
+
+        // Детерминированный вектор (фиксация формулы:
+        // X25519 → HKDF-SHA256(salt = ch_random[..20], info = LABEL_REALITY_CERT)).
+        let hex: String = auth_key.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            hex, "aa56cbaacbc65f532ee67e2e9ae9b405b0af7d8dd18e33f795cb708525e8d76d",
+            "AuthKey = HKDF-SHA256(salt=ch_random[..20], ikm=X25519, info=LABEL_REALITY_CERT)"
+        );
+
+        // Клиентская сторона (T1, здесь — тест): тот же AuthKey из симметричного ECDH.
+        let node_pub = X25519Pub(x25519_keypair(&node_priv).public);
+        let ss_client = x25519_dh(&client_priv, &node_pub).expect("ECDH симметричен");
+        let auth_key_client = hkdf_sha256(&ch_random[..20], &ss_client, LABEL_REALITY_CERT);
+        assert_eq!(
+            auth_key, auth_key_client,
+            "сервер и клиент сходятся на AuthKey"
+        );
+
+        // Домен: та же ECDH-соль с fleet-меткой или обложечной — другой ключ.
+        assert_ne!(
+            auth_key,
+            hkdf_sha256(&ch_random[..20], &ss_client, LABEL_PROBE_FLEET),
+            "LABEL_REALITY_CERT ≠ LABEL_PROBE_FLEET (домен гейта Q24 не смешивается)"
+        );
+        assert_ne!(
+            auth_key,
+            hkdf_sha256(&ch_random[..20], &ss_client, LABEL_COVER),
+            "LABEL_REALITY_CERT ≠ LABEL_COVER"
+        );
+
+        // Чувствительность: байт keyshare / random / node-ключа меняет AuthKey целиком.
+        let mut ks2 = ch_keyshare_pub;
+        let mut ks2_bytes = ks2.0;
+        ks2_bytes[7] ^= 1;
+        ks2 = X25519Pub(ks2_bytes);
+        assert_ne!(
+            auth_key,
+            derive_reality_auth_key(&node, &ks2, &ch_random).expect("валидный ECDH"),
+            "байт keyshare в AuthKey"
+        );
+        let mut rnd2 = ch_random;
+        rnd2[19] ^= 1;
+        assert_ne!(
+            auth_key,
+            derive_reality_auth_key(&node, &ch_keyshare_pub, &rnd2).expect("валидный ECDH"),
+            "salt = ch_random[..20] входит в AuthKey (граница salt на месте)"
+        );
+        let node2 = NodeRealityKey({
+            let mut p = node_priv;
+            p[31] ^= 1; // бит 248 — вне clamp-маски X25519 (биты 0..2 и 254..255 отбрасываются
+                        // RFC 7748 ещё до скалярного умножения, их инверсия не меняет ключ).
+            p
+        });
+        assert_ne!(
+            auth_key,
+            derive_reality_auth_key(&node2, &ch_keyshare_pub, &ch_random).expect("валидный ECDH"),
+            "байт node_reality-ключа в AuthKey"
+        );
+        // Байт random за границей salt (>= 20) не влияет — фиксация среза.
+        let mut rnd3 = ch_random;
+        rnd3[25] ^= 1;
+        assert_eq!(
+            auth_key,
+            derive_reality_auth_key(&node, &ch_keyshare_pub, &rnd3).expect("валидный ECDH"),
+            "ch_random[20..] вне salt — не входит"
+        );
+
+        // Подпись: HMAC-SHA512(AuthKey, cert_pub), 64 B, чувствительна к обоим входам.
+        let cert_pub: [u8; 32] = core::array::from_fn(|i| (i * 17 + 9) as u8);
+        let sig = reality_cert_signature(&auth_key, &cert_pub);
+        assert_eq!(
+            sig.len(),
+            64,
+            "HMAC-SHA512 — 64 B (форма signatureValue Ed25519)"
+        );
+        assert_eq!(
+            sig,
+            reality_cert_signature(&auth_key, &cert_pub),
+            "детерминирован"
+        );
+        let sig_hex: String = sig.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            sig_hex, "7ba9739eff86107937035637c00f2657378f21c9ccd08184873add6a46f89c5d1a5d3bbe025f0a5d51ab1d86df2334fe333062018fa45884d13add6255aa481b",
+            "signature = HMAC-SHA512(AuthKey, cert_pub)"
+        );
+        let mut cert2 = cert_pub;
+        cert2[0] ^= 1;
+        assert_ne!(
+            sig,
+            reality_cert_signature(&auth_key, &cert2),
+            "cert_pub входит в подпись"
+        );
+        let ak_other =
+            derive_reality_auth_key(&node, &ch_keyshare_pub, &rnd2).expect("валидный ECDH");
+        assert_ne!(
+            sig,
+            reality_cert_signature(&ak_other, &cert_pub),
+            "другой AuthKey (другой salt) → другая подпись"
+        );
     }
 
     /// Q24 (аудит F-05): constant-time сверка тегов гейта — семантика обычного ==

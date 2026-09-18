@@ -16,3 +16,6 @@ getrandom.workspace = true
 # (docs/phase-reports/reality-boring-probe.md, F11 DEPENDENCIES.md).
 # TTL и дата перепроверки — в DEPENDENCIES.md (как у остальных прод-пинов).
 boring.workspace = true
+# Скелет сертификата Accept-пути (Q23): self-signed Ed25519-заготовка, поле подписи
+# которой перезаписывается per-handshake (см. workspace-комментарий и QUESTIONS.md Q23).
+rcgen.workspace = true
