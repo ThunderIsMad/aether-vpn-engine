@@ -567,13 +567,20 @@ pub fn derive_rotated_session(
     KSession(hkdf32(Some(session_id), &ikm, LABEL_ROTATE))
 }
 
-/// Ratchet записей (`02 §1`): `K_record[n] = HKDF(K_record[n-1])`, шаг 0 — от `K_session`.
-pub fn ratchet_record(session_id: &[u8; 16], k_session: &KSession, index: u64) -> KRecord {
-    let mut key = hkdf32(Some(session_id), &k_session.0, LABEL_RECORD);
-    for _ in 0..index {
-        key = hkdf32(Some(session_id), &key, LABEL_RECORD);
-    }
-    KRecord(key)
+/// Ключ записи (`02 §1`, аудит F-02 — константный вывод):
+/// `K_record[n] = HKDF-SHA256(salt = sid, ikm = K_session, info = LABEL_RECORD ‖ be64(n))`.
+///
+/// Один шаг HKDF для **произвольного** `n`: приём записи — O(1), а не O(n) итераций
+/// (прежняя цепочка давала ~50 мс CPU на запись при seq = 1e5 и жёсткий обрыв на лимите).
+/// Свойства: компрометация одного `K_record[n]` не раскрывает ни прошлых, ни будущих
+/// членов (цепочки не существует — это строже прежнего ratchet, где утечка текущего
+/// члена давала все последующие); компрометация `K_session` раскрывает все члены —
+/// периодический re-key и ротация узла остаются средством сужения этого окна.
+pub fn derive_record_key(session_id: &[u8; 16], k_session: &KSession, seq: u64) -> KRecord {
+    let mut info = Vec::with_capacity(LABEL_RECORD.len() + 8);
+    info.extend_from_slice(LABEL_RECORD);
+    info.extend_from_slice(&seq.to_be_bytes());
+    KRecord(hkdf32(Some(session_id), &k_session.0, &info))
 }
 
 /// Генерирует пару X25519 (`client_static` / `node_static`) через системный RNG clatter.
@@ -919,9 +926,11 @@ mod tests {
     fn contract_record_seal_open() {
         let sid = [0x22u8; 16];
         let session = derive_session(&sid, b"ikm-from-chaining-key");
-        let key = ratchet_record(&sid, &session, 0);
-        let key_next = ratchet_record(&sid, &session, 1);
-        assert_ne!(key.0, key_next.0, "ratchet двигает K_record");
+        let key = derive_record_key(&sid, &session, 0);
+        let key_next = derive_record_key(&sid, &session, 1);
+        assert_ne!(key.0, key_next.0, "соседние члены K_record различны");
+        let key_far = derive_record_key(&sid, &session, 2_000_000);
+        assert_ne!(key_far.0, key.0, "произвольный seq — тот же один шаг HKDF (F-02)");
 
         let nonce = RecordNonce::new(7, &sid);
         assert_eq!(nonce.0.len(), 24, "nonce XChaCha20-Poly1305 — 24 B");

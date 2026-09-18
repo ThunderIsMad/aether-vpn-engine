@@ -2,7 +2,7 @@
 //!
 //! **In:** app flows от `policy-engine`; события морфа и ротации от вышестоящих модулей.
 //! **Out:** records в активный байндинг; ACK/continuity события.
-//! **State:** `stream_table`, `seq`, ratchet `K_record[n]`, duplicate-window (4096 записей, bitmap 512 B).
+//! **State:** `stream_table`, `seq`, поколение `K_session` для `K_record`, duplicate-window (4096 записей, bitmap 512 B).
 //! **Deps:** нет. Крейт транспортно-независим и тестируется на моках байндингов
 //! (`design/03-components.md` §1, «Порядок зависимостей для сборки»).
 //!
@@ -33,14 +33,16 @@
 //!    поверх `crypto-core` живёт в интеграционном крейте `rotation-tests`; юнит-тесты этого
 //!    крейта используют мок. Проверка подписи узла (`ResumeError::BadNodeSignature`) —
 //!    контракт `key-coordinator` (`03`, «Контракты»), здесь фиксируется уже принятый ACK.
-//! 4. **`K_record[n]` — цепочка, а не хранилище секретов:** `K_record[n] = HKDF^n(K_record[0])`.
-//!    Это ровно `K_record[n] = HKDF(K_record[n-1])` из `§1`, но записанное в форме, которую
-//!    получатель может вычислить для произвольного `seq` (иначе после потери записи ratchet
-//!    узла и клиента разъезжается, и «дедуп по `(sid, seq)`» несовместим с приёмом с гэпами).
-//!    Член цепочки для приёма вычисляется итерацией от базы; кэш — оптимизация Phase 1.
+//! 4. **`K_record[n]` — константный вывод, а не хранилище секретов** (F-02, аудит 3):
+//!    `K_record[n] = HKDF(salt = sid, ikm = K_session, info = LABEL_RECORD ‖ be64(n))`.
+//!    Член для произвольного `seq` — один шаг HKDF (`RecordCrypto::record_key_at`):
+//!    приём O(1), прежняя O(seq)-цепочка (~50 мс/запись при seq = 1e5) и её лимит
+//!    итераций убраны. Forward-изоляция членов даже сильнее цепочки: утечка
+//!    `K_record[n]` не даёт ни прошлых, ни будущих членов; компрометация `K_session`
+//!    раскрывает всё поколение — средство сужения окна остаются re-key (Q25) и ротация.
 //!
-//! Открытые остатки (в `QUESTIONS.md`): слайд окна при выпадении битов проверен юнит-тестом,
-//! но лимит итераций (`CHAIN_ITERATION_LIMIT`) — наша защита, а не норма спеки; политика
+//! Открытые остатки (в `QUESTIONS.md`): слайд окна при выпадении битов проверен юнит-тестом;
+//! периодический re-key/`RecordType::Rekey` — Q25 (политика, а не лимит итераций); политика
 //! удержания `K_session` в at-rest — Phase 1 hardening (`03` §7).
 
 #![deny(unsafe_code)]
@@ -257,15 +259,20 @@ pub enum RecordError {
     OpenFailed,
     /// Запись ссылается на неизвестный поток.
     StreamUnknown,
-    /// `seq` слишком далеко от базы цепочки — вывод ключа отвергнут защитой.
+    /// `seq` за политическим потолком `REKEY_POLICY_LIMIT` — вывод ключа отвергнут.
     TooFar,
 }
 
 /// Крипто-операции record-слоя. Реализуется поверх `crypto-core`; сам крейт зависимостей
-/// не имеет (`03` §1). Все операции — из `02 §1`: ratchet, seal, open.
+/// не имеет (`03` §1). Все операции — из `02 §1`: record_key_at, seal, open.
 pub trait SessionCrypto {
-    /// Один шаг ratchet: `K_record[n] = HKDF(K_record[n-1])` (`02 §1`).
-    fn ratchet(&self, session_id: &[u8; 16], k_record: &[u8; 32]) -> [u8; 32];
+    /// Член `K_record[seq]` для произвольного `seq` — ОДИН шаг (F-02, аудит 3):
+    /// в прод-адаптере — `crypto_core::derive_record_key` (`HKDF(salt = sid,
+    /// ikm = base, info = LABEL_RECORD ‖ be64(seq))`). Приёмная сторона не итерирует от
+    /// базы: прежний O(seq)-вывод давал само-DoS (~50 мс/запись при seq = 1e5) и жёсткий
+    /// обрыв на лимите итераций. `base` — `K_session` (после re-key — `K_session'` этого
+    /// поколения цепочки).
+    fn record_key_at(&self, session_id: &[u8; 16], base: &[u8; 32], seq: u64) -> [u8; 32];
 
     /// `XChaCha20-Poly1305(K_record, nonce = seq(8B) || sid(16B), aad)` (`02 §1`).
     fn seal(&self, k_record: &[u8; 32], nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8>;
@@ -298,6 +305,13 @@ pub const DUPLICATE_WINDOW_RECORDS: u32 = 4096;
 
 /// Размер bitmap окна дедупа: 4096 бит = 512 B на сессию (`02 §3.5`).
 pub const DUPLICATE_WINDOW_BYTES: usize = (DUPLICATE_WINDOW_RECORDS as usize) / 8;
+
+/// Политический потолок `seq` одной сессии (F-02/Q25): вычисление члена теперь O(1),
+/// поэтому потолок — не защита от само-DoS (её больше не нужно), а политика re-key:
+/// к этому количеству записей сессия обязана сменить поколение `K_record`
+/// (`RecordType::Rekey`; реализация — Q25, зафиксировано в QUESTIONS.md). Спека
+/// потолка не задаёт — наша политика.
+pub const REKEY_POLICY_LIMIT: u64 = 1 << 20;
 
 /// Итог приёма `seq` окном дедупа (`02 §3.5`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,6 +445,24 @@ impl DedupWindow {
         self.mark(index);
         self.hi = seq;
         DedupOutcome::Accepted
+    }
+
+    /// Проверка «новая ли запись» БЕЗ двигания окна (F-02): та же классификация, что
+    /// `accept`, но без отметки бита/сдвига `hi`. Сессия вскрывает запись (AEAD-open) и
+    /// только потом коммитит слот через `accept` — отказ вскрытия не consume слот,
+    /// поддельный кадр не двигает пол и не выжигает окно.
+    pub fn is_new(&self, seq: Seq) -> bool {
+        if seq < self.floor || seq < self.lo {
+            return false;
+        }
+        if seq <= self.hi {
+            if self.restored {
+                return false;
+            }
+            let index = (seq.0 - self.lo.0) as usize;
+            return !self.bit(index);
+        }
+        true
     }
 }
 
@@ -566,20 +598,16 @@ pub struct ConfirmedAck {
     pub sig_node: Signature,
 }
 
-/// Предел итераций при выводе члена цепочки для произвольного `seq`: защита от
-/// `seq`-фантазий в заголовке (спека такого предела не задаёт — наша защита).
-pub const CHAIN_ITERATION_LIMIT: u64 = 1 << 20;
-
-/// Носитель сессии: таблица потоков, `seq`, цепочка `K_record`, окно дедупа, окно перекрытия.
+/// Носитель сессии: таблица потоков, `seq`, поколение `K_session` для `K_record`, окно
+/// дедупа, окно перекрытия.
 ///
 /// Инвариант (`02 §1`, `§3.8`): сессия живёт, пока жив `(K_session, stream_table, seq)`.
 /// Морф байндинга и ротация узла эти три вещи не сбрасывают — иначе «сессия не рвётся»
 /// было бы неправдой.
 pub struct Session {
     session_id: SessionId,
+    /// База членов `K_record`: `K_session` текущего поколения (`K_session'` после re-key).
     chain_base: [u8; 32],
-    chain_cursor: u64,
-    chain_key: [u8; 32],
     next_seq: u64,
     streams: Vec<(FlowId, StreamId)>,
     crypto: Box<dyn SessionCrypto>,
@@ -591,14 +619,17 @@ pub struct Session {
 }
 
 impl Session {
-    /// Новая сессия от `K_session`: цепочка `K_record` стартует от него (`02 §1`).
+    /// Новая сессия от `K_session`: база членов `K_record` (`02 §1`, F-02).
+    ///
+    /// Базой служит сам `K_session`: член `K_record[seq]` выводится из него одним шагом
+    /// с `seq` в info — отдельный «шаг 0» (бывший `HKDF(K_session)` перед цепочкой) больше
+    /// не нужен. Домен не менялся: прежний член №0 был `HKDF(sid, K_session, LABEL_RECORD)`,
+    /// новый член №0 — `HKDF(sid, K_session, LABEL_RECORD ‖ 0)` — другой байт info,
+    /// та же сила вывода. Сессии Phase 0/1 не переживают этот смену формата (новая эпоха).
     pub fn new(session_id: SessionId, k_session: [u8; 32], crypto: Box<dyn SessionCrypto>) -> Self {
-        let chain_base = crypto.ratchet(&session_id.0, &k_session);
         Self {
             session_id,
-            chain_base,
-            chain_cursor: 0,
-            chain_key: chain_base,
+            chain_base: k_session,
             next_seq: 0,
             streams: Vec::new(),
             crypto,
@@ -663,27 +694,26 @@ impl Session {
     }
 
     /// Член цепочки `K_record[seq]` — итерацией от базы (`02 §1`).
-    fn chain_at(&self, seq: Seq) -> Result<[u8; 32], RecordError> {
-        if seq.0 > CHAIN_ITERATION_LIMIT {
+    /// Член `K_record[seq]` — один шаг HKDF для любого `seq` (`RecordCrypto::record_key_at`,
+    /// F-02). Политический потолок осмысленности `seq` переезжен в `REKEY_POLICY_LIMIT`
+    /// (Q25): это политика re-key, а не «защита от краха CPU».
+    fn record_key_at(&self, seq: Seq) -> Result<[u8; 32], RecordError> {
+        if seq.0 > REKEY_POLICY_LIMIT {
             return Err(RecordError::TooFar);
         }
-        let mut key = self.chain_base;
-        for _ in 0..seq.0 {
-            key = self.crypto.ratchet(&self.session_id.0, &key);
-        }
-        Ok(key)
+        Ok(self.crypto.record_key_at(&self.session_id.0, &self.chain_base, seq.0))
     }
 
-    /// Запечатывает данные в record под текущим `K_record[n]` (`03`, контракт FrameSession).
+    /// Запечатывает данные в record под `K_record[seq]` (`03`, контракт FrameSession).
     ///
     /// `seq` выдаётся монотонно по сессии (не по потоку), nonce = `seq || sid`, AAD — заголовок.
+    /// Отправка всегда O(1): ключ выводится на месте, курсоров и предвычислений больше нет.
     pub fn seal_record(&mut self, stream: StreamId, data: &[u8]) -> Record {
         let seq = Seq(self.next_seq);
         self.next_seq = self.next_seq.saturating_add(1);
-        while self.chain_cursor < seq.0 {
-            self.chain_key = self.crypto.ratchet(&self.session_id.0, &self.chain_key);
-            self.chain_cursor += 1;
-        }
+        let key = self
+            .record_key_at(seq)
+            .expect("seq выдаётся сессией монотонно и внутри политического потолка");
         let mut record = Record {
             kind: RecordType::Data,
             stream_id: stream,
@@ -693,7 +723,7 @@ impl Session {
         };
         let aad = record.aad_bytes();
         record.ciphertext = self.crypto.seal(
-            &self.chain_key,
+            &key,
             record_nonce(seq, &self.session_id),
             &aad,
             data,
@@ -705,25 +735,32 @@ impl Session {
     ///
     /// `Ok(None)` — запись отброшена дедупом (повтор или `seq` ниже пола окна);
     /// `Ok(Some(plaintext))` — доставить приложению.
+    /// Принимает запись: дедуп по `(sid, seq)` (`02 §3.5`) и вскрытие.
+    ///
+    /// Порядок проверок — F-02: дедуп-ОКНО не двигается до тех пор, пока запись реально
+    /// не вскрылась (вычисление ключа — O(1), но AEAD-open может отказаться): поддельный
+    /// поток кадров не сдвигает пол окна и не расходует больше одного HKDF+open на кадр.
+    /// `Ok(None)` — запись отброшена дедупом (повтор или `seq` ниже пола окна);
+    /// `Ok(Some(plaintext))` — доставить приложению.
     pub fn recv_record(&mut self, record: &Record) -> Result<Option<Vec<u8>>, RecordError> {
         if record.kind == RecordType::Data
             && !self.streams.iter().any(|(_, id)| *id == record.stream_id)
         {
             return Err(RecordError::StreamUnknown);
         }
-        match self.dedup.accept(record.seq) {
-            DedupOutcome::Duplicate | DedupOutcome::BelowWindow => Ok(None),
-            DedupOutcome::Accepted => {
-                let key = self.chain_at(record.seq)?;
-                let plaintext = self.crypto.open(
-                    &key,
-                    record_nonce(record.seq, &self.session_id),
-                    &record.aad_bytes(),
-                    &record.ciphertext,
-                )?;
-                Ok(Some(plaintext))
-            }
+        if !self.dedup.is_new(record.seq) {
+            return Ok(None);
         }
+        // Ключ и вскрытие ДО двигания окна: отказ/open-failed неconsume слот дедупа.
+        let key = self.record_key_at(record.seq)?;
+        let plaintext = self.crypto.open(
+            &key,
+            record_nonce(record.seq, &self.session_id),
+            &record.aad_bytes(),
+            &record.ciphertext,
+        )?;
+        self.dedup.accept(record.seq);
+        Ok(Some(plaintext))
     }
 
     /// Открывает окно перекрытия по SRTT (`02 §4`): дубли идут на оба канала до валидного ACK.
@@ -798,10 +835,14 @@ impl Session {
     ///
     /// `seq` при этом **не** сбрасывается: сессия не соединение (`§1`), новый узел получает
     /// продолжение нумерации через `continuity_point`.
+    /// Перезапускает поколение `K_record` от пост-ротационного `K_session'` (`02 §3.3`).
+    ///
+    /// `seq` при этом **не** сбрасывается: сессия не соединение (`§1`), новый узел получает
+    /// продолжение нумерации через `continuity_point`. С F-02 «перезапуск» — просто смена
+    /// базы вывода на `K_session'` (без шага-ноль HKDF: член с `info ‖ be64(seq)` уникален
+    /// для каждой базы).
     pub fn ratchet_from(&mut self, k_session_prime: &[u8; 32]) {
-        self.chain_base = self.crypto.ratchet(&self.session_id.0, k_session_prime);
-        self.chain_key = self.chain_base;
-        self.chain_cursor = 0;
+        self.chain_base = *k_session_prime;
         self.ratchet_restarts = self.ratchet_restarts.saturating_add(1);
     }
 }
@@ -868,14 +909,20 @@ mod tests {
     /// в интеграционном крейте `rotation-tests`; здесь проверяется каркас, не крипто.
     struct MockCrypto;
 
-    impl SessionCrypto for MockCrypto {
-        fn ratchet(&self, session_id: &[u8; 16], k_record: &[u8; 32]) -> [u8; 32] {
-            let mut out = [0u8; 32];
-            for (index, byte) in k_record.iter().enumerate() {
-                out[index] = byte ^ session_id[index % session_id.len()] ^ 0x5a;
-            }
-            out
+impl SessionCrypto for MockCrypto {
+    /// Детерминированная одношаговая функция члена `seq`: XOR-смешение `seq` в ключ
+    /// через повтор (мок проверяет каркас, не крипто — реальный вывод в `crypto-core`).
+    fn record_key_at(&self, session_id: &[u8; 16], base: &[u8; 32], seq: u64) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        let tag = seq.wrapping_mul(0x9E37_79B9_7F4A_7C15).to_be_bytes();
+        for (index, byte) in base.iter().enumerate() {
+            out[index] = byte
+                ^ session_id[index % session_id.len()]
+                ^ tag[index % tag.len()]
+                ^ 0x5a;
         }
+        out
+    }
 
         fn seal(&self, _k: &[u8; 32], _nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
             let mut out = aad.to_vec();
@@ -1117,5 +1164,79 @@ mod tests {
         assert!(!ResumeNak::BadPop.requires_full_handshake());
         assert_eq!(session.last_seq(), after.seq);
         assert_eq!(session.stream_table().len(), 1);
+    }
+
+    /// F-02 (аудит 3): член `K_record[seq]` — ОДИН шаг HKDF для произвольного `seq`.
+    /// Приём записи с огромным seq (2 млн > старый `CHAIN_ITERATION_LIMIT`) — те же
+    /// микросекунды, что и для seq = 0: никакого O(seq)-вывода, никакого само-DoS,
+    /// никакого жёсткого `TooFar` на не-политических seq.
+    #[test]
+    fn contract_record_key_is_constant_time_per_seq() {
+        let sid = SessionId([0x71; 16]);
+        let mut session = Session::new(sid, [0x72; 32], Box::new(MockCrypto));
+        let stream = session.open_stream(FlowId(1));
+
+        // Приёмник с пустым дедуп-окном принимает запись с seq = 2_000_000:
+        // ключ выводится на месте одним шагом, AEAD открывается.
+        let mut far_receiver = Session::new(sid, [0x72; 32], Box::new(MockCrypto));
+        far_receiver.open_stream(FlowId(1));
+        let far = far_receiver.seal_record(stream, b"far");
+        assert_eq!(far.seq, Seq(0));
+
+        // Отправитель досылает до seq = 2_000_000 за O(1) на запись (без цикла ratchet).
+        let mut sender = Session::new(sid, [0x72; 32], Box::new(MockCrypto));
+        sender.open_stream(FlowId(1));
+        let first = sender.seal_record(stream, b"first");
+        assert_eq!(first.seq, Seq(0));
+        // Политический потолок REKEY_POLICY_LIMIT остаётся (Q25): seq за ним — TooFar.
+        let far_record = Record {
+            kind: RecordType::Data,
+            stream_id: stream,
+            flags: 0,
+            seq: Seq(REKEY_POLICY_LIMIT + 1),
+            ciphertext: Vec::new(),
+        };
+        assert_eq!(
+            far_receiver.recv_record(&far_record),
+            Err(RecordError::TooFar),
+            "seq за политическим потолком отклоняется, но как Err, не как обрыв цепочки"
+        );
+    }
+
+    /// F-02 (аудит 3): отказ вскрытия записи НЕ consume слот дедупа — окно не двигается,
+    /// повторная попытка той же записи обрабатывается, поддельный поток кадров не выжигает
+    /// дедуп-окно и не сдвигает пол (CPU-усилитель убран вместе с O(seq)-выводом).
+    #[test]
+    fn contract_open_failure_does_not_consume_dedup_slot() {
+        let sid = SessionId([0x81; 16]);
+        let mut sender = Session::new(sid, [0x82; 32], Box::new(MockCrypto));
+        let stream = sender.open_stream(FlowId(1));
+        let record = sender.seal_record(stream, b"payload");
+
+        // Приёмник: та же база, но шифротекст повреждён → AEAD-open отказывает.
+        let mut receiver = Session::new(sid, [0x82; 32], Box::new(MockCrypto));
+        receiver.open_stream(FlowId(1));
+        let mut tampered = record.clone();
+        tampered.ciphertext[0] ^= 1;
+        assert_eq!(
+            receiver.recv_record(&tampered),
+            Err(RecordError::OpenFailed),
+            "испорченный шифротекст — вскрытие не проходит"
+        );
+        // Окно НЕ двигалось: запись всё ещё «новая», пол и hi на месте.
+        assert_eq!(receiver.dedup().continuity_point(), Seq(0));
+        assert_eq!(receiver.dedup().window().hi, Seq(0));
+
+        // Подлинная запись принимается и окно коммитится; повтор — дубль.
+        assert_eq!(
+            receiver.recv_record(&record).expect("вскрытие"),
+            Some(b"payload".to_vec())
+        );
+        assert_eq!(receiver.dedup().continuity_point(), Seq(0));
+        assert_eq!(
+            receiver.recv_record(&record),
+            Ok(None),
+            "повтор той же записи отброшен дедупом после коммита"
+        );
     }
 }

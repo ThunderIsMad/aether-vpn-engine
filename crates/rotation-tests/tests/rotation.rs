@@ -267,13 +267,13 @@ fn rotation_forward_secrecy_old_k_session_cannot_open_new_records() {
     assert_ne!(without_dh.0, k_prime, "re-key — именно свежий DH, а не вывод из K_session");
     driver.session.ratchet_from(&k_prime);
 
-    // 1/3. Пост-ротационная запись не открывается ни старым ключом цепочки, ни старым `K_session`.
+    // 1/3. Пост-ротационная запись не открывается ни старой базой, ни старым `K_session`.
     let post = driver.emit_after_rotation(streams[0], b"post-rotation");
-    let old_chain_key = ratchet_record(&SID, &KSession(K_SESSION), post.seq.0);
+    let old_chain_key = derive_record_key(&SID, &KSession(K_SESSION), post.seq.0);
     assert!(
         RecordAead
             .open(
-                &KRecord(old_chain_key.0),
+                &old_chain_key,
                 &RecordNonce(record_nonce(post.seq, &SessionId(SID))),
                 &post.aad_bytes(),
                 &post.ciphertext,

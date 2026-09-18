@@ -24,8 +24,11 @@ Record = type(1B) | stream_id(varint) | flags(1B) | len(varint) | ciphertext
 ciphertext = XChaCha20-Poly1305(K_record, nonce = seq(8B) || sid(16B), plaintext)
 ```
 
-- `K_record` — производная от `K_session` через ratchet: `K_record[n] = HKDF(K_record[n-1])`
-  (per-record forward secrecy, периодический re-key).
+- `K_record` — константный вывод из `K_session` (F-02, аудит 3):
+  `K_record[n] = HKDF-SHA256(salt = sid, ikm = K_session, info = "aether v3 record" ‖ be64(n))` —
+  один шаг HKDF для произвольного `n` (приём O(1), без цепочки-курсора; утечка члена не даёт
+  ни прошлых, ни будущих; компрометация `K_session` раскрывает всё поколение — окно сужается
+  периодическим re-key (политика `REKEY_POLICY_LIMIT` записей, Q25) и ротацией узла).
 - `seq` — монотонный счётчик записей сессии (не потока); узел подтверждает continuity point
   по `seq` и дедуплицирует по `(sid, seq)` — идемпотентный дедуп, **at-most-once на выходе**
   (exactly-once не заявляется; окно и его границы — `§3.5`).

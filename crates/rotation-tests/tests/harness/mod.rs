@@ -19,7 +19,7 @@ use std::rc::Rc;
 
 pub use crypto_core::{
     derive_k_resume, derive_rotated_session, ed25519_genkey, ed25519_pubkey, ed25519_sign,
-    ed25519_verify, mlkem768_genkey, ratchet_record, sha256, x25519_dh, x25519_genkey,
+    derive_record_key, ed25519_verify, mlkem768_genkey, sha256, x25519_dh, x25519_genkey,
     x25519_keypair, Handshake, IkInitiator, IkResponder, Ed25519Pub, KSession, KRecord,
     MlKem768Pub, RecordAead, RecordCrypto, RecordNonce, Signature, X25519Pub as CoreX25519Pub,
     MLKEM768_EK_BYTES,
@@ -85,8 +85,8 @@ pub const NAK_EXPIRED: u8 = 0x04;
 pub struct CoreCrypto;
 
 impl SessionCrypto for CoreCrypto {
-    fn ratchet(&self, session_id: &[u8; 16], k_record: &[u8; 32]) -> [u8; 32] {
-        ratchet_record(session_id, &KSession(*k_record), 0).0
+    fn record_key_at(&self, session_id: &[u8; 16], base: &[u8; 32], seq: u64) -> [u8; 32] {
+        derive_record_key(session_id, &KSession(*base), seq).0
     }
 
     fn seal(&self, k_record: &[u8; 32], nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {

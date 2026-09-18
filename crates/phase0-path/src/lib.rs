@@ -19,7 +19,7 @@
 
 #![deny(unsafe_code)]
 
-use crypto_core::{KRecord, KSession, RecordAead, RecordCrypto, RecordNonce};
+use crypto_core::{KRecord, RecordAead, RecordCrypto, RecordNonce};
 use frame_session::{
     FlowId, RecordError, Session, SessionCrypto, SessionId, StreamId,
 };
@@ -40,8 +40,8 @@ pub fn session_id(bytes: [u8; 16]) -> SessionId {
 pub struct CoreCrypto;
 
 impl SessionCrypto for CoreCrypto {
-    fn ratchet(&self, session_id: &[u8; 16], k_record: &[u8; 32]) -> [u8; 32] {
-        crypto_core::ratchet_record(session_id, &KSession(*k_record), 0).0
+    fn record_key_at(&self, session_id: &[u8; 16], base: &[u8; 32], seq: u64) -> [u8; 32] {
+        crypto_core::derive_record_key(session_id, &crypto_core::KSession(*base), seq).0
     }
 
     fn seal(&self, k_record: &[u8; 32], nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {

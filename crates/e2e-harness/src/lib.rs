@@ -35,8 +35,8 @@ pub mod wire;
 pub struct CoreCrypto;
 
 impl frame_session::SessionCrypto for CoreCrypto {
-    fn ratchet(&self, session_id: &[u8; 16], k_record: &[u8; 32]) -> [u8; 32] {
-        crypto_core::ratchet_record(session_id, &crypto_core::KSession(*k_record), 0).0
+    fn record_key_at(&self, session_id: &[u8; 16], base: &[u8; 32], seq: u64) -> [u8; 32] {
+        crypto_core::derive_record_key(session_id, &crypto_core::KSession(*base), seq).0
     }
 
     fn seal(&self, k_record: &[u8; 32], nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
@@ -375,7 +375,7 @@ mod tests {
         let sid = [7u8; 16];
         let k_session = [0x33u8; 32];
         let crypto = CoreCrypto;
-        let k_record = crypto.ratchet(&sid, &k_session);
+        let k_record = crypto.record_key_at(&sid, &k_session, 0);
         let nonce =
             frame_session::record_nonce(frame_session::Seq(0), &frame_session::SessionId(sid));
         let sealed = crypto.seal(&k_record, nonce, b"aad", b"payload");
