@@ -120,11 +120,17 @@ jobs:
       # Все cargo-вызовы job'а — dev-профиль в одном workspace, отдельные ключи для
       # clippy/test не нужны: cargo test всё равно выполняет тесты, а не только собирает.
       # Пин по SHA — стиль файла (P2-гигиена); v2.9.2 — node24 (без deprecation warning).
+      # prefix-key (v1-rust): версия-ключ namespace. Под v0-rust остался частичный кэш от
+      # прогона, отменённого concurrency-группой (cache-on-failure успел сохранить неполный
+      # артефакт до boring-sys build-директорий; save пропускается при «Cache up-to-date»),
+      # поэтому bump префикса = новый чистый ключ, который заполнит завершённый прогон.
+      # Дисциплина: поднимать префикс при аналогичном «залипании» или смене базовой схемы.
       - name: Cache cargo build artifacts
         if: steps.ws.outputs.found == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
+          prefix-key: v1-rust
 
       - name: cargo fmt --check
         if: steps.ws.outputs.found == 'true'
