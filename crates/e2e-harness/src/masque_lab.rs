@@ -189,7 +189,10 @@ pub async fn masque_live_roundtrip() -> Result<Vec<Vec<u8>>, String> {
     while got.len() < 3 {
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
         if left.is_zero() {
-            return Err(format!("echo: получили {}/3 датаграмм, время вышло", got.len()));
+            return Err(format!(
+                "echo: получили {}/3 датаграмм, время вышло",
+                got.len()
+            ));
         }
         let datagram = tokio::time::timeout(left, half.read_datagram())
             .await

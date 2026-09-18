@@ -37,8 +37,8 @@ pub fn self_signed_cert() -> LabCert {
     // Тот же урок, что в boring-пробе (reality-boring-probe.md, находка №3), где это
     // нашлось живым handshake'ом. Старые тесты этого не видели: они не делали handshake.
     let ca_key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).expect("Ed25519 ca keygen");
-    let mut ca_params = rcgen::CertificateParams::new(vec!["Aether Lab CA".to_string()])
-        .expect("CN CA валиден");
+    let mut ca_params =
+        rcgen::CertificateParams::new(vec!["Aether Lab CA".to_string()]).expect("CN CA валиден");
     ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
     ca_params.key_usages = vec![
         rcgen::KeyUsagePurpose::KeyCertSign,
@@ -49,9 +49,11 @@ pub fn self_signed_cert() -> LabCert {
     let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).expect("Ed25519 keygen");
     let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string()])
         .expect("SAN localhost валиден");
-    params.subject_alt_names.push(rcgen::SanType::IpAddress(
-        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-    ));
+    params
+        .subject_alt_names
+        .push(rcgen::SanType::IpAddress(std::net::IpAddr::V4(
+            std::net::Ipv4Addr::LOCALHOST,
+        )));
     params.is_ca = rcgen::IsCa::NoCa;
     params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
     params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
@@ -89,7 +91,9 @@ pub fn server_config(cert: &LabCert) -> Result<quinn::ServerConfig, String> {
         .with_single_cert(chain, key.into())
         .map_err(|e| format!("cert/key: {e}"))?;
     let server = QuicServerConfig::try_from(tls).map_err(|e| format!("quic server: {e}"))?;
-    Ok(quinn::ServerConfig::with_crypto(std::sync::Arc::new(server)))
+    Ok(quinn::ServerConfig::with_crypto(std::sync::Arc::new(
+        server,
+    )))
 }
 
 /// Сервер-эндпоинт на 127.0.0.1:`port` (0 — свободный); возвращает фактический порт.
@@ -125,9 +129,7 @@ pub fn client_config(cert_der: &[u8]) -> Result<quinn::ClientConfig, String> {
 
 /// Единственный клиентский endpoint процесса (исходящий сокет 127.0.0.1:0).
 pub fn client_endpoint() -> Result<quinn::Endpoint, String> {
-    let addr: std::net::SocketAddr = "127.0.0.1:0"
-        .parse()
-        .expect("литерал 127.0.0.1:0 валиден");
+    let addr: std::net::SocketAddr = "127.0.0.1:0".parse().expect("литерал 127.0.0.1:0 валиден");
     quinn::Endpoint::client(addr).map_err(|e| format!("client endpoint: {e}"))
 }
 

@@ -146,7 +146,10 @@ impl MasqueH3Client {
     /// Возвращает число отправленных датаграмм. Формат payload'а не пересобирается:
     /// то, что каркас положил в `Outbox`, уходит как есть — принимающая сторона
     /// разбирает `decode_masque_frame` (кусок 2).
-    pub fn drain_binding(&mut self, binding: &mut crate::MasqueBinding) -> Result<usize, MasqueH3Error> {
+    pub fn drain_binding(
+        &mut self,
+        binding: &mut crate::MasqueBinding,
+    ) -> Result<usize, MasqueH3Error> {
         let pending = binding.take_pending();
         let mut sent = 0;
         for (_stream_id, capsule) in pending {
@@ -202,7 +205,6 @@ impl MasqueH3Client {
             dpi_profile: crate::DPI_PROFILE_MASQUE,
         }
     }
-
 }
 
 /// Половина сессии после `split`: обмен датаграммами + стрим CONNECT.
@@ -239,9 +241,7 @@ impl DatagramHalf {
 
     /// Читает входящую HTTP/3-датаграмму: `(stream_id, payload)`. Payload —
     /// содержимое после Quarter Stream ID (RFC 9297 §4): капсула куска 2.
-    pub async fn read_datagram(
-        &mut self,
-    ) -> Result<(h3::quic::StreamId, Bytes), MasqueH3Error> {
+    pub async fn read_datagram(&mut self) -> Result<(h3::quic::StreamId, Bytes), MasqueH3Error> {
         let datagram = self
             .reader
             .read_datagram()
@@ -251,9 +251,7 @@ impl DatagramHalf {
     }
 
     /// Стрим CONNECT (лаборатория: довести соединение до конца / прочитать тело).
-    pub fn into_request_stream(
-        self,
-    ) -> client::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes> {
+    pub fn into_request_stream(self) -> client::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes> {
         self.request_stream
     }
 }
@@ -275,7 +273,9 @@ fn build_connect_request(req: &ConnectUdpRequest) -> http::Request<()> {
             builder = builder.header(name, value);
         }
     }
-    let mut request = builder.body(()).expect("extended CONNECT: поля валидны по ConnectUdpRequest::new");
+    let mut request = builder
+        .body(())
+        .expect("extended CONNECT: поля валидны по ConnectUdpRequest::new");
     request
         .extensions_mut()
         .insert(h3::ext::Protocol::CONNECT_UDP);
@@ -284,7 +284,9 @@ fn build_connect_request(req: &ConnectUdpRequest) -> http::Request<()> {
 
 /// Будущее: крутить драйвер h3 до закрытия соединения (лаборатория/серверные тесты).
 /// Отдельная функция, а не метод-конструктор, чтобы типfuture был выводим.
-pub async fn drive_until_closed(mut conn: client::Connection<QConnection, Bytes>) -> h3::error::ConnectionError {
+pub async fn drive_until_closed(
+    mut conn: client::Connection<QConnection, Bytes>,
+) -> h3::error::ConnectionError {
     std::future::poll_fn(|cx| conn.poll_close(cx)).await
 }
 
@@ -309,7 +311,10 @@ mod tests {
         assert_eq!(request.method(), http::Method::CONNECT);
         assert_eq!(request.version(), http::Version::HTTP_3);
         assert_eq!(
-            request.headers().get("capsule-protocol").map(|v| v.to_str().expect("ascii")),
+            request
+                .headers()
+                .get("capsule-protocol")
+                .map(|v| v.to_str().expect("ascii")),
             Some("?1"),
             "capsule-protocol: ?1 — RFC 9298 §3.5"
         );
