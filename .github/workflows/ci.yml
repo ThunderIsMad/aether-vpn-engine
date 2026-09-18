@@ -108,6 +108,24 @@ jobs:
         if: steps.ws.outputs.found == 'true'
         run: rustup component add clippy rustfmt
 
+      # Кэш cargo (target/ + ~/.cargo/registry/git): без него boring-sys (BoringSSL) и
+      # всё dep-дерево пересобираются с нуля на каждый push — замер по логам прогонов
+      # 35310138889/35322912390: суммарно ~90-100s только на boring-sys+boring в четырёх
+      # cargo-вызовах этого job'а. Действие ставится ПОСЛЕ установки тулчейна: ключ кэша
+      # включает версию rustc (требование Swatinem/rust-cache README §caching-strategy).
+      # Инвалидация по содержимому встроена (add-rust-environment-hash-key, дефолт true):
+      # в ключ входит хэш всех Cargo.toml/Cargo.lock, rust-toolchain* и .cargo/config.toml —
+      # смена лока или тулчейна = новый ключ = гарантированный промах, поэтому кэш не может
+      # подсунуть артефакты чужого Cargo.lock (`--locked` дисциплина не нарушается).
+      # Все cargo-вызовы job'а — dev-профиль в одном workspace, отдельные ключи для
+      # clippy/test не нужны: cargo test всё равно выполняет тесты, а не только собирает.
+      # Пин по SHA — стиль файла (P2-гигиена); v2.9.2 — node24 (без deprecation warning).
+      - name: Cache cargo build artifacts
+        if: steps.ws.outputs.found == 'true'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
+
       - name: cargo fmt --check
         if: steps.ws.outputs.found == 'true'
         run: cargo fmt --all --check
