@@ -1,0 +1,266 @@
+{
+  "total_count": 3,
+  "jobs": [
+    {
+      "id": 105541432819,
+      "run_id": 35326706391,
+      "workflow_name": "CI",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/ThunderIsMad/aether-vpn-engine/actions/runs/35326706391",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOUcnTp88AAAAYksJ18w",
+      "head_sha": "9b5697bdc2ed1604a1811eddc6983d962d71f734",
+      "url": "https://api.github.com/repos/ThunderIsMad/aether-vpn-engine/actions/jobs/105541432819",
+      "html_url": "https://github.com/ThunderIsMad/aether-vpn-engine/actions/runs/35326706391/job/105541432819",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-18T08:54:11Z",
+      "started_at": "2026-09-18T08:54:13Z",
+      "completed_at": "2026-09-18T08:54:21Z",
+      "name": "Validate skills",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-18T08:54:14Z",
+          "completed_at": "2026-09-18T08:54:14Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-18T08:54:14Z",
+          "completed_at": "2026-09-18T08:54:15Z"
+        },
+        {
+          "name": "Install validator dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-18T08:54:15Z",
+          "completed_at": "2026-09-18T08:54:19Z"
+        },
+        {
+          "name": "Validate .agents/skills",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-18T08:54:19Z",
+          "completed_at": "2026-09-18T08:54:19Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-18T08:54:19Z",
+          "completed_at": "2026-09-18T08:54:20Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-18T08:54:20Z",
+          "completed_at": "2026-09-18T08:54:20Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/ThunderIsMad/aether-vpn-engine/check-runs/105541432819",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "runner_id": 1000000246,
+      "runner_name": "GitHub Actions 1000000246",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 105541433065,
+      "run_id": 35326706391,
+      "workflow_name": "CI",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/ThunderIsMad/aether-vpn-engine/actions/runs/35326706391",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOUcnTp88AAAAYksJ26Q",
+      "head_sha": "9b5697bdc2ed1604a1811eddc6983d962d71f734",
+      "url": "https://api.github.com/repos/ThunderIsMad/aether-vpn-engine/actions/jobs/105541433065",
+      "html_url": "https://github.com/ThunderIsMad/aether-vpn-engine/actions/runs/35326706391/job/105541433065",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-18T08:54:11Z",
+      "started_at": "2026-09-18T08:54:14Z",
+      "completed_at": "2026-09-18T08:55:54Z",
+      "name": "Rust (test + clippy)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-18T08:54:15Z",
+          "completed_at": "2026-09-18T08:54:16Z"
+        },
+        {
+          "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-18T08:54:16Z",
+          "completed_at": "2026-09-18T08:54:17Z"
+        },
+        {
+          "name": "Install boring-sys build dependencies (linux)",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-18T08:54:17Z",
+          "completed_at": "2026-09-18T08:54:30Z"
+        },
+        {
+          "name": "Detect workspace",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-18T08:54:30Z",
+          "completed_at": "2026-09-18T08:54:30Z"
+        },
+        {
+          "name": "No workspace yet",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5,
+          "started_at": "2026-09-18T08:54:30Z",
+          "completed_at": "2026-09-18T08:54:30Z"
+        },
+        {
+          "name": "Verify toolchain pin (linux)",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-09-18T08:54:30Z",
+          "completed_at": "2026-09-18T08:54:38Z"
+        },
+        {
+          "name": "Ensure clippy and rustfmt",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-18T08:54:38Z",
+          "completed_at": "2026-09-18T08:54:39Z"
+        },
+        {
+          "name": "Cache cargo build artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-09-18T08:54:39Z",
+          "completed_at": "2026-09-18T08:54:41Z"
+        },
+        {
+          "name": "cargo fmt --check",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-09-18T08:54:41Z",
+          "completed_at": "2026-09-18T08:54:41Z"
+        },
+        {
+          "name": "cargo test",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-09-18T08:54:41Z",
+          "completed_at": "2026-09-18T08:55:07Z"
+        },
+        {
+          "name": "cargo clippy",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-09-18T08:55:07Z",
+          "completed_at": "2026-09-18T08:55:36Z"
+        },
+        {
+          "name": "cargo clippy (e2e feature)",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-09-18T08:55:36Z",
+          "completed_at": "2026-09-18T08:55:43Z"
+        },
+        {
+          "name": "cargo test (e2e feature, best-effort)",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-09-18T08:55:43Z",
+          "completed_at": "2026-09-18T08:55:51Z"
+        },
+        {
+          "name": "Post Cache cargo build artifacts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 25,
+          "started_at": "2026-09-18T08:55:51Z",
+          "completed_at": "2026-09-18T08:55:52Z"
+        },
+        {
+          "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 26,
+          "started_at": "2026-09-18T08:55:52Z",
+          "completed_at": "2026-09-18T08:55:52Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 27,
+          "started_at": "2026-09-18T08:55:52Z",
+          "completed_at": "2026-09-18T08:55:52Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/ThunderIsMad/aether-vpn-engine/check-runs/105541433065",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "runner_id": 1000000247,
+      "runner_name": "GitHub Actions 1000000247",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 105541433755,
+      "run_id": 35326706391,
+      "workflow_name": "CI",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/ThunderIsMad/aether-vpn-engine/actions/runs/35326706391",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOUcnTp88AAAAYksJ5mw",
+      "head_sha": "9b5697bdc2ed1604a1811eddc6983d962d71f734",
+      "url": "https://api.github.com/repos/ThunderIsMad/aether-vpn-engine/actions/jobs/105541433755",
+      "html_url": "https://github.com/ThunderIsMad/aether-vpn-engine/actions/runs/35326706391/job/105541433755",
+      "status": "completed",
+      "conclusion": "skipped",
+      "created_at": "2026-09-18T08:54:11Z",
+      "started_at": "2026-09-18T08:54:11Z",
+      "completed_at": "2026-09-18T08:54:11Z",
+      "name": "Reality boring probe (linux, recon)",
+      "steps": [
+
+      ],
+      "check_run_url": "https://api.github.com/repos/ThunderIsMad/aether-vpn-engine/check-runs/105541433755",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "runner_id": null,
+      "runner_name": null,
+      "runner_group_id": null,
+      "runner_group_name": null
+    }
+  ]
+}
