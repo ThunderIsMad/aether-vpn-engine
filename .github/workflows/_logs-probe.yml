@@ -6,15 +6,17 @@ name: Logs probe (temporary, scratch branch only)
 # Зачем: реальный прогон ci.yml на main намеренно read-only (permissions: contents:
 # read, persist-credentials: false, никакой записи через API), а репозиторий приватный
 # — Actions API без токена отдаёт 404. То есть прогон не оставляет в git видимого
-# следа. Этот пробник берёт токен раннера (actions: read) и складывает СЫРЫЕ логи
-# последнего завершённого push-прогона ci.yml на main в служебную ветку ci-probe-logs,
-# откуда их можно прочитать обычным `git fetch`, без Actions API.
+# следа. Пробник берёт токен раннера (actions: read) и складывает СЫРЫЕ логи
+# нужных прогонов ci.yml на main в служебную ветку ci-probe-logs, откуда их можно
+# прочитать обычным `git fetch`.
 #
-# Ключевое отличие от предыдущего probe-коммита: скачивание логов идёт с
-# `--location-trusted` — эндпоинт /actions/jobs/{id}/logs отвечает 302 на
-# pipelines.actions.githubusercontent.com, и curl НЕ переносит заголовок
-# Authorization на другой хост, из-за чего предыдущая попытка получила не zip, а
-# тело ошибки (отсюда пустые «числа тестов» в том отчёте).
+# Что выяснилось по ходу (оба наблюдения — из логов раннера, не из документации):
+#   1) `curl -L` со `-H Authorization` на /actions/jobs/{id}/logs: заголовок НЕ
+#      переносится на другой хост (blob.core.windows.net) — это и нужно, подписанный
+#      URL самодостаточен; с `--location-trusted` прилетает 401 InvalidAuthenticationInfo.
+#   2) на этом деплое эндпоинт отдаёт `text/plain` СЫРОЙ ТЕКСТ, а не zip, поэтому
+#      предыдущие отчёты падали на `unzip` («End-of-central-directory signature not
+#      found») — отсюда пустые «числа тестов». Здесь поддерживаются обе формы.
 
 on:
   push:
@@ -26,21 +28,21 @@ permissions:
 
 env:
   OUT_BRANCH: ci-probe-logs
-  # Пусто = взять самый новый завершённый push-прогон ci.yml на main.
-  # Можно зафиксировать конкретный run id, чтобы снять логи именно его
-  # (например чистого прогона без этой отчётной инфраструктуры).
-  RUN_ID_OVERRIDE: ""
+  # Run id через пробел. Пусто = самый новый завершённый push-прогон ci.yml на main.
+  # Явные id позволяют снять и «грязный» прогон (с этой отчётной инфраструктурой),
+  # и чистый dc0602e — без временного job'а — одним проходом.
+  RUN_IDS_OVERRIDE: "35310705441 35310138889"
 
 jobs:
   fetch-logs:
-    name: Fetch logs of the real main run
+    name: Fetch logs of the real main runs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: true
 
-      - name: Collect (latest completed push run of ci.yml on main)
+      - name: Collect (job/step statuses + raw logs + numbers)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -48,111 +50,86 @@ jobs:
           set +e
           set -uo pipefail
           API="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY"
-          mkdir -p ci-probe-logs
-          OUT="ci-probe-logs/main-run-logs.txt"
           AUTH=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
-
-          {
-            echo "================ СЫРЫЕ ЛОГИ РЕАЛЬНОГО ci.yml НА MAIN ================"
-            echo "probe sha: $GITHUB_SHA   probe run: $GITHUB_RUN_ID"
-            echo
-          } > "$OUT"
+          mkdir -p ci-probe-logs
 
           command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
           command -v unzip >/dev/null || sudo apt-get install -y --no-install-recommends unzip
 
           # --- какие push-прогоны ci.yml на main вообще есть ---
           curl -sS "${AUTH[@]}" "$API/actions/runs?branch=main&event=push&per_page=20" -o runs.json
-          echo "curl runs exit=$?" >> "$OUT"
+          echo "curl runs exit=$?" >&2
           {
-            echo "---- push-прогоны на main (новые сверху) ----"
+            echo "probe sha: $GITHUB_SHA   probe run: $GITHUB_RUN_ID"
+            echo "---- push-прогоны ci.yml на main (новые сверху) ----"
             jq -r '.workflow_runs[] | select(.path == ".github/workflows/ci.yml")
                    | "run \(.id) sha=\(.head_sha[0:9]) status=\(.status)/\(.conclusion) created=\(.created_at)"' runs.json
-          } >> "$OUT" 2>&1
+          } > ci-probe-logs/main-runs.txt 2>&1
 
-          RUN_ID="${RUN_ID_OVERRIDE:-$(jq -r '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml") | select(.status == "completed")] | .[0].id // empty' runs.json)}"
-          echo "override='${RUN_ID_OVERRIDE:-<нет>}'" >> "$OUT"
-          RUN_SHA="$(jq -r --arg id "$RUN_ID" '[.workflow_runs[] | select((.id|tostring) == $id)] | .[0].head_sha // empty' runs.json)"
-          echo "выбран завершённый run: ${RUN_ID:-<нет>} (sha $RUN_SHA)" >> "$OUT"
-          [ -n "$RUN_ID" ] || { echo "нет завершённых прогонов — нечего качать"; }
+          RUN_IDS="$RUN_IDS_OVERRIDE"
+          if [ -z "$RUN_IDS" ]; then
+            RUN_IDS="$(jq -r '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml") | select(.status == "completed")] | .[0].id // empty' runs.json)"
+          fi
+          echo "прогоны к разбору: ${RUN_IDS:-<нет>}" >> ci-probe-logs/main-runs.txt
 
-          # --- job'ы и шаги выбранного прогона ---
-          curl -sS "${AUTH[@]}" "$API/actions/runs/$RUN_ID/jobs?per_page=100" -o jobs.json
-          echo "curl jobs exit=$?" >> "$OUT"
-          {
-            echo
-            echo "---- job'ы и шаги (status/conclusion) ----"
-            jq -r '.jobs[] | "[\(.name)] \(.status)/\(.conclusion) id=\(.id)", (.steps[]? | "    - \(.number). \(.name): \(.status)/\(.conclusion)")' jobs.json
-          } >> "$OUT" 2>&1
+          for RID in $RUN_IDS; do
+            D="ci-probe-logs/$RID"
+            OUT="$D/main-run-logs.txt"
+            mkdir -p "$D"
 
-          # --- сырые логи каждого job'а (skipped качать нечего) ---
-          # Диагностика: пробуем три способа и печатаем HTTP-код/тип/первые байты,
-          # чтобы понять, что именно приходит вместо zip.
-          jq -r '.jobs[] | select(.conclusion != "skipped") | .id' jobs.json > jobids.txt
-          while read -r jid; do
-            [ -n "$jid" ] || continue
-            ok=""
+            curl -sS "${AUTH[@]}" "$API/actions/runs/$RID" -o "$D/run.json"
+            curl -sS "${AUTH[@]}" "$API/actions/runs/$RID/jobs?per_page=100" -o "$D/jobs.json"
 
-            # способ B: как это делает gh — забрать Location и скачать подписанный
-            # URL БЕЗ заголовка Authorization (подпись самодостаточна)
-            LOC="$(curl -sS -o /dev/null -D - "${AUTH[@]}" "$API/actions/jobs/$jid/logs" \
-                   | awk 'tolower($1)=="location:"{print $2}' | tr -d '\r') "
-            echo "job $jid: location=${LOC:0:90}…" >> "$OUT"
-            if [ -n "$LOC" ]; then
-              curl -sS -o "log-$jid.zip" -w 'B http=%{http_code} type=%{content_type} bytes=%{size_download}\n' "$LOC" >> "$OUT"
-            fi
+            {
+              echo "================ РЕАЛЬНЫЙ ПРОГОН ci.yml НА MAIN: run $RID ================"
+              jq -r '"name=\(.name) event=\(.event) ref=\(.head_branch) sha=\(.head_sha) status=\(.status)/\(.conclusion) created=\(.created_at) url=\(.html_url)"' "$D/run.json"
+              echo
+              echo "---- job'ы и шаги (status/conclusion) ----"
+              jq -r '.jobs[] | "[\(.name)] \(.status)/\(.conclusion) id=\(.id)", (.steps[]? | "    - \(.number). \(.name): \(.status)/\(.conclusion)")' "$D/jobs.json"
+            } > "$OUT" 2>&1
 
-            # способ C: --location-trusted (заголовок уходит на чужой хост)
-            curl -sS -L --location-trusted "${AUTH[@]}" -o "log-$jid.c.zip" \
-              -w 'C http=%{http_code} type=%{content_type} bytes=%{size_download}\n' "$API/actions/jobs/$jid/logs" >> "$OUT"
-
-            # способ A: -L без переноса заголовка на чужой хост
-            curl -sS -L "${AUTH[@]}" -o "log-$jid.a.zip" \
-              -w 'A http=%{http_code} type=%{content_type} bytes=%{size_download}\n' "$API/actions/jobs/$jid/logs" >> "$OUT"
-
-            for cand in "log-$jid.zip" "log-$jid.c.zip" "log-$jid.a.zip"; do
-              if [ -s "$cand" ] && unzip -t -q "$cand" >/dev/null 2>&1; then
-                echo "job $jid: валидный zip -> $cand" >> "$OUT"
-                rm -rf "log-$jid"; unzip -o -q "$cand" -d "log-$jid" 2>>"$OUT"
-                cat "log-$jid"/* > "raw-$jid.log"
-                # убрать префикс времени и ANSI-раскраску, чтобы логи читались диффом
-                sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' "raw-$jid.log" \
-                  | sed -E 's/\x1b\[[0-9;]*m//g' > "clean-$jid.log"
-                echo "clean-$jid.log: $(wc -l < "clean-$jid.log") строк" >> "$OUT"
-                ok=1
-                break
+            # --- сырые логи каждого job'а (skipped качать нечего) ---
+            jq -r '.jobs[] | select(.conclusion != "skipped") | .id' "$D/jobs.json" > "$D/jobids.txt"
+            while read -r jid; do
+              [ -n "$jid" ] || continue
+              curl -sS -L "${AUTH[@]}" -o "$D/body-$jid" \
+                -w "job $jid: http=%{http_code} type=%{content_type} bytes=%{size_download}\n" \
+                "$API/actions/jobs/$jid/logs" >> "$OUT" 2>&1
+              if unzip -t -q "$D/body-$jid" >/dev/null 2>&1; then
+                echo "job $jid: тело — zip, распаковываю" >> "$OUT"
+                rm -rf "$D/x-$jid"; unzip -o -q "$D/body-$jid" -d "$D/x-$jid" 2>>"$OUT"
+                cat "$D/x-$jid"/* > "$D/raw-$jid.log" 2>/dev/null
+              else
+                echo "job $jid: тело — не zip (text/plain), беру как есть" >> "$OUT"
+                cp "$D/body-$jid" "$D/raw-$jid.log"
               fi
-            done
-            if [ -z "$ok" ]; then
-              {
-                echo "job $jid: НИ ОДИН вариант не zip. Размеры/первые байты:"
-                for cand in "log-$jid.zip" "log-$jid.c.zip" "log-$jid.a.zip"; do
-                  echo "  $cand: $(wc -c < "$cand" 2>/dev/null) bytes; head:"
-                  head -c 200 "$cand" 2>/dev/null | tr -d '\000' | sed 's/^/    /'
-                  echo
-                done
-              } >> "$OUT" 2>&1
-            fi
-            rm -f "log-$jid.c.zip" "log-$jid.a.zip"
-          done < jobids.txt
+              # убрать BOM, префикс времени и ANSI-раскраску: логи читаются диффом
+              sed -E 's/^\xef\xbb\xbf//; s/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' "$D/raw-$jid.log" \
+                | sed -E 's/\x1b\[[0-9;]*m//g' > "$D/clean-$jid.log"
+              echo "clean-$jid.log: $(wc -l < "$D/clean-$jid.log") строк" >> "$OUT"
+            done < "$D/jobids.txt"
 
-          # --- главное: числа тестов по шагам и резолв пина ---
-          {
-            echo
-            echo "---- числа тестов ПО ШАГАМ (ожидание: 107/0/2 workspace, 16/0 e2e) ----"
-            awk '
-              /^##\[group\]Run / { cur=$0; sub(/^##\[group\]Run /, "", cur) }
-              /^test result:/   { p[cur]+=$4; f[cur]+=$6; i[cur]+=$8 }
-              END { for (c in p) printf "%-70s passed=%d failed=%d ignored=%d\n", c, p[c], f[c], i[c] }
-            ' clean-*.log 2>/dev/null | sort
-            echo
-            echo "---- резолв toolchain-пина ----"
-            grep -hE "^resolved toolchain:|^active toolchain|^name:|^active because:" clean-*.log 2>/dev/null | head -20
-            echo
-            echo "---- признаки отказа (пусто = нет) ----"
-            grep -hE "^error|^error\[|^::error::|^panicked" clean-*.log 2>/dev/null | head -40
-          } >> "$OUT" 2>&1
-          echo "collect finished" >> "$OUT"
+            # --- главное: числа тестов по шагам, резолв пина, отказы ---
+            {
+              echo
+              echo "---- числа тестов ПО ШАГАМ (ожидание: 107/0/2 workspace, 16/0 e2e) ----"
+              awk '
+                /^##\[group\]Run / { cur=$0; sub(/^##\[group\]Run /, "", cur) }
+                /^test result:/   { p[cur]+=$4; f[cur]+=$6; i[cur]+=$8 }
+                END { for (c in p) printf "%-70s passed=%d failed=%d ignored=%d\n", c, p[c], f[c], i[c] }
+              ' "$D"/clean-*.log 2>/dev/null | sort
+              echo
+              echo "---- резолв toolchain-пина ----"
+              grep -hE "^resolved toolchain:|^active toolchain|^name:|^active because:|^release:|^host:" "$D"/clean-*.log 2>/dev/null | head -20
+              echo
+              echo "---- признаки отказа (пусто = нет) ----"
+              grep -hE "^error|^error\[|^::error::|^panicked" "$D"/clean-*.log 2>/dev/null | head -40
+              echo
+              echo "---- строки с 'test result:' как есть ----"
+              grep -h "^test result:" "$D"/clean-*.log 2>/dev/null | head -20
+            } >> "$OUT" 2>&1
+            echo "collect finished for run $RID" >> "$OUT"
+          done
 
       - name: Publish logs to the scratch branch
         if: ${{ always() }}
@@ -161,7 +138,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$OUT_BRANCH"
-          cp clean-*.log raw-*.log jobs.json runs.json ci-probe-logs/ 2>/dev/null || true
           git add -A ci-probe-logs
           git commit -m "logs: raw ci.yml main run logs (probe sha ${GITHUB_SHA})"
           git push --force origin "HEAD:refs/heads/$OUT_BRANCH"
