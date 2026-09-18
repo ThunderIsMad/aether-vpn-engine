@@ -1,0 +1,67 @@
+================ РЕАЛЬНЫЙ ПРОГОН ci.yml НА MAIN ================
+sha:     246fa660b419251d433d0d0d7659f6b2c996112a
+ref:     refs/heads/main
+event:   push
+run:     35310705441 attempt 1
+run url: https://github.com/ThunderIsMad/aether-vpn-engine/actions/runs/35310705441
+
+---- итог job'ов (needs, виден и без API) ----
+skills: success
+rust:   success
+curl jobs exit=0
+
+---- job'ы и шаги (Actions API, имя/статус/итог) ----
+[Validate skills] completed/success id=105491971463
+    - 1. Set up job: completed/success
+    - 2. Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: completed/success
+    - 3. Install validator dependencies: completed/success
+    - 4. Validate .agents/skills: completed/success
+    - 8. Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: completed/success
+    - 9. Complete job: completed/success
+[Rust (test + clippy)] completed/success id=105491971581
+    - 1. Set up job: completed/success
+    - 2. Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: completed/success
+    - 3. Install boring-sys build dependencies (linux): completed/success
+    - 4. Detect workspace: completed/success
+    - 5. No workspace yet: completed/skipped
+    - 6. Verify toolchain pin (linux): completed/success
+    - 7. Ensure clippy and rustfmt: completed/success
+    - 8. cargo fmt --check: completed/success
+    - 9. cargo test: completed/success
+    - 10. cargo clippy: completed/success
+    - 11. cargo clippy (e2e feature): completed/success
+    - 12. cargo test (e2e feature, best-effort): completed/success
+    - 24. Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: completed/success
+    - 25. Complete job: completed/success
+[Reality boring probe (linux, recon)] completed/skipped id=105491972345
+[Report real run (temporary)] in_progress/null id=105492381255
+    - 1. Set up job: completed/success
+    - 2. Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: in_progress/null
+    - 3. Collect evidence (job/step statuses + test numbers): pending/null
+    - 4. Publish evidence to the scratch branch: pending/null
+    - 8. Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262: pending/null
+105491971463
+105491971581
+curl log 105491971463 exit=0
+[log-105491971463.zip]
+  End-of-central-directory signature not found.  Either this file is not
+  a zipfile, or it constitutes one disk of a multi-part archive.  In the
+  latter case the central directory and zipfile comment will be found on
+  the last disk(s) of this archive.
+unzip:  cannot find zipfile directory in one of log-105491971463.zip or
+        log-105491971463.zip.zip, and cannot find log-105491971463.zip.ZIP, period.
+curl log 105491971581 exit=0
+[log-105491971581.zip]
+  End-of-central-directory signature not found.  Either this file is not
+  a zipfile, or it constitutes one disk of a multi-part archive.  In the
+  latter case the central directory and zipfile comment will be found on
+  the last disk(s) of this archive.
+unzip:  cannot find zipfile directory in one of log-105491971581.zip or
+        log-105491971581.zip.zip, and cannot find log-105491971581.zip.ZIP, period.
+
+---- числа тестов ПО ШАГАМ (из групп логов; сравнить с 107/0/2 и 16/0) ----
+
+---- пин toolchain в реальном прогоне ----
+
+---- признаки отказа в логах (пусто = нет) ----
+collect finished
