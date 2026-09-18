@@ -26,6 +26,10 @@ permissions:
 
 env:
   OUT_BRANCH: ci-probe-logs
+  # Пусто = взять самый новый завершённый push-прогон ci.yml на main.
+  # Можно зафиксировать конкретный run id, чтобы снять логи именно его
+  # (например чистого прогона без этой отчётной инфраструктуры).
+  RUN_ID_OVERRIDE: ""
 
 jobs:
   fetch-logs:
@@ -66,7 +70,8 @@ jobs:
                    | "run \(.id) sha=\(.head_sha[0:9]) status=\(.status)/\(.conclusion) created=\(.created_at)"' runs.json
           } >> "$OUT" 2>&1
 
-          RUN_ID="$(jq -r '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml") | select(.status == "completed")] | .[0].id // empty' runs.json)"
+          RUN_ID="${RUN_ID_OVERRIDE:-$(jq -r '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml") | select(.status == "completed")] | .[0].id // empty' runs.json)}"
+          echo "override='${RUN_ID_OVERRIDE:-<нет>}'" >> "$OUT"
           RUN_SHA="$(jq -r --arg id "$RUN_ID" '[.workflow_runs[] | select((.id|tostring) == $id)] | .[0].head_sha // empty' runs.json)"
           echo "выбран завершённый run: ${RUN_ID:-<нет>} (sha $RUN_SHA)" >> "$OUT"
           [ -n "$RUN_ID" ] || { echo "нет завершённых прогонов — нечего качать"; }
@@ -81,21 +86,54 @@ jobs:
           } >> "$OUT" 2>&1
 
           # --- сырые логи каждого job'а (skipped качать нечего) ---
+          # Диагностика: пробуем три способа и печатаем HTTP-код/тип/первые байты,
+          # чтобы понять, что именно приходит вместо zip.
           jq -r '.jobs[] | select(.conclusion != "skipped") | .id' jobs.json > jobids.txt
           while read -r jid; do
             [ -n "$jid" ] || continue
-            curl -sSL --location-trusted "${AUTH[@]}" "$API/actions/jobs/$jid/logs" -o "log-$jid.zip"
-            echo "curl log $jid exit=$?" >> "$OUT"
-            rm -rf "log-$jid"
-            if unzip -o -q "log-$jid.zip" -d "log-$jid" 2>>"$OUT"; then
-              cat "log-$jid"/* > "raw-$jid.log"
-              # убрать префикс времени и ANSI-раскраску, чтобы логи читались диффом
-              sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' "raw-$jid.log" \
-                | sed -E 's/\x1b\[[0-9;]*m//g' > "clean-$jid.log"
-              echo "clean-$jid.log: $(wc -l < "clean-$jid.log") строк" >> "$OUT"
-            else
-              echo "log-$jid.zip не распаковался (см. выше)" >> "$OUT"
+            ok=""
+
+            # способ B: как это делает gh — забрать Location и скачать подписанный
+            # URL БЕЗ заголовка Authorization (подпись самодостаточна)
+            LOC="$(curl -sS -o /dev/null -D - "${AUTH[@]}" "$API/actions/jobs/$jid/logs" \
+                   | awk 'tolower($1)=="location:"{print $2}' | tr -d '\r') "
+            echo "job $jid: location=${LOC:0:90}…" >> "$OUT"
+            if [ -n "$LOC" ]; then
+              curl -sS -o "log-$jid.zip" -w 'B http=%{http_code} type=%{content_type} bytes=%{size_download}\n' "$LOC" >> "$OUT"
             fi
+
+            # способ C: --location-trusted (заголовок уходит на чужой хост)
+            curl -sS -L --location-trusted "${AUTH[@]}" -o "log-$jid.c.zip" \
+              -w 'C http=%{http_code} type=%{content_type} bytes=%{size_download}\n' "$API/actions/jobs/$jid/logs" >> "$OUT"
+
+            # способ A: -L без переноса заголовка на чужой хост
+            curl -sS -L "${AUTH[@]}" -o "log-$jid.a.zip" \
+              -w 'A http=%{http_code} type=%{content_type} bytes=%{size_download}\n' "$API/actions/jobs/$jid/logs" >> "$OUT"
+
+            for cand in "log-$jid.zip" "log-$jid.c.zip" "log-$jid.a.zip"; do
+              if [ -s "$cand" ] && unzip -t -q "$cand" >/dev/null 2>&1; then
+                echo "job $jid: валидный zip -> $cand" >> "$OUT"
+                rm -rf "log-$jid"; unzip -o -q "$cand" -d "log-$jid" 2>>"$OUT"
+                cat "log-$jid"/* > "raw-$jid.log"
+                # убрать префикс времени и ANSI-раскраску, чтобы логи читались диффом
+                sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' "raw-$jid.log" \
+                  | sed -E 's/\x1b\[[0-9;]*m//g' > "clean-$jid.log"
+                echo "clean-$jid.log: $(wc -l < "clean-$jid.log") строк" >> "$OUT"
+                ok=1
+                break
+              fi
+            done
+            if [ -z "$ok" ]; then
+              {
+                echo "job $jid: НИ ОДИН вариант не zip. Размеры/первые байты:"
+                for cand in "log-$jid.zip" "log-$jid.c.zip" "log-$jid.a.zip"; do
+                  echo "  $cand: $(wc -c < "$cand" 2>/dev/null) bytes; head:"
+                  head -c 200 "$cand" 2>/dev/null | tr -d '\000' | sed 's/^/    /'
+                  echo
+                done
+              } >> "$OUT" 2>&1
+            fi
+            rm -f "log-$jid.c.zip" "log-$jid.a.zip"
           done < jobids.txt
 
           # --- главное: числа тестов по шагам и резолв пина ---
