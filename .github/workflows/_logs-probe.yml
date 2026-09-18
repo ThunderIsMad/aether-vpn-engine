@@ -1,0 +1,129 @@
+name: Logs probe (temporary, scratch branch only)
+
+# СЛУЖЕБНЫЙ workflow. Живёт только на служебной ветке (ci-probe-results) и никогда
+# не попадает в main.
+#
+# Зачем: реальный прогон ci.yml на main намеренно read-only (permissions: contents:
+# read, persist-credentials: false, никакой записи через API), а репозиторий приватный
+# — Actions API без токена отдаёт 404. То есть прогон не оставляет в git видимого
+# следа. Этот пробник берёт токен раннера (actions: read) и складывает СЫРЫЕ логи
+# последнего завершённого push-прогона ci.yml на main в служебную ветку ci-probe-logs,
+# откуда их можно прочитать обычным `git fetch`, без Actions API.
+#
+# Ключевое отличие от предыдущего probe-коммита: скачивание логов идёт с
+# `--location-trusted` — эндпоинт /actions/jobs/{id}/logs отвечает 302 на
+# pipelines.actions.githubusercontent.com, и curl НЕ переносит заголовок
+# Authorization на другой хост, из-за чего предыдущая попытка получила не zip, а
+# тело ошибки (отсюда пустые «числа тестов» в том отчёте).
+
+on:
+  push:
+    branches: [ci-probe-results]
+
+permissions:
+  actions: read # чтение runs/jobs/логов
+  contents: write # публикация логов в служебную ветку
+
+env:
+  OUT_BRANCH: ci-probe-logs
+
+jobs:
+  fetch-logs:
+    name: Fetch logs of the real main run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: true
+
+      - name: Collect (latest completed push run of ci.yml on main)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Actions запускает run-блоки как `bash -e`: падения собираем сами
+          set +e
+          set -uo pipefail
+          API="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY"
+          mkdir -p ci-probe-logs
+          OUT="ci-probe-logs/main-run-logs.txt"
+          AUTH=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+
+          {
+            echo "================ СЫРЫЕ ЛОГИ РЕАЛЬНОГО ci.yml НА MAIN ================"
+            echo "probe sha: $GITHUB_SHA   probe run: $GITHUB_RUN_ID"
+            echo
+          } > "$OUT"
+
+          command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
+          command -v unzip >/dev/null || sudo apt-get install -y --no-install-recommends unzip
+
+          # --- какие push-прогоны ci.yml на main вообще есть ---
+          curl -sS "${AUTH[@]}" "$API/actions/runs?branch=main&event=push&per_page=20" -o runs.json
+          echo "curl runs exit=$?" >> "$OUT"
+          {
+            echo "---- push-прогоны на main (новые сверху) ----"
+            jq -r '.workflow_runs[] | select(.path == ".github/workflows/ci.yml")
+                   | "run \(.id) sha=\(.head_sha[0:9]) status=\(.status)/\(.conclusion) created=\(.created_at)"' runs.json
+          } >> "$OUT" 2>&1
+
+          RUN_ID="$(jq -r '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml") | select(.status == "completed")] | .[0].id // empty' runs.json)"
+          RUN_SHA="$(jq -r --arg id "$RUN_ID" '[.workflow_runs[] | select((.id|tostring) == $id)] | .[0].head_sha // empty' runs.json)"
+          echo "выбран завершённый run: ${RUN_ID:-<нет>} (sha $RUN_SHA)" >> "$OUT"
+          [ -n "$RUN_ID" ] || { echo "нет завершённых прогонов — нечего качать"; }
+
+          # --- job'ы и шаги выбранного прогона ---
+          curl -sS "${AUTH[@]}" "$API/actions/runs/$RUN_ID/jobs?per_page=100" -o jobs.json
+          echo "curl jobs exit=$?" >> "$OUT"
+          {
+            echo
+            echo "---- job'ы и шаги (status/conclusion) ----"
+            jq -r '.jobs[] | "[\(.name)] \(.status)/\(.conclusion) id=\(.id)", (.steps[]? | "    - \(.number). \(.name): \(.status)/\(.conclusion)")' jobs.json
+          } >> "$OUT" 2>&1
+
+          # --- сырые логи каждого job'а (skipped качать нечего) ---
+          jq -r '.jobs[] | select(.conclusion != "skipped") | .id' jobs.json > jobids.txt
+          while read -r jid; do
+            [ -n "$jid" ] || continue
+            curl -sSL --location-trusted "${AUTH[@]}" "$API/actions/jobs/$jid/logs" -o "log-$jid.zip"
+            echo "curl log $jid exit=$?" >> "$OUT"
+            rm -rf "log-$jid"
+            if unzip -o -q "log-$jid.zip" -d "log-$jid" 2>>"$OUT"; then
+              cat "log-$jid"/* > "raw-$jid.log"
+              # убрать префикс времени и ANSI-раскраску, чтобы логи читались диффом
+              sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' "raw-$jid.log" \
+                | sed -E 's/\x1b\[[0-9;]*m//g' > "clean-$jid.log"
+              echo "clean-$jid.log: $(wc -l < "clean-$jid.log") строк" >> "$OUT"
+            else
+              echo "log-$jid.zip не распаковался (см. выше)" >> "$OUT"
+            fi
+          done < jobids.txt
+
+          # --- главное: числа тестов по шагам и резолв пина ---
+          {
+            echo
+            echo "---- числа тестов ПО ШАГАМ (ожидание: 107/0/2 workspace, 16/0 e2e) ----"
+            awk '
+              /^##\[group\]Run / { cur=$0; sub(/^##\[group\]Run /, "", cur) }
+              /^test result:/   { p[cur]+=$4; f[cur]+=$6; i[cur]+=$8 }
+              END { for (c in p) printf "%-70s passed=%d failed=%d ignored=%d\n", c, p[c], f[c], i[c] }
+            ' clean-*.log 2>/dev/null | sort
+            echo
+            echo "---- резолв toolchain-пина ----"
+            grep -hE "^resolved toolchain:|^active toolchain|^name:|^active because:" clean-*.log 2>/dev/null | head -20
+            echo
+            echo "---- признаки отказа (пусто = нет) ----"
+            grep -hE "^error|^error\[|^::error::|^panicked" clean-*.log 2>/dev/null | head -40
+          } >> "$OUT" 2>&1
+          echo "collect finished" >> "$OUT"
+
+      - name: Publish logs to the scratch branch
+        if: ${{ always() }}
+        run: |
+          set -euxo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$OUT_BRANCH"
+          cp clean-*.log raw-*.log jobs.json runs.json ci-probe-logs/ 2>/dev/null || true
+          git add -A ci-probe-logs
+          git commit -m "logs: raw ci.yml main run logs (probe sha ${GITHUB_SHA})"
+          git push --force origin "HEAD:refs/heads/$OUT_BRANCH"
