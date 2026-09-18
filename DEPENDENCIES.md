@@ -113,6 +113,32 @@ curl -s https://crates.io/api/v1/crates/<name> \
 | `x25519-dalek` | 3.0.0 | 2026-07-06 | `crypto-core` (статики, DH) | мажор 3.0; clatter может по-прежнему звать 2.x — две копии в дереве допустимы, но это надо увидеть в `Cargo.lock` |
 | `ed25519-dalek` | 3.0.0 | 2026-07-06 | `crypto-core` (PoP `sig_client`, `sig_node`) | мажор 3.0 |
 | `h3` | 0.0.8 | 2025-05-06 | Phase 1 (MASQUE CONNECT-UDP) | pre-1.0; в Phase 0 не используется, только запинена. Кусок 2 (2026-09-16): каркас `cover-masque` форматы капсул реализовал без h3 — пин остаётся на будущее (h3-клиент), новая мажорная версия не тянулась |
+| `h3-quinn` | 0.0.10 | 2026-09-18 | `cover-masque` (live-слой MASQUE), `e2e-harness` (сервер) | фича `datagram` тянет `h3-datagram`; quinn-требование 0.11.7 (default-features=false) совместимо с пином 0.11.12 — в `Cargo.lock` одна копия quinn |
+| `h3-datagram` | 0.0.2 | 2026-09-18 | `cover-masque` (live-слой MASQUE) | RFC 9297 поверх h3: сам h3 0.0.8 API датаграмм не имеет (SETTINGS отдаёт, encode/decode — нет); Quarter Stream ID кодирует h3-datagram (`datagram.rs`) |
+| `http` | 1.5.0 | 2026-09-18 | `cover-masque` (Extended CONNECT-запрос) | уже в дереве через h3; пин явный ради типа `http::Request` |
+| `bytes` | 1.12.1 | 2026-09-18 | `cover-masque` (Buf для датаграмм) | уже в дереве через h3/quinn; пин явный |
+
+### Phase 1: MASQUE live interop (2026-09-18, кусок 4) — факты, снятые с исходников
+
+Пины `h3`-стека вошли в дело (кусок 4); перед письмом кода факты сверены с исходниками
+публикуемых версий (не по памяти, по правилу `crate-feasibility`):
+
+| Факт | Источник | Следствие |
+|---|---|---|
+| Extended CONNECT кодируется: `Method::CONNECT` + ext `Protocol::CONNECT_UDP` → `:protocol: connect-udp` | h3 0.0.8 `src/proto/headers.rs:377` (поле `Protocol` берётся из `Request::extensions`) | свой h3-клиент возможен без форка |
+| Сервер отдаёт принятый `:protocol` назад: `req.extensions_mut().insert(protocol)` | h3 0.0.8 `src/server/request.rs:249` | сервер лаборатории распознаёт connect-udp без ручного парсинга |
+| `SETTINGS H3_DATAGRAM (0x33)` + `SETTINGS_ENABLE_CONNECT_PROTOCOL` отдают builder'ы обеих сторон | h3 0.0.8 `client/builder.rs:103,109`, `server/builder.rs:102,116`, `config.rs:127,121` | обмен SETTINGS — включением двух флагов |
+| HTTP Datagrams в самом h3 НЕ реализованы (только webtransport-комментарии и `Code::H3_DATAGRAM_ERROR`) | grep `datagram` по src/ h3 0.0.8 | без h3-datagram клейм «RFC 9297» был бы AIR |
+| h3-datagram кодирует Quarter Stream ID (RFC 9297 §4): `varint(stream_id/4)` + payload, decode умножает на 4 | h3-datagram 0.0.2 `src/datagram.rs:33-100` | датаграммы привязаны к request-стриму штатно |
+| h3-quinn даёт адаптер трейтов h3-datagram над `quinn::Connection::send_datagram/read_datagram` | h3-quinn 0.0.10 `src/datagram.rs` (фича `datagram`) | транспорт — наш пин quinn 0.11.12, второй QUIC-стек не тянется |
+| Дерево: ровно одна копия `h3 0.0.8`/`quinn 0.11.12`/`tokio 1.53`; новый крипто-провайдер не подтянулся | `cargo tree -i rustls` до/после | пины Phase 0 не задеты |
+| **`SendRequest::Drop` закрывает h3-соединение** («Connection closed by client», H3_NO_ERROR) | h3 0.0.8 `src/client/connection.rs:250-266` | handle обязан жить, пока жива сессия — поймано живым прогоном, поле `_request_sender` в `MasqueH3Client`/`DatagramHalf` |
+| Клиентский драйвер — не `Future`: надо поллить `Connection::poll_close` (двигает контрольные стримы) | h3 0.0.8 `src/client/connection.rs:397` | `drive_until_closed` + `tokio::spawn` в лаборатории |
+| Тесты h3 0.0.8 держат пары концов через `tokio::join!`/`poll_close` | h3 0.0.8 `src/tests/request.rs:37,54` | форма нашего e2e-теста |
+
+TTL перепроверки — 180 дней (pre-1.0, активная разработка): **до 2027-03-17**.
+При бампе h3: перечитать факты выше по новой версии (surface менялся между 0.0.4→0.0.8),
+прогнать `masque_lab` — это и есть interop-гейт.
 
 Пины продублированы в `Cargo.toml` → `[workspace.dependencies]`: не «два места на память»,
 а так, что расхождение видно при первом же diff.

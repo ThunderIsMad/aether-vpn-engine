@@ -27,6 +27,8 @@
 
 #![deny(unsafe_code)]
 
+pub mod h3_live;
+
 use frame_session::Record;
 use transport_mux::{
     BindingCaps, BindingError, BindingFailure, CoverBinding, DEFAULT_OUTBOX_BYTES,

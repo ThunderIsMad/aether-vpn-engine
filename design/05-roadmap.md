@@ -83,8 +83,14 @@ Reality — последним, как самый дорогой).
   - [x] **Каркас**: encode/decode капсулы, лимиты RFC 9298 §5, varint RFC 9000 §16 — CI d8fb6a9
         (`cover-masque::MasqueBinding`: капсулы в `Outbox`, отказные пути/backpressure как у
         остальных байндингов; caps — stream-класс до реального h3-клиента).
-  - [ ] **RFC 9298 live interop** — живой CONNECT-UDP к пиру через собственный h3-клиент на quinn
-        (SETTINGS_H3_DATAGRAM, приёмная сторона); `masque-go`/`h3-masque` — reference-only, не зависимости.
+  - [x] **RFC 9298 live interop** (2026-09-18): собственный h3-клиент на quinn —
+        `h3_live::MasqueH3Client` (`h3 0.0.8` + `h3-quinn 0.0.10[datagram]` + `h3-datagram 0.0.2`):
+        Extended CONNECT-UDP (2xx), HTTP/3 DATAGRAM (Quarter Stream ID — h3-datagram),
+        вычерпывание `Outbox` каркаса в датаграммы; двусторонний прогон прод-клиент ↔
+        лабораторный h3-сервер (`e2e-harness/masque_lab`, живой quinn, 3 капсулы байт в байт).
+        Остаток (не интероп, а прод): приёмная сторона узла — UDP-проксирование вместо эха;
+        no-HOL-клейм остаётся незаявленным (`caps.no_hol = false`) до неё.
+        `masque-go`/`h3-masque` — reference-only, не зависимости.
 - [ ] Reality/VLESS — последний: либо Go-sidecar с xray-core, либо `boring` с контролем ClientHello.
       uTLS-эквивалента в Rust нет — это самый дорогой пункт Phase 1.
   - [x] **Каркас** (Rust-путь: boring встроенным; sidecar был запасным путём на провал пробы

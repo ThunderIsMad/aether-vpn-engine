@@ -46,11 +46,26 @@ hmac = "0.13.0"
 sha2 = "0.11.0"
 x25519-dalek = "3.0.0"
 ed25519-dalek = "3.0.0"
-# Запинено здесь, но нужно только в Phase 1 (MASQUE CONNECT-UDP на quinn+h3).
-# RESERVED for Phase 1, owner: cover-masque (единственный планируемый потребитель;
-# на Phase 0 ни один крейт h3 не объявляет — см. audit Low «h3 без owner»). Пин работает
-# хранилищем версии; убрать/бампать может только owner-крейт через запись в DEPENDENCIES.md.
+# MASQUE CONNECT-UDP (Phase 1, кусок 4): live-слой обложки на собственном h3-клиенте.
+# Owner: cover-masque. Запинен с 2026-09-16, в дело пошёл 2026-09-18 — факты совместимости
+# сняты с исходников (см. DEPENDENCIES.md → «Phase 1: MASQUE live interop»):
+#   - h3 0.0.8: extended CONNECT кодируется (http::Request + h3::ext::Protocol::CONNECT_UDP
+#     → «:protocol: connect-udp», proto/headers.rs), SETTINGS H3_DATAGRAM (0x33) и
+#     SETTINGS_ENABLE_CONNECT_PROTOCOL отдаются builder'ами клиента и сервера.
+#   - HTTP Datagrams (RFC 9297) в самом h3 НЕ реализованы — их даёт пара h3-quinn(фича
+#     datagram) + h3-datagram: quic-trait-адаптер SendDatagramHandler/RecvDatagramHandler
+#     поверх quinn::Connection::send_datagram/read_datagram,Quarter Stream ID кодирует
+#     h3-datagram (datagram.rs, /4 + varint, RFC 9297 §4).
+#   - Дерево: ровно ОДНА копия h3 0.0.8 и quinn 0.11.12 (тот же workspace-пин), tokio 1
+#     общий; новый транзитивный провайдер крипто не тянет.
 h3 = "0.0.8"
+# Транспорт-адаптер h3↔quinn; версия парная к h3 0.0.8 (репо hyperium/h3, тот же релиз-цикл).
+# quinn-требование 0.11.7 (default-features=false, futures-io) совместимо с нашим пином
+# 0.11.12 (cargo tree: одна копия). Фича `datagram` включает dep:h3-datagram.
+h3-quinn = { version = "0.0.10", features = ["datagram"] }
+# RFC 9297 HTTP Datagrams поверх h3 0.0.8 (pre-1.0, тот же репо; API — ext-трейты
+# HandleDatagramsExt для h3::client::Connection и h3::server::Connection).
+h3-datagram = "0.0.2"
 
 # Reality-обложка (Phase 1, кусок 3): TLS-бэкенд контроля ClientHello (BoringSSL).
 # Первая прод-зависимость boring: линковка рядом с rustls/ring и живой TLS-handshake
@@ -66,6 +81,11 @@ boring = "4.22.0"
 # Внутренние крейты. Связь `transport-mux → frame-session` — единственная, зафиксированная
 # в design/03-components.md («Порядок зависимостей для сборки», интерфейс CoverBinding).
 frame-session = { path = "crates/frame-session" }
+# Байтовый Buf для h3-datagram (MASQUE live-слой, Phase 1 кусок 4); уже в дереве через
+# h3/quinn — пин здесь, чтобы у cover-masque было явное имя версии.
+bytes = "1"
+# Тип запроса h3-стека (http::Request) — MASQUE live-слой; уже в дереве через h3.
+http = "1"
 
 # Объявлены для dev-dependencies интеграционного крейта `rotation-tests` (спеки ротации Phase 0),
 # рабочего крейта `phase0-path` (склейка однохопового пути) и `cover-ss2022` (Phase 1, кусок 1:
@@ -78,5 +98,7 @@ transport-mux = { path = "crates/transport-mux" }
 cover-ss2022 = { path = "crates/cover-ss2022" }
 cover-masque = { path = "crates/cover-masque" }
 cover-reality = { path = "crates/cover-reality" }
+# Live-слой MASQUE (Phase 1, кусок 4): h3-стек — прод-зависимость cover-masque
+# (пины выше), h3-quinn дополнительно нужен e2e-лаборатории (серверная сторона h3).
 # E2E-лаборатория Phase 1 (ручной прогон, не CI job): см. docs/phase-reports/e2e-manual.md.
 e2e-harness = { path = "crates/e2e-harness" }
