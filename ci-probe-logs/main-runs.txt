@@ -1,5 +1,8 @@
-probe sha: c1cbfd937a29217351829f8e2d835fb8f473aacf   probe run: 35314291074
+probe sha: e61db19ebf40fc0942902062e34d96543ed47dfc   probe run: 35323799560
 ---- push-прогоны ci.yml на main (новые сверху) ----
+run 35322912390 sha=8f052b5db status=completed/success created=2026-09-18T08:09:00Z
+run 35317346008 sha=d4f77bbf3 status=completed/failure created=2026-09-18T06:59:52Z
+run 35317046247 sha=971cf4b75 status=completed/success created=2026-09-18T06:55:48Z
 run 35313068657 sha=26fc8141e status=completed/success created=2026-09-18T06:00:38Z
 run 35310705441 sha=246fa660b status=completed/success created=2026-09-18T05:24:55Z
 run 35310138889 sha=dc0602eb8 status=completed/success created=2026-09-18T05:16:08Z
@@ -17,7 +20,4 @@ run 35149193387 sha=dd3b4488d status=completed/success created=2026-09-16T20:53:
 run 35147514451 sha=f5a91d140 status=completed/success created=2026-09-16T20:35:59Z
 run 35144738094 sha=c5623f556 status=completed/success created=2026-09-16T20:08:25Z
 run 35144105409 sha=6f0ea97ca status=completed/failure created=2026-09-16T20:02:05Z
-run 35143453230 sha=fe2a7967e status=completed/failure created=2026-09-16T19:55:20Z
-run 35141849688 sha=34aad11c7 status=completed/failure created=2026-09-16T19:39:14Z
-run 35141600351 sha=b8980d052 status=completed/failure created=2026-09-16T19:36:44Z
-прогоны к разбору: 35310138889 35310705441 35313068657
+прогоны к разбору: 35322912390

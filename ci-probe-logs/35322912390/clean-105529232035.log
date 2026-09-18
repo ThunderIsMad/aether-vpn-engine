@@ -1,0 +1,1186 @@
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20260828.587
+Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+Build Date: 2026-08-28T16:44:25Z
+Worker ID: {f167a553-fa31-49a7-9d27-e650939b21ac}
+Azure Region: eastus
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20260907.300.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260907.300
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Getting action download info
+Download action repository 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+Complete job name: Rust (test + clippy)
+Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+##[group]Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+with:
+  persist-credentials: false
+  repository: ThunderIsMad/aether-vpn-engine
+  token: ***
+  ssh-strict: true
+  ssh-user: git
+  clean: true
+  sparse-checkout-cone-mode: true
+  fetch-depth: 1
+  fetch-tags: false
+  show-progress: true
+  lfs: false
+  submodules: false
+  set-safe-directory: true
+  allow-unsafe-pr-checkout: false
+##[endgroup]
+Syncing repository: ThunderIsMad/aether-vpn-engine
+##[group]Getting Git version info
+Working directory is '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+[command]/usr/bin/git version
+git version 2.55.0
+##[endgroup]
+Temporarily overriding HOME='/home/runner/work/_temp/f3d4f881-553f-400c-b10d-7238f1e507f6' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+Deleting the contents of '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+##[group]Initializing the repository
+[command]/usr/bin/git init /home/runner/work/aether-vpn-engine/aether-vpn-engine
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+Initialized empty Git repository in /home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/
+[command]/usr/bin/git remote add origin https://github.com/ThunderIsMad/aether-vpn-engine
+##[endgroup]
+##[group]Disabling automatic garbage collection
+[command]/usr/bin/git config --local gc.auto 0
+##[endgroup]
+##[group]Setting up auth
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+[command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+##[endgroup]
+##[group]Fetching the repository
+[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +8f052b5dbc5389ca525bff84e5a0e2e565444ad3:refs/remotes/origin/main
+From https://github.com/ThunderIsMad/aether-vpn-engine
+ * [new ref]         8f052b5dbc5389ca525bff84e5a0e2e565444ad3 -> origin/main
+##[endgroup]
+##[group]Determining the checkout info
+##[endgroup]
+[command]/usr/bin/git sparse-checkout disable
+[command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+##[group]Checking out the ref
+[command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+Switched to a new branch 'main'
+branch 'main' set up to track 'origin/main'.
+##[endgroup]
+[command]/usr/bin/git log -1 --format=%H
+8f052b5dbc5389ca525bff84e5a0e2e565444ad3
+##[group]Removing auth
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+http.https://github.com/.extraheader
+[command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+##[endgroup]
+##[group]Run sudo apt-get update
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends cmake libclang-dev
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+Get:6 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+Get:7 https://dl.google.com/linux/chrome-stable/deb stable InRelease [2548 B]
+Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+Get:8 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [427 kB]
+Get:9 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [476 kB]
+Get:10 https://dl.google.com/linux/chrome-stable/deb stable/main amd64 Packages [1408 B]
+Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1275 kB]
+Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [294 kB]
+Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [181 kB]
+Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1689 kB]
+Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [338 kB]
+Get:16 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [388 kB]
+Get:17 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1580 kB]
+Get:18 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [359 kB]
+Get:19 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Packages [45.7 kB]
+Get:20 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse Translation-en [13.1 kB]
+Get:21 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
+Get:22 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [5748 B]
+Get:23 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [12.6 kB]
+Get:24 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1009 kB]
+Get:25 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [214 kB]
+Get:26 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Components [46.4 kB]
+Get:27 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1208 kB]
+Get:28 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [243 kB]
+Get:29 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [76.2 kB]
+Get:30 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1449 kB]
+Get:31 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [336 kB]
+Get:32 http://azure.archive.ubuntu.com/ubuntu noble-security/multiverse Translation-en [11.3 kB]
+Fetched 12.1 MB in 1s (8618 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  cmake-data libclang-18-dev libjsoncpp25 librhash0
+Suggested packages:
+  cmake-doc cmake-format elpa-cmake-mode ninja-build
+The following NEW packages will be installed:
+  cmake cmake-data libclang-18-dev libclang-dev libjsoncpp25 librhash0
+0 upgraded, 6 newly installed, 0 to remove and 73 not upgraded.
+Need to get 42.4 MB of archives.
+After this operation, 341 MB of additional disk space will be used.
+Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+Get:2 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 libjsoncpp25 amd64 1.9.5-6build1 [82.8 kB]
+Get:3 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 librhash0 amd64 1.4.3-3build1 [129 kB]
+Get:4 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 cmake-data all 3.28.3-1build7 [2155 kB]
+Get:5 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 cmake amd64 3.28.3-1build7 [11.2 MB]
+Get:6 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 libclang-18-dev amd64 1:18.1.3-1ubuntu1 [28.8 MB]
+Get:7 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 libclang-dev amd64 1:18.0-59~exp2 [5424 B]
+Fetched 42.4 MB in 0s (104 MB/s)
+Selecting previously unselected package libjsoncpp25:amd64.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 201818 files and directories currently installed.)
+Preparing to unpack .../0-libjsoncpp25_1.9.5-6build1_amd64.deb ...
+Unpacking libjsoncpp25:amd64 (1.9.5-6build1) ...
+Selecting previously unselected package librhash0:amd64.
+Preparing to unpack .../1-librhash0_1.4.3-3build1_amd64.deb ...
+Unpacking librhash0:amd64 (1.4.3-3build1) ...
+Selecting previously unselected package cmake-data.
+Preparing to unpack .../2-cmake-data_3.28.3-1build7_all.deb ...
+Unpacking cmake-data (3.28.3-1build7) ...
+Selecting previously unselected package cmake.
+Preparing to unpack .../3-cmake_3.28.3-1build7_amd64.deb ...
+Unpacking cmake (3.28.3-1build7) ...
+Selecting previously unselected package libclang-18-dev.
+Preparing to unpack .../4-libclang-18-dev_1%3a18.1.3-1ubuntu1_amd64.deb ...
+Unpacking libclang-18-dev (1:18.1.3-1ubuntu1) ...
+Selecting previously unselected package libclang-dev.
+Preparing to unpack .../5-libclang-dev_1%3a18.0-59~exp2_amd64.deb ...
+Unpacking libclang-dev (1:18.0-59~exp2) ...
+Setting up libclang-18-dev (1:18.1.3-1ubuntu1) ...
+Setting up libjsoncpp25:amd64 (1.9.5-6build1) ...
+Setting up librhash0:amd64 (1.4.3-3build1) ...
+Setting up cmake-data (3.28.3-1build7) ...
+Setting up libclang-dev (1:18.0-59~exp2) ...
+Setting up cmake (3.28.3-1build7) ...
+Processing triggers for man-db (2.12.0-4build2) ...
+Not building database; man-db/auto-update is not 'true'.
+Processing triggers for libc-bin (2.39-0ubuntu8.8) ...
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
+##[group]Run if [ -f Cargo.toml ]; then
+if [ -f Cargo.toml ]; then
+  echo "found=true" >> "$GITHUB_OUTPUT"
+else
+  echo "found=false" >> "$GITHUB_OUTPUT"
+fi
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+##[group]Run set -euo pipefail
+set -euo pipefail
+want="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' rust-toolchain.toml)"
+if [ -z "$want" ]; then
+  echo "::error::не прочитал channel из rust-toolchain.toml"
+  exit 1
+fi
+case "$want" in
+  *-windows-*|*-apple-*|*-linux-*|*-unknown-*)
+    echo "::error::rust-toolchain.toml несёт host-триплет ($want): для rustup это non-host toolchain, авто-установка скачала бы компилятор чужой платформы. Пину положено нести только версию — host задаёт платформенный слой (scripts/local-env.sh на Windows, сам раннер в CI)."
+    exit 1 ;;
+esac
+# Явная установка пина: авто-установка тулчейна из toolchain-файла объявлена rustup'ом
+# устаревшей («auto-installation is deprecated for most `rustup` commands») — CI не
+# должен на неё опираться (замечание из живого лога, run 35308984056).
+rustup toolchain install "$want"
+host="$(rustc -vV | sed -n 's/^host: //p')"
+release="$(rustc -vV | sed -n 's/^release: //p')"
+rustup show
+echo "resolved toolchain: channel=$want host=$host release=$release"
+case "$host" in
+  *-windows-*|*-apple-*)
+    echo "::error::активный toolchain собран не для этого раннера ($host)"
+    exit 1 ;;
+esac
+if [[ "$want" == *.* ]] && [ "$release" != "$want" ]; then
+  echo "::error::версия rustc ($release) не совпадает с пином ($want) — пин не применился"
+  exit 1
+fi
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+info: syncing channel updates for 1.98.1-x86_64-unknown-linux-gnu
+info: latest update on 2026-09-03 for version 1.98.1 (48a229cea 2026-09-01)
+info: downloading 3 components
+
+  1.98.1-x86_64-unknown-linux-gnu installed - rustc 1.98.1 (48a229cea 2026-09-01)
+
+Default host: x86_64-unknown-linux-gnu
+rustup home:  /home/runner/.rustup
+
+installed toolchains
+--------------------
+stable-x86_64-unknown-linux-gnu (default)
+1.98.1-x86_64-unknown-linux-gnu (active)
+
+active toolchain
+----------------
+name: 1.98.1-x86_64-unknown-linux-gnu
+active because: overridden by '/home/runner/work/aether-vpn-engine/aether-vpn-engine/rust-toolchain.toml'
+installed targets:
+  x86_64-unknown-linux-gnu
+resolved toolchain: channel=1.98.1 host=x86_64-unknown-linux-gnu release=1.98.1
+##[group]Run rustup component add clippy rustfmt
+rustup component add clippy rustfmt
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+info: downloading 2 components
+##[group]Run cargo fmt --all --check
+cargo fmt --all --check
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+##[group]Run cargo test --locked --workspace --all-targets
+cargo test --locked --workspace --all-targets
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded aead v0.5.2
+  Downloaded aead v0.6.1
+  Downloaded aes-gcm v0.10.3
+  Downloaded dunce v1.0.5
+  Downloaded aes v0.8.4
+  Downloaded futures-util v0.3.34
+  Downloaded once_cell v1.21.4
+  Downloaded bindgen v0.72.1
+  Downloaded digest v0.11.3
+  Downloaded fslock v0.2.1
+  Downloaded pin-project-lite v0.2.17
+  Downloaded der v0.8.2
+  Downloaded find-msvc-tools v0.1.12
+  Downloaded ghash v0.5.1
+  Downloaded inout v0.1.4
+  Downloaded openssl-probe v0.2.1
+  Downloaded boring v4.22.0
+  Downloaded displaydoc v0.2.7
+  Downloaded polyval v0.6.2
+  Downloaded aho-corasick v1.1.5
+  Downloaded clatter v2.3.0
+  Downloaded h3-quinn v0.0.10
+  Downloaded crypto-common v0.2.2
+  Downloaded ctr v0.9.2
+  Downloaded foreign-types v0.5.0
+  Downloaded futures-io v0.3.34
+  Downloaded generic-array v0.14.7
+  Downloaded cipher v0.4.4
+  Downloaded inout v0.2.2
+  Downloaded pqcrypto-internals v0.2.11
+  Downloaded pqcrypto-traits v0.3.5
+  Downloaded cfg-if v1.0.5
+  Downloaded curve25519-dalek-derive v0.1.1
+  Downloaded block-buffer v0.12.1
+  Downloaded futures-macro v0.3.34
+  Downloaded kem v0.3.0
+  Downloaded openssl-macros v0.1.1
+  Downloaded portable-atomic v1.15.0
+  Downloaded pkcs8 v0.11.0
+  Downloaded poly1305 v0.9.1
+  Downloaded ctutils v0.4.2
+  Downloaded keccak v0.1.6
+  Downloaded lru-slab v0.1.3
+  Downloaded poly1305 v0.8.0
+  Downloaded num-traits v0.2.19
+  Downloaded opaque-debug v0.3.1
+  Downloaded proc-macro2 v1.0.107
+  Downloaded quinn-proto v0.11.18
+  Downloaded rustc_version v0.4.1
+  Downloaded tinyvec v1.13.3
+  Downloaded quinn v0.11.12
+  Downloaded block-buffer v0.10.4
+  Downloaded cpufeatures v0.2.17
+  Downloaded crypto-common v0.1.7
+  Downloaded foreign-types-shared v0.3.1
+  Downloaded itoa v1.0.18
+  Downloaded rand_core v0.10.1
+  Downloaded rustc-hash v2.1.3
+  Downloaded rustls v0.23.45
+  Downloaded spki v0.8.0
+  Downloaded thiserror-impl-no-std v2.0.2
+  Downloaded zeroize v1.9.0
+  Downloaded rand_pcg v0.10.2
+  Downloaded rustls-pki-types v1.15.1
+  Downloaded tokio-macros v2.7.2
+  Downloaded universal-hash v0.5.1
+  Downloaded zeroize_derive v1.5.0
+  Downloaded fastrand v2.5.0
+  Downloaded futures-executor v0.3.34
+  Downloaded siphasher v1.0.3
+  Downloaded universal-hash v0.6.1
+  Downloaded autocfg v1.5.1
+  Downloaded h3-datagram v0.0.2
+  Downloaded signature v3.0.0
+  Downloaded version_check v0.9.5
+  Downloaded cpufeatures v0.3.1
+  Downloaded foreign-types-macros v0.2.4
+  Downloaded futures-core v0.3.34
+  Downloaded futures-sink v0.3.34
+  Downloaded futures-task v0.3.34
+  Downloaded module-lattice v0.2.3
+  Downloaded rand_core v0.6.4
+  Downloaded subtle v2.6.1
+  Downloaded thiserror-no-std v2.0.2
+  Downloaded tokio-util v0.7.19
+  Downloaded untrusted v0.9.0
+  Downloaded base64ct v1.8.3
+  Downloaded cexpr v0.6.0
+  Downloaded cfg_aliases v0.2.2
+  Downloaded chacha20 v0.9.1
+  Downloaded cmake v0.1.58
+  Downloaded cmov v0.5.4
+  Downloaded digest v0.10.7
+  Downloaded ed25519 v3.0.0
+  Downloaded ed25519-dalek v3.0.0
+  Downloaded either v1.18.0
+  Downloaded fastbloom v0.17.0
+  Downloaded foldhash v0.2.0
+  Downloaded getrandom v0.2.17
+  Downloaded glob v0.3.4
+  Downloaded hybrid-array v0.2.3
+  Downloaded jobserver v0.1.35
+  Downloaded libloading v0.8.9
+  Downloaded ml-kem v0.2.1
+  Downloaded quote v1.0.47
+  Downloaded sha2 v0.10.9
+  Downloaded sha2 v0.11.0
+  Downloaded shlex v1.3.0
+  Downloaded shlex v2.0.1
+  Downloaded thiserror v2.0.20
+  Downloaded thiserror-impl v2.0.20
+  Downloaded arrayvec v0.7.8
+  Downloaded blake2 v0.10.6
+  Downloaded chacha20poly1305 v0.10.1
+  Downloaded chacha20poly1305 v0.11.0
+  Downloaded cipher v0.5.2
+  Downloaded futures v0.3.34
+  Downloaded futures-channel v0.3.34
+  Downloaded hmac v0.13.0
+  Downloaded hybrid-array v0.4.15
+  Downloaded keccak v0.2.2
+  Downloaded log v0.4.34
+  Downloaded ml-kem v0.3.2
+  Downloaded quinn-udp v0.5.15
+  Downloaded rustls-native-certs v0.8.4
+  Downloaded semver v1.0.28
+  Downloaded slab v0.4.12
+  Downloaded tracing-core v0.1.36
+  Downloaded unicode-ident v1.0.24
+  Downloaded bitflags v2.13.2
+  Downloaded bytes v1.12.1
+  Downloaded chacha20 v0.10.2
+  Downloaded clang-sys v1.9.1
+  Downloaded const-oid v0.10.2
+  Downloaded fs_extra v1.3.0
+  Downloaded getrandom v0.3.4
+  Downloaded getrandom v0.4.3
+  Downloaded rustls-platform-verifier v0.7.0
+  Downloaded socket2 v0.6.5
+  Downloaded memchr v2.8.3
+  Downloaded mio v1.2.3
+  Downloaded x25519-dalek v3.0.0
+  Downloaded cc v1.4.6
+  Downloaded http v1.5.0
+  Downloaded minimal-lexical v0.2.1
+  Downloaded nom v7.1.3
+  Downloaded rand v0.10.2
+  Downloaded regex v1.13.1
+  Downloaded rustls-webpki v0.103.15
+  Downloaded typenum v1.20.1
+  Downloaded x25519-dalek v2.0.1
+  Downloaded h3 v0.0.8
+  Downloaded itertools v0.13.0
+  Downloaded hkdf v0.13.0
+  Downloaded libm v0.2.16
+  Downloaded syn v1.0.109
+  Downloaded curve25519-dalek v5.0.0
+  Downloaded curve25519-dalek v4.1.3
+  Downloaded syn v3.0.5
+  Downloaded syn v2.0.119
+  Downloaded regex-syntax v0.8.11
+  Downloaded tracing v0.1.44
+  Downloaded sha3 v0.11.0
+  Downloaded regex-automata v0.4.18
+  Downloaded libc v0.2.189
+  Downloaded sha3 v0.10.9
+  Downloaded tokio v1.53.1
+  Downloaded ring v0.17.14
+  Downloaded pqcrypto-mlkem v0.1.1
+  Downloaded boring-sys v4.22.0
+   Compiling libc v0.2.189
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+   Compiling cfg-if v1.0.5
+   Compiling typenum v1.20.1
+   Compiling cmov v0.5.4
+   Compiling ctutils v0.4.2
+   Compiling getrandom v0.4.3
+   Compiling syn v2.0.119
+   Compiling rand_core v0.10.1
+   Compiling hybrid-array v0.4.15
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.12
+   Compiling jobserver v0.1.35
+   Compiling cc v1.4.6
+   Compiling syn v3.0.5
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling subtle v2.6.1
+   Compiling cpufeatures v0.3.1
+   Compiling version_check v0.9.5
+   Compiling inout v0.2.2
+   Compiling glob v0.3.4
+   Compiling generic-array v0.14.7
+   Compiling semver v1.0.28
+   Compiling rustc_version v0.4.1
+   Compiling cipher v0.5.2
+   Compiling pin-project-lite v0.2.17
+   Compiling const-oid v0.10.2
+   Compiling chacha20 v0.10.2
+   Compiling rand_core v0.6.4
+   Compiling digest v0.11.3
+   Compiling crypto-common v0.1.7
+   Compiling ring v0.17.14
+   Compiling rustc-hash v2.1.3
+   Compiling slab v0.4.12
+   Compiling once_cell v1.21.4
+   Compiling bytes v1.12.1
+   Compiling socket2 v0.6.5
+   Compiling getrandom v0.2.17
+   Compiling getrandom v0.3.4
+   Compiling zeroize_derive v1.5.0
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling futures-io v0.3.34
+   Compiling cpufeatures v0.2.17
+   Compiling cfg_aliases v0.2.2
+   Compiling untrusted v0.9.0
+   Compiling tokio-macros v2.7.2
+   Compiling zeroize v1.9.0
+   Compiling curve25519-dalek v5.0.0
+   Compiling rustls-pki-types v1.15.1
+   Compiling mio v1.2.3
+   Compiling log v0.4.34
+   Compiling portable-atomic v1.15.0
+   Compiling libm v0.2.16
+   Compiling dunce v1.0.5
+   Compiling rustls v0.23.45
+   Compiling pqcrypto-internals v0.2.11
+   Compiling tokio v1.53.1
+   Compiling tracing-core v0.1.36
+   Compiling thiserror v2.0.20
+   Compiling openssl-probe v0.2.1
+   Compiling syn v1.0.109
+   Compiling rustls-native-certs v0.8.4
+   Compiling tracing v0.1.44
+   Compiling quinn-udp v0.5.15
+   Compiling thiserror-impl v2.0.20
+   Compiling inout v0.1.4
+   Compiling curve25519-dalek v4.1.3
+   Compiling universal-hash v0.6.1
+   Compiling siphasher v1.0.3
+   Compiling foldhash v0.2.0
+   Compiling signature v3.0.0
+   Compiling ed25519 v3.0.0
+   Compiling fastbloom v0.17.0
+   Compiling poly1305 v0.9.1
+   Compiling cipher v0.4.4
+   Compiling quinn v0.11.12
+   Compiling sha2 v0.11.0
+   Compiling universal-hash v0.5.1
+   Compiling rand v0.10.2
+   Compiling block-buffer v0.10.4
+   Compiling pqcrypto-mlkem v0.1.1
+   Compiling aead v0.6.1
+   Compiling rand_pcg v0.10.2
+   Compiling tinyvec v1.13.3
+   Compiling lru-slab v0.1.3
+   Compiling opaque-debug v0.3.1
+   Compiling poly1305 v0.8.0
+   Compiling thiserror-impl-no-std v2.0.2
+   Compiling chacha20poly1305 v0.11.0
+   Compiling digest v0.10.7
+   Compiling ed25519-dalek v3.0.0
+   Compiling chacha20 v0.9.1
+   Compiling aead v0.5.2
+   Compiling pqcrypto-traits v0.3.5
+   Compiling chacha20poly1305 v0.10.1
+   Compiling thiserror-no-std v2.0.2
+   Compiling sha2 v0.10.9
+   Compiling x25519-dalek v2.0.1
+   Compiling arrayvec v0.7.8
+   Compiling displaydoc v0.2.7
+   Compiling hmac v0.13.0
+   Compiling hkdf v0.13.0
+   Compiling x25519-dalek v3.0.0
+   Compiling frame-session v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/frame-session)
+   Compiling futures-sink v0.3.34
+   Compiling futures-core v0.3.34
+   Compiling clang-sys v1.9.1
+   Compiling futures-channel v0.3.34
+   Compiling futures-macro v0.3.34
+   Compiling minimal-lexical v0.2.1
+   Compiling memchr v2.8.3
+   Compiling regex-syntax v0.8.11
+   Compiling futures-task v0.3.34
+   Compiling rustls-webpki v0.103.15
+   Compiling regex-automata v0.4.18
+   Compiling futures-util v0.3.34
+   Compiling nom v7.1.3
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling quinn-proto v0.11.18
+   Compiling libloading v0.8.9
+   Compiling either v1.18.0
+   Compiling bindgen v0.72.1
+   Compiling itertools v0.13.0
+   Compiling clatter v2.3.0
+   Compiling crypto-core v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/crypto-core)
+   Compiling transport-mux v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/transport-mux)
+   Compiling cexpr v0.6.0
+   Compiling regex v1.13.1
+   Compiling itoa v1.0.18
+   Compiling shlex v1.3.0
+   Compiling bitflags v2.13.2
+   Compiling http v1.5.0
+   Compiling cmake v0.1.58
+   Compiling fslock v0.2.1
+   Compiling fs_extra v1.3.0
+   Compiling fastrand v2.5.0
+   Compiling key-coordinator v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/key-coordinator)
+   Compiling h3 v0.0.8
+   Compiling futures-executor v0.3.34
+   Compiling ticket-mint v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/ticket-mint)
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling futures v0.3.34
+   Compiling tokio-util v0.7.19
+   Compiling foreign-types-macros v0.2.4
+   Compiling h3-datagram v0.0.2
+   Compiling foreign-types-shared v0.3.1
+   Compiling h3-quinn v0.0.10
+   Compiling foreign-types v0.5.0
+   Compiling openssl-macros v0.1.1
+   Compiling rotation-tests v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/rotation-tests)
+   Compiling keccak v0.2.2
+   Compiling cover-masque v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-masque)
+   Compiling sha3 v0.11.0
+   Compiling kem v0.3.0
+   Compiling policy-engine v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/policy-engine)
+   Compiling module-lattice v0.2.3
+   Compiling ml-kem v0.3.2
+   Compiling cover-ss2022 v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-ss2022)
+   Compiling e2e-harness v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/e2e-harness)
+   Compiling boring-sys v4.22.0
+   Compiling session-store v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/session-store)
+   Compiling device-adapter v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/device-adapter)
+   Compiling boring v4.22.0
+   Compiling cover-reality v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-reality)
+   Compiling phase0-path v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/phase0-path)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 04s
+     Running unittests src/lib.rs (target/debug/deps/cover_masque-199428dd0b30d1ee)
+
+running 14 tests
+test h3_live::tests::connect_request_carries_capsule_protocol_header ... ok
+test h3_live::tests::connect_request_does_not_duplicate_pseudo_headers ... ok
+test h3_live::tests::live_caps_form ... ok
+test tests::caps_skeleton_not_rfc_client ... ok
+test tests::closed_channel_and_failure_paths ... ok
+test tests::capsule_layout_matches_rfc ... ok
+test tests::connect_udp_request_shape ... ok
+test tests::capsule_roundtrip ... ok
+test tests::malformed_frames_are_errors ... ok
+test tests::queue_roundtrip_and_backpressure ... ok
+test tests::varint_rejects_truncated_and_roundtrips_max ... ok
+test tests::send_rejects_payload_over_rfc_limit ... ok
+test tests::udp_payload_limit_boundary ... ok
+test tests::varint_matches_rfc9000_examples ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/cover_reality-e9d94e6b506d3004)
+
+running 16 tests
+test tests::binding_contract_sync_and_async_failures ... ok
+test tests::bad_record_inside_valid_tag ... ok
+test tests::authenticated_first_record_passes ... ok
+test tests::caps_stream_class_not_no_hol ... ok
+test tests::gate_accepts_first_entry_without_session ... ok
+test tests::gate_decision_accepts_valid_tag_and_relays_rest ... ok
+test tests::live_authenticated_client_reaches_aether ... ignored, live peer: нужен Reality-сервер и клиент с K_cover
+test tests::live_splice_probe_gets_real_site_bytes ... ignored, live splice: требует сокетов (e2e-класс, как rotation/e2e-harness)
+test tests::gate_tag_covers_client_hello_bytes ... ok
+test tests::probe_resistance_all_failures_look_alike ... ok
+test tests::reality_frame_layout ... ok
+test tests::reality_frame_round_trip ... ok
+test tests::prod_nonce_never_repeats_across_binding_instances ... ok
+test tests::target_site_is_parameterized ... ok
+test tests::binding_contract_backpressure ... ok
+test tests::client_hello_connector_builds ... ok
+
+test result: ok. 14 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running unittests src/lib.rs (target/debug/deps/cover_ss2022-c90eaad87aeac686)
+
+running 7 tests
+test tests::caps_stream_class_not_no_hol ... ok
+test tests::closed_channel_and_failure_paths ... ok
+test tests::malformed_frames_are_errors ... ok
+test tests::prod_nonce_never_repeats_across_binding_instances ... ok
+test tests::queue_roundtrip_and_backpressure ... ok
+test tests::cover_frame_roundtrip ... ok
+test tests::padding_bounds_and_window_neutrality ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/crypto_core-523fef0d80e48b22)
+
+running 8 tests
+test tests::contract_probe_fleet_key_bootstrap_and_domain ... ok
+test tests::contract_probe_tag_hmac_gate ... ok
+test tests::contract_record_seal_open ... ok
+test tests::contract_secret_keys_debug_is_redacted ... ok
+test tests::contract_tags_equal_ct_semantics ... ok
+test tests::contract_ml_kem_768_kat_and_interop ... ok
+test tests::contract_k_session_ikm_is_chaining_key ... ok
+test tests::contract_noise_ik_two_messages_one_rtt ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running unittests src/lib.rs (target/debug/deps/device_adapter-d7709ffe2cca5fd0)
+
+running 3 tests
+test tests::config_and_mtu_boundaries ... ok
+test tests::contract_linux_tun_stub_roundtrip ... ok
+test tests::contract_unsupported_platform_is_result_not_panic ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/e2e_harness-06c469ee9c975dbf)
+
+running 13 tests
+test tests::lab_config_sid_is_deterministic ... ok
+test tests::core_crypto_roundtrip ... ok
+test tests::manifest_rejects_garbage ... ok
+test tests::short_hash_is_prefix_of_sha256 ... ok
+test tests::client_keys_are_deterministic ... ok
+test tests::record_frame_roundtrip_uses_transport_mux ... ok
+test tests::unhex_roundtrip ... ok
+test wire::tests::frame_roundtrip ... ok
+test wire::tests::mint_request_roundtrip ... ok
+test wire::tests::oversized_frame_is_rejected ... ok
+test wire::tests::tagged_roundtrip ... ok
+test wire::tests::resume_request_parse ... ok
+test tests::manifest_roundtrip ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (target/debug/deps/frame_session-2e7fdf6059070146)
+
+running 6 tests
+test tests::contract_open_failure_does_not_consume_dedup_slot ... ok
+test tests::contract_dedup_window_boundaries ... ok
+test tests::contract_overlap_window_budget_and_ack_closure ... ok
+test tests::contract_record_key_is_constant_time_per_seq ... ok
+test tests::contract_session_survives_rotation ... ok
+test tests::contract_record_layout_and_nonce ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/key_coordinator-80226b607f5c7392)
+
+running 7 tests
+test tests::contract_nak_detection_is_framed_not_heuristic ... ok
+test tests::contract_ack_nonce_is_derived_from_client_nonce ... ok
+test tests::contract_local_malformed_does_not_burn_retry_budget ... ok
+test tests::contract_post_rotation_rekey_is_fresh_dh ... ok
+test tests::contract_aead_failure_is_malformed_not_bad_signature ... ok
+test tests::contract_resume_ack_emitter_matches_parser ... ok
+test tests::contract_resume_requires_proof_of_possession ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running unittests src/lib.rs (target/debug/deps/phase0_path-128e495d5002574c)
+
+running 8 tests
+test tests::binding_error_propagates ... ok
+test tests::non_ipv4_packet_routes_by_default ... ok
+test tests::end_to_end_packet_reaches_binding_and_opens ... ok
+test tests::flow_identity_is_stable_per_destination ... ok
+test tests::packet_through_masque_binding_roundtrip ... ok
+test tests::policy_gates_before_seal ... ok
+test tests::packet_through_cover_binding_roundtrip ... ok
+test tests::packet_through_reality_binding_roundtrip ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/policy_engine-ab185714ac19e197)
+
+running 7 tests
+test tests::cidr_boundary_and_family_mismatch ... ok
+test tests::contract_fake_ip_is_stable_and_in_range ... ok
+test tests::contract_host_normalization_rejects_and_dedups ... ok
+test tests::contract_route_actions ... ok
+test tests::contract_pool_exhaustion_errors_and_evicts_instead_of_panic ... ok
+test tests::contract_pool_fifo_eviction_keeps_cap ... ok
+test tests::contract_pool_exhaustion_recovers_via_eviction_free_list ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running unittests src/lib.rs (target/debug/deps/rotation_tests-7790be467f387843)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/morph.rs (target/debug/deps/morph-bf49002e5f9631c1)
+
+running 1 test
+test morph_quic_to_mock_reality_keeps_frame_session_alive ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rotation.rs (target/debug/deps/rotation-c95e0223b7530a07)
+
+running 3 tests
+test rotation_happy_path_three_streams_no_loss ... ok
+test rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once ... ok
+test rotation_forward_secrecy_old_k_session_cannot_open_new_records ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/rotation_failures.rs (target/debug/deps/rotation_failures-4502733a490f4bb3)
+
+running 6 tests
+test rotation_replay_same_ticket_is_idempotent_nak_not_second_session ... ok
+test rotation_node_down_mid_rotation_rolls_back_without_session_break ... ok
+test rotation_bad_signatures_reject_and_keep_old_channel ... ok
+test rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake ... ok
+test rotation_stolen_ticket_naks_bad_pop_and_is_not_consumed ... ok
+test rotation_two_acks_race_first_valid_wins_second_quarantined ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/rotation_loss.rs (target/debug/deps/rotation_loss-4c1d05a1e7df6eb3)
+
+running 2 tests
+test rotation_loss_on_both_channels_falls_back_to_buffer_path ... ok
+test rotation_loss_on_one_channel_stays_within_duplicate_budget ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/lib.rs (target/debug/deps/session_store-bf65ba19deedea23)
+
+running 3 tests
+test tests::contract_restart_restores_full_state ... ok
+test tests::contract_client_identity_is_owned_here ... ok
+test tests::contract_secrets_at_rest_and_wipe ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/ticket_mint-6eecde24c277f9b2)
+
+running 4 tests
+test tests::contract_trait_path_uses_injected_clock ... ok
+test tests::contract_mint_is_probabilistic_and_debug_redacted ... ok
+test tests::contract_mint_binds_client_pub_and_window ... ok
+test tests::contract_pop_and_replay_rejection ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (target/debug/deps/transport_mux-a915ed8d49931c3d)
+
+running 4 tests
+test tests::contract_frame_codec_round_trip ... ok
+test tests::contract_mem_binding_loss_and_journal ... ok
+test tests::contract_quic_binding_caps ... ok
+test tests::contract_sync_and_async_failure_paths ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+##[group]Run cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo clippy --locked --workspace --all-targets -- -D warnings
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+    Checking libc v0.2.189
+    Checking typenum v1.20.1
+    Checking cfg-if v1.0.5
+    Checking cmov v0.5.4
+    Checking ctutils v0.4.2
+    Checking rand_core v0.10.1
+    Checking zeroize v1.9.0
+    Checking subtle v2.6.1
+    Checking cpufeatures v0.3.1
+    Checking pin-project-lite v0.2.17
+    Checking const-oid v0.10.2
+    Checking rand_core v0.6.4
+    Checking bytes v1.12.1
+    Checking getrandom v0.4.3
+    Checking hybrid-array v0.4.15
+   Compiling jobserver v0.1.35
+    Checking generic-array v0.14.7
+   Compiling cc v1.4.6
+    Checking once_cell v1.21.4
+    Checking slab v0.4.12
+    Checking getrandom v0.2.17
+    Checking crypto-common v0.1.7
+    Checking socket2 v0.6.5
+    Checking rustls-pki-types v1.15.1
+    Checking untrusted v0.9.0
+    Checking cpufeatures v0.2.17
+    Checking futures-io v0.3.34
+    Checking mio v1.2.3
+    Checking log v0.4.34
+    Checking crypto-common v0.2.2
+    Checking block-buffer v0.12.1
+    Checking inout v0.2.2
+    Checking tokio v1.53.1
+    Checking getrandom v0.3.4
+    Checking tracing-core v0.1.36
+    Checking openssl-probe v0.2.1
+    Checking cipher v0.5.2
+    Checking digest v0.11.3
+    Checking curve25519-dalek v5.0.0
+    Checking chacha20 v0.10.2
+   Compiling ring v0.17.14
+   Compiling pqcrypto-internals v0.2.11
+    Checking rustls-native-certs v0.8.4
+    Checking universal-hash v0.6.1
+    Checking tracing v0.1.44
+    Checking portable-atomic v1.15.0
+    Checking libm v0.2.16
+    Checking inout v0.1.4
+    Checking signature v3.0.0
+    Checking siphasher v1.0.3
+    Checking foldhash v0.2.0
+    Checking ed25519 v3.0.0
+    Checking thiserror v2.0.20
+    Checking fastbloom v0.17.0
+    Checking cipher v0.4.4
+    Checking poly1305 v0.9.1
+    Checking rand v0.10.2
+   Compiling pqcrypto-mlkem v0.1.1
+    Checking sha2 v0.11.0
+    Checking aead v0.6.1
+    Checking universal-hash v0.5.1
+    Checking block-buffer v0.10.4
+    Checking rand_pcg v0.10.2
+    Checking lru-slab v0.1.3
+    Checking opaque-debug v0.3.1
+    Checking rustc-hash v2.1.3
+    Checking tinyvec v1.13.3
+    Checking ed25519-dalek v3.0.0
+    Checking poly1305 v0.8.0
+    Checking digest v0.10.7
+    Checking chacha20poly1305 v0.11.0
+    Checking chacha20 v0.9.1
+    Checking quinn-udp v0.5.15
+    Checking curve25519-dalek v4.1.3
+    Checking aead v0.5.2
+    Checking pqcrypto-traits v0.3.5
+    Checking chacha20poly1305 v0.10.1
+    Checking thiserror-no-std v2.0.2
+    Checking sha2 v0.10.9
+    Checking hmac v0.13.0
+    Checking x25519-dalek v2.0.1
+    Checking arrayvec v0.7.8
+    Checking hkdf v0.13.0
+    Checking x25519-dalek v3.0.0
+    Checking frame-session v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/frame-session)
+    Checking futures-core v0.3.34
+    Checking futures-sink v0.3.34
+    Checking futures-channel v0.3.34
+    Checking memchr v2.8.3
+    Checking futures-task v0.3.34
+   Compiling libloading v0.8.9
+    Checking itoa v1.0.18
+    Checking futures-util v0.3.34
+    Checking http v1.5.0
+   Compiling rustls v0.23.45
+   Compiling clang-sys v1.9.1
+    Checking rustls-webpki v0.103.15
+    Checking fastrand v2.5.0
+   Compiling bitflags v2.13.2
+    Checking h3 v0.0.8
+   Compiling bindgen v0.72.1
+    Checking rustls-platform-verifier v0.7.0
+    Checking quinn-proto v0.11.18
+    Checking clatter v2.3.0
+    Checking crypto-core v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/crypto-core)
+    Checking key-coordinator v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/key-coordinator)
+    Checking futures-executor v0.3.34
+    Checking ticket-mint v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/ticket-mint)
+   Compiling cmake v0.1.58
+   Compiling fslock v0.2.1
+    Checking futures v0.3.34
+    Checking h3-datagram v0.0.2
+    Checking tokio-util v0.7.19
+    Checking foreign-types-shared v0.3.1
+    Checking foreign-types v0.5.0
+    Checking rotation-tests v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/rotation-tests)
+    Checking policy-engine v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/policy-engine)
+    Checking num-traits v0.2.19
+    Checking keccak v0.2.2
+    Checking sha3 v0.11.0
+    Checking kem v0.3.0
+    Checking module-lattice v0.2.3
+    Checking ml-kem v0.3.2
+    Checking quinn v0.11.12
+    Checking device-adapter v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/device-adapter)
+    Checking session-store v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/session-store)
+    Checking transport-mux v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/transport-mux)
+    Checking h3-quinn v0.0.10
+    Checking cover-ss2022 v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-ss2022)
+    Checking cover-masque v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-masque)
+    Checking e2e-harness v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/e2e-harness)
+    Checking phase0-path v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/phase0-path)
+   Compiling boring-sys v4.22.0
+    Checking boring v4.22.0
+    Checking cover-reality v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-reality)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 36.57s
+##[group]Run cargo clippy --locked -p e2e-harness --all-targets --all-features -- -D warnings
+cargo clippy --locked -p e2e-harness --all-targets --all-features -- -D warnings
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+ Downloading crates ...
+  Downloaded num-conv v0.2.2
+  Downloaded powerfmt v0.2.0
+  Downloaded pem v3.0.6
+  Downloaded deranged v0.5.8
+  Downloaded serde_core v1.0.229
+  Downloaded time-core v0.1.9
+  Downloaded yasna v0.5.2
+  Downloaded base64 v0.22.1
+  Downloaded rcgen v0.13.2
+  Downloaded time v0.3.55
+    Checking hybrid-array v0.4.15
+   Compiling syn v2.0.119
+   Compiling rustls v0.23.45
+    Checking deranged v0.5.8
+    Checking num-conv v0.2.2
+    Checking powerfmt v0.2.0
+    Checking time-core v0.1.9
+    Checking base64 v0.22.1
+    Checking crypto-common v0.2.2
+    Checking block-buffer v0.12.1
+    Checking inout v0.2.2
+    Checking pem v3.0.6
+    Checking cipher v0.5.2
+    Checking digest v0.11.3
+    Checking universal-hash v0.6.1
+    Checking poly1305 v0.9.1
+    Checking sha2 v0.11.0
+    Checking chacha20 v0.10.2
+    Checking aead v0.6.1
+    Checking hmac v0.13.0
+    Checking rand v0.10.2
+    Checking chacha20poly1305 v0.11.0
+    Checking hkdf v0.13.0
+    Checking time v0.3.55
+    Checking yasna v0.5.2
+   Compiling zeroize_derive v1.5.0
+   Compiling curve25519-dalek-derive v0.1.1
+    Checking zeroize v1.9.0
+    Checking rustls-pki-types v1.15.1
+    Checking curve25519-dalek v5.0.0
+    Checking cipher v0.4.4
+    Checking curve25519-dalek v4.1.3
+    Checking chacha20 v0.9.1
+    Checking rustls-webpki v0.103.15
+    Checking rustls-native-certs v0.8.4
+    Checking chacha20poly1305 v0.10.1
+    Checking arrayvec v0.7.8
+    Checking x25519-dalek v2.0.1
+    Checking rcgen v0.13.2
+    Checking clatter v2.3.0
+    Checking ed25519-dalek v3.0.0
+    Checking x25519-dalek v3.0.0
+    Checking ticket-mint v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/ticket-mint)
+    Checking crypto-core v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/crypto-core)
+    Checking key-coordinator v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/key-coordinator)
+    Checking rustls-platform-verifier v0.7.0
+    Checking quinn-proto v0.11.18
+    Checking quinn v0.11.12
+    Checking transport-mux v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/transport-mux)
+    Checking h3-quinn v0.0.10
+    Checking cover-masque v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-masque)
+    Checking e2e-harness v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/e2e-harness)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.28s
+##[group]Run cargo test --locked -p e2e-harness --all-features
+cargo test --locked -p e2e-harness --all-features
+shell: /usr/bin/bash -e {0}
+##[endgroup]
+   Compiling hybrid-array v0.4.15
+   Compiling zeroize v1.9.0
+   Compiling rustls v0.23.45
+   Compiling time-core v0.1.9
+   Compiling powerfmt v0.2.0
+   Compiling rustls-pki-types v1.15.1
+   Compiling cipher v0.4.4
+   Compiling curve25519-dalek v4.1.3
+   Compiling chacha20 v0.9.1
+   Compiling rustls-webpki v0.103.15
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling inout v0.2.2
+   Compiling rustls-native-certs v0.8.4
+   Compiling x25519-dalek v2.0.1
+   Compiling chacha20poly1305 v0.10.1
+   Compiling arrayvec v0.7.8
+   Compiling cipher v0.5.2
+   Compiling chacha20 v0.10.2
+   Compiling digest v0.11.3
+   Compiling curve25519-dalek v5.0.0
+   Compiling rand v0.10.2
+   Compiling universal-hash v0.6.1
+   Compiling poly1305 v0.9.1
+   Compiling sha2 v0.11.0
+   Compiling aead v0.6.1
+   Compiling chacha20poly1305 v0.11.0
+   Compiling hmac v0.13.0
+   Compiling deranged v0.5.8
+   Compiling ed25519-dalek v3.0.0
+   Compiling num-conv v0.2.2
+   Compiling hkdf v0.13.0
+   Compiling x25519-dalek v3.0.0
+   Compiling clatter v2.3.0
+   Compiling base64 v0.22.1
+   Compiling pem v3.0.6
+   Compiling time v0.3.55
+   Compiling crypto-core v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/crypto-core)
+   Compiling rustls-platform-verifier v0.7.0
+   Compiling quinn-proto v0.11.18
+   Compiling yasna v0.5.2
+   Compiling rcgen v0.13.2
+   Compiling key-coordinator v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/key-coordinator)
+   Compiling ticket-mint v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/ticket-mint)
+   Compiling quinn v0.11.12
+   Compiling h3-quinn v0.0.10
+   Compiling transport-mux v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/transport-mux)
+   Compiling cover-masque v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-masque)
+   Compiling e2e-harness v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/e2e-harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.51s
+     Running unittests src/lib.rs (target/debug/deps/e2e_harness-54c4ef366678d3c4)
+
+running 16 tests
+test quic_lab::tests::cert_generation ... ok
+test tests::core_crypto_roundtrip ... ok
+test tests::lab_config_sid_is_deterministic ... ok
+test tests::client_keys_are_deterministic ... ok
+test tests::manifest_rejects_garbage ... ok
+test tests::record_frame_roundtrip_uses_transport_mux ... ok
+test tests::short_hash_is_prefix_of_sha256 ... ok
+test tests::unhex_roundtrip ... ok
+test wire::tests::frame_roundtrip ... ok
+test wire::tests::mint_request_roundtrip ... ok
+test wire::tests::oversized_frame_is_rejected ... ok
+test wire::tests::resume_request_parse ... ok
+test quic_lab::tests::endpoints_bind ... ok
+test wire::tests::tagged_roundtrip ... ok
+test masque_lab::tests::masque_rfc9298_live_roundtrip ... ok
+test tests::manifest_roundtrip ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/bin/aether-client.rs (target/debug/deps/aether_client-4a5f3de81ae4490e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/aether-node.rs (target/debug/deps/aether_node-ac9659487896e09d)
+
+running 1 test
+test tests::resume_ctx_from_plain_layout ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests e2e_harness
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Post job cleanup.
+[command]/usr/bin/git version
+git version 2.55.0
+Temporarily overriding HOME='/home/runner/work/_temp/ca86b715-ddef-48ad-afbe-6b96f25fa6ca' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Cleaning up orphan processes
+##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@11d5960a326750d5838078e36cf38b85af677262. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
