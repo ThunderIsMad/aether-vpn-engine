@@ -1,0 +1,150 @@
+﻿2026-09-18T05:25:00.9283510Z Current runner version: '2.337.0'
+2026-09-18T05:25:00.9308935Z ##[group]Runner Image Provisioner
+2026-09-18T05:25:00.9309942Z Hosted Compute Agent
+2026-09-18T05:25:00.9310817Z Version: 20260828.587
+2026-09-18T05:25:00.9311637Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-18T05:25:00.9312442Z Build Date: 2026-08-28T16:44:25Z
+2026-09-18T05:25:00.9313175Z Worker ID: {52cda6e8-dc10-48a5-9ff6-48894c319340}
+2026-09-18T05:25:00.9313949Z Azure Region: westus
+2026-09-18T05:25:00.9314529Z ##[endgroup]
+2026-09-18T05:25:00.9316276Z ##[group]Operating System
+2026-09-18T05:25:00.9316965Z Ubuntu
+2026-09-18T05:25:00.9317478Z 24.04.5
+2026-09-18T05:25:00.9318118Z LTS
+2026-09-18T05:25:00.9318643Z ##[endgroup]
+2026-09-18T05:25:00.9319277Z ##[group]Runner Image
+2026-09-18T05:25:00.9319887Z Image: ubuntu-24.04
+2026-09-18T05:25:00.9320669Z Version: 20260907.300.1
+2026-09-18T05:25:00.9322056Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-18T05:25:00.9323759Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260907.300
+2026-09-18T05:25:00.9324734Z ##[endgroup]
+2026-09-18T05:25:00.9325907Z ##[group]GITHUB_TOKEN Permissions
+2026-09-18T05:25:00.9328191Z Contents: read
+2026-09-18T05:25:00.9328821Z Metadata: read
+2026-09-18T05:25:00.9329498Z ##[endgroup]
+2026-09-18T05:25:00.9331955Z Secret source: Actions
+2026-09-18T05:25:00.9333816Z Cache mode: write
+2026-09-18T05:25:00.9334592Z Prepare workflow directory
+2026-09-18T05:25:00.9682793Z Prepare all required actions
+2026-09-18T05:25:00.9733753Z Getting action download info
+2026-09-18T05:25:01.3196514Z Download action repository 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-09-18T05:25:01.5244546Z Complete job name: Validate skills
+2026-09-18T05:25:01.6123116Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-18T05:25:01.6132350Z ##[group]Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+2026-09-18T05:25:01.6133287Z with:
+2026-09-18T05:25:01.6133740Z   persist-credentials: false
+2026-09-18T05:25:01.6134308Z   repository: ThunderIsMad/aether-vpn-engine
+2026-09-18T05:25:01.6137939Z   token: ***
+2026-09-18T05:25:01.6138388Z   ssh-strict: true
+2026-09-18T05:25:01.6138836Z   ssh-user: git
+2026-09-18T05:25:01.6139263Z   clean: true
+2026-09-18T05:25:01.6139702Z   sparse-checkout-cone-mode: true
+2026-09-18T05:25:01.6140234Z   fetch-depth: 1
+2026-09-18T05:25:01.6140896Z   fetch-tags: false
+2026-09-18T05:25:01.6141343Z   show-progress: true
+2026-09-18T05:25:01.6141843Z   lfs: false
+2026-09-18T05:25:01.6142273Z   submodules: false
+2026-09-18T05:25:01.6142735Z   set-safe-directory: true
+2026-09-18T05:25:01.6143249Z   allow-unsafe-pr-checkout: false
+2026-09-18T05:25:01.6144043Z ##[endgroup]
+2026-09-18T05:25:01.7176448Z Syncing repository: ThunderIsMad/aether-vpn-engine
+2026-09-18T05:25:01.7179239Z ##[group]Getting Git version info
+2026-09-18T05:25:01.7180864Z Working directory is '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+2026-09-18T05:25:01.7182715Z [command]/usr/bin/git version
+2026-09-18T05:25:01.7238022Z git version 2.55.0
+2026-09-18T05:25:01.7259839Z ##[endgroup]
+2026-09-18T05:25:01.7276017Z Temporarily overriding HOME='/home/runner/work/_temp/49f26655-dfc8-4899-9030-8f72ee018d6e' before making global git config changes
+2026-09-18T05:25:01.7278494Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-18T05:25:01.7282046Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T05:25:01.7348762Z Deleting the contents of '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+2026-09-18T05:25:01.7358586Z ##[group]Initializing the repository
+2026-09-18T05:25:01.7360310Z [command]/usr/bin/git init /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T05:25:01.7478068Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-18T05:25:01.7480301Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-18T05:25:01.7482776Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-18T05:25:01.7484326Z hint: call:
+2026-09-18T05:25:01.7485319Z hint:
+2026-09-18T05:25:01.7486074Z hint: 	git config --global init.defaultBranch <name>
+2026-09-18T05:25:01.7486903Z hint:
+2026-09-18T05:25:01.7487697Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-18T05:25:01.7488895Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-18T05:25:01.7489790Z hint:
+2026-09-18T05:25:01.7490353Z hint: 	git branch -m <name>
+2026-09-18T05:25:01.7491605Z hint:
+2026-09-18T05:25:01.7492903Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-18T05:25:01.7494377Z Initialized empty Git repository in /home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/
+2026-09-18T05:25:01.7496281Z [command]/usr/bin/git remote add origin https://github.com/ThunderIsMad/aether-vpn-engine
+2026-09-18T05:25:01.7549570Z ##[endgroup]
+2026-09-18T05:25:01.7551289Z ##[group]Disabling automatic garbage collection
+2026-09-18T05:25:01.7554562Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-18T05:25:01.7590039Z ##[endgroup]
+2026-09-18T05:25:01.7592031Z ##[group]Setting up auth
+2026-09-18T05:25:01.7598166Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-18T05:25:01.7633782Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-18T05:25:01.8032251Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-18T05:25:01.8071643Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-18T05:25:01.8309558Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-18T05:25:01.8346270Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-18T05:25:01.8575775Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-18T05:25:01.8616805Z ##[endgroup]
+2026-09-18T05:25:01.8617662Z ##[group]Fetching the repository
+2026-09-18T05:25:01.8629375Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +246fa660b419251d433d0d0d7659f6b2c996112a:refs/remotes/origin/main
+2026-09-18T05:25:02.5466362Z From https://github.com/ThunderIsMad/aether-vpn-engine
+2026-09-18T05:25:02.5468542Z  * [new ref]         246fa660b419251d433d0d0d7659f6b2c996112a -> origin/main
+2026-09-18T05:25:02.5473766Z ##[endgroup]
+2026-09-18T05:25:02.5475669Z ##[group]Determining the checkout info
+2026-09-18T05:25:02.5477765Z ##[endgroup]
+2026-09-18T05:25:02.5483634Z [command]/usr/bin/git sparse-checkout disable
+2026-09-18T05:25:02.5538762Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-18T05:25:02.5574575Z ##[group]Checking out the ref
+2026-09-18T05:25:02.5616470Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-09-18T05:25:02.5764500Z Switched to a new branch 'main'
+2026-09-18T05:25:02.5769207Z branch 'main' set up to track 'origin/main'.
+2026-09-18T05:25:02.5776100Z ##[endgroup]
+2026-09-18T05:25:02.5823209Z [command]/usr/bin/git log -1 --format=%H
+2026-09-18T05:25:02.5851485Z 246fa660b419251d433d0d0d7659f6b2c996112a
+2026-09-18T05:25:02.5861754Z ##[group]Removing auth
+2026-09-18T05:25:02.5865782Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-18T05:25:02.5899481Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-18T05:25:02.6143758Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-18T05:25:02.6175681Z http.https://github.com/.extraheader
+2026-09-18T05:25:02.6183566Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-09-18T05:25:02.6221292Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-18T05:25:02.6449190Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-18T05:25:02.6485128Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-18T05:25:02.6707781Z ##[endgroup]
+2026-09-18T05:25:02.6946640Z ##[group]Run python3 -m venv "$RUNNER_TEMP/skill-venv"
+2026-09-18T05:25:02.6947969Z [36;1mpython3 -m venv "$RUNNER_TEMP/skill-venv"[0m
+2026-09-18T05:25:02.6949390Z [36;1m"$RUNNER_TEMP/skill-venv/bin/pip" install --quiet pyyaml==6.0.3[0m
+2026-09-18T05:25:02.6992380Z shell: /usr/bin/bash -e {0}
+2026-09-18T05:25:02.6993132Z ##[endgroup]
+2026-09-18T05:25:06.8458360Z ##[group]Run "$RUNNER_TEMP/skill-venv/bin/python" scripts/validate_skills.py
+2026-09-18T05:25:06.8459077Z [36;1m"$RUNNER_TEMP/skill-venv/bin/python" scripts/validate_skills.py[0m
+2026-09-18T05:25:06.8497965Z shell: /usr/bin/bash -e {0}
+2026-09-18T05:25:06.8498287Z ##[endgroup]
+2026-09-18T05:25:06.8944860Z path                                              name                    name valid  status
+2026-09-18T05:25:06.8946100Z ------------------------------------------------------------------------------------------------
+2026-09-18T05:25:06.8947009Z .agents/skills/anti-air-audit                     anti-air-audit          True        OK
+2026-09-18T05:25:06.8947802Z .agents/skills/claim-traceability                 claim-traceability      True        OK
+2026-09-18T05:25:06.8948632Z .agents/skills/crate-feasibility                  crate-feasibility       True        OK
+2026-09-18T05:25:06.8949493Z .agents/skills/impl-phase-driver                  impl-phase-driver       True        OK
+2026-09-18T05:25:06.8950297Z .agents/skills/mechanism-drilldown                mechanism-drilldown     True        OK
+2026-09-18T05:25:06.8951572Z .agents/skills/phase0-scaffold                    phase0-scaffold         True        OK
+2026-09-18T05:25:06.8952495Z .agents/skills/rotation-test-writer               rotation-test-writer    True        OK
+2026-09-18T05:25:06.8953053Z 
+2026-09-18T05:25:06.8953263Z 7 skill(s), 0 error(s), 0 warning(s)
+2026-09-18T05:25:06.9125327Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+2026-09-18T05:25:06.9126981Z Post job cleanup.
+2026-09-18T05:25:07.0083034Z [command]/usr/bin/git version
+2026-09-18T05:25:07.0131259Z git version 2.55.0
+2026-09-18T05:25:07.0170959Z Temporarily overriding HOME='/home/runner/work/_temp/2f399325-0dff-425f-a8fa-265df57262ca' before making global git config changes
+2026-09-18T05:25:07.0172463Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-18T05:25:07.0177913Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T05:25:07.0219223Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-18T05:25:07.0257214Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-18T05:25:07.0514064Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-18T05:25:07.0574646Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-18T05:25:07.0914690Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-18T05:25:07.0966183Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-18T05:25:07.1466616Z Cleaning up orphan processes
+2026-09-18T05:25:07.1766349Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@11d5960a326750d5838078e36cf38b85af677262. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

@@ -1,0 +1,227 @@
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20260828.587
+Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+Build Date: 2026-08-28T16:44:25Z
+Worker ID: {732b6971-5cc3-4f3f-be2c-f783ccca4c07}
+Azure Region: centralus
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20260907.300.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260907.300
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Actions: read
+Contents: write
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Getting action download info
+Download action repository 'actions/checkout@11d5960a326750d5838078e36cf38b85af677262' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+Complete job name: Report real run (temporary)
+Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+##[group]Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+with:
+  persist-credentials: true
+  repository: ThunderIsMad/aether-vpn-engine
+  token: ***
+  ssh-strict: true
+  ssh-user: git
+  clean: true
+  sparse-checkout-cone-mode: true
+  fetch-depth: 1
+  fetch-tags: false
+  show-progress: true
+  lfs: false
+  submodules: false
+  set-safe-directory: true
+  allow-unsafe-pr-checkout: false
+env:
+  EVIDENCE_BRANCH: ci-probe-results
+  OUT: ci-probe/main-run-report.txt
+##[endgroup]
+Syncing repository: ThunderIsMad/aether-vpn-engine
+##[group]Getting Git version info
+Working directory is '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+[command]/usr/bin/git version
+git version 2.55.0
+##[endgroup]
+Temporarily overriding HOME='/home/runner/work/_temp/f0e1fe2c-1d4b-4a4e-92b6-0ba2ac1cc615' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+Deleting the contents of '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+##[group]Initializing the repository
+[command]/usr/bin/git init /home/runner/work/aether-vpn-engine/aether-vpn-engine
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+Initialized empty Git repository in /home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/
+[command]/usr/bin/git remote add origin https://github.com/ThunderIsMad/aether-vpn-engine
+##[endgroup]
+##[group]Disabling automatic garbage collection
+[command]/usr/bin/git config --local gc.auto 0
+##[endgroup]
+##[group]Setting up auth
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+[command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+##[endgroup]
+##[group]Fetching the repository
+[command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +246fa660b419251d433d0d0d7659f6b2c996112a:refs/remotes/origin/main
+From https://github.com/ThunderIsMad/aether-vpn-engine
+ * [new ref]         246fa660b419251d433d0d0d7659f6b2c996112a -> origin/main
+##[endgroup]
+##[group]Determining the checkout info
+##[endgroup]
+[command]/usr/bin/git sparse-checkout disable
+[command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+##[group]Checking out the ref
+[command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+Switched to a new branch 'main'
+branch 'main' set up to track 'origin/main'.
+##[endgroup]
+[command]/usr/bin/git log -1 --format=%H
+246fa660b419251d433d0d0d7659f6b2c996112a
+##[group]Run # Actions запускает run-блоки как `bash -e`: свои падения собираем сами
+# Actions запускает run-блоки как `bash -e`: свои падения собираем сами
+set +e
+set -uo pipefail
+GH_TOKEN="***"
+API="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY"
+mkdir -p ci-probe
+command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
+command -v unzip >/dev/null || sudo apt-get install -y --no-install-recommends unzip
+{
+  echo "================ РЕАЛЬНЫЙ ПРОГОН ci.yml НА MAIN ================"
+  echo "sha:     $GITHUB_SHA"
+  echo "ref:     $GITHUB_REF"
+  echo "event:   $GITHUB_EVENT_NAME"
+  echo "run:     $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
+  echo "run url: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+  echo
+  echo "---- итог job'ов (needs, виден и без API) ----"
+  echo "skills: success"
+  echo "rust:   success"
+} > "$OUT" 2>&1
+
+# --- job'ы и шаги этого прогона ---
+curl -sS -H "Authorization: ***" -H "Accept: application/vnd.github+json" \
+  "$API/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" -o jobs.json
+echo "curl jobs exit=$?" >> "$OUT"
+{
+  echo
+  echo "---- job'ы и шаги (Actions API, имя/статус/итог) ----"
+  jq -r '.jobs[] | "[\(.name)] \(.status)/\(.conclusion) id=\(.id)", (.steps[]? | "    - \(.number). \(.name): \(.status)/\(.conclusion)")' jobs.json
+} >> "$OUT" 2>&1
+
+# --- логи обязательных job'ов: точные числа тестов и строка резолва пина ---
+jq -r '.jobs[] | select((.name == "Validate skills") or (.name | startswith("Rust"))) | .id' jobs.json > jobids.txt
+cat jobids.txt >> "$OUT"
+while read -r jid; do
+  [ -n "$jid" ] || continue
+  curl -sSL -H "Authorization: ***" "$API/actions/jobs/$jid/logs" -o "log-$jid.zip"
+  echo "curl log $jid exit=$?" >> "$OUT"
+  rm -rf "log-$jid"
+  unzip -o -q "log-$jid.zip" -d "log-$jid" 2>>"$OUT" && \
+    cat "log-$jid"/* > "raw-$jid.log" 2>/dev/null && \
+    sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' "raw-$jid.log" \
+      | sed -E 's/\x1b\[[0-9;]*m//g' > "clean-$jid.log"
+done < jobids.txt
+
+{
+  echo
+  echo "---- числа тестов ПО ШАГАМ (из групп логов; сравнить с 107/0/2 и 16/0) ----"
+  awk '
+    /^##\[group\]Run / { cur=$0; sub(/^##\[group\]Run /, "", cur) }
+    /^test result:/   { p[cur]+=$4; f[cur]+=$6; i[cur]+=$8 }
+    END { for (c in p) printf "%-72s passed=%d failed=%d ignored=%d\n", c, p[c], f[c], i[c] }
+  ' clean-*.log 2>/dev/null | sort
+  echo
+  echo "---- пин toolchain в реальном прогоне ----"
+  grep -hE "^(resolved toolchain|name:|active because:|release:|host:)" clean-*.log 2>/dev/null | head -12
+  echo
+  echo "---- признаки отказа в логах (пусто = нет) ----"
+  grep -hE "^error|^error\[|^::error::|^panicked" clean-*.log 2>/dev/null | head -30
+} >> "$OUT" 2>&1
+echo "collect finished" >> "$OUT"
+shell: /usr/bin/bash -e {0}
+env:
+  EVIDENCE_BRANCH: ci-probe-results
+  OUT: ci-probe/main-run-report.txt
+##[endgroup]
+##[group]Run set -euxo pipefail
+set -euxo pipefail
+git config user.name "github-actions[bot]"
+git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+git checkout -B "$EVIDENCE_BRANCH"
+cp "$OUT" ci-probe/ 2>/dev/null || true
+cp clean-*.log raw-*.log jobs.json log-*.zip ci-probe/ 2>/dev/null || true
+git add -A ci-probe
+git commit -m "report: real ci.yml run on main ($GITHUB_SHA, run $GITHUB_RUN_ID)"
+git push --force origin "HEAD:refs/heads/$EVIDENCE_BRANCH"
+shell: /usr/bin/bash -e {0}
+env:
+  EVIDENCE_BRANCH: ci-probe-results
+  OUT: ci-probe/main-run-report.txt
+##[endgroup]
++ git config user.name 'github-actions[bot]'
++ git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
++ git checkout -B ci-probe-results
+Switched to a new branch 'ci-probe-results'
++ cp ci-probe/main-run-report.txt ci-probe/
++ true
++ cp 'clean-*.log' 'raw-*.log' jobs.json log-105491971463.zip log-105491971581.zip ci-probe/
++ true
++ git add -A ci-probe
++ git commit -m 'report: real ci.yml run on main (246fa660b419251d433d0d0d7659f6b2c996112a, run 35310705441)'
+[ci-probe-results 3a182be] report: real ci.yml run on main (246fa660b419251d433d0d0d7659f6b2c996112a, run 35310705441)
+ 4 files changed, 1665 insertions(+)
+ create mode 100644 ci-probe/jobs.json
+ create mode 100644 ci-probe/log-105491971463.zip
+ create mode 100644 ci-probe/log-105491971581.zip
+ create mode 100644 ci-probe/main-run-report.txt
++ git push --force origin HEAD:refs/heads/ci-probe-results
+To https://github.com/ThunderIsMad/aether-vpn-engine
+ + 2a4a179...3a182be HEAD -> ci-probe-results (forced update)
+Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Post job cleanup.
+[command]/usr/bin/git version
+git version 2.55.0
+Temporarily overriding HOME='/home/runner/work/_temp/458ae795-9c18-4340-bbf8-37bdec71f7f9' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+http.https://github.com/.extraheader
+[command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Cleaning up orphan processes
+##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@11d5960a326750d5838078e36cf38b85af677262. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
