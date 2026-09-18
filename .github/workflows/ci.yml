@@ -64,6 +64,42 @@ jobs:
         if: steps.ws.outputs.found == 'false'
         run: echo "::notice title=Rust job skipped::No Cargo.toml at the repo root yet; the Phase 0 scaffold has not run, so cargo test/clippy are not enforced."
 
+      # F-11 (перевыпуск): host-триплет в rust-toolchain.toml для Linux — это non-host
+      # toolchain. CLI-форма `rustup toolchain install` такой канал гейтит («may not be able
+      # to run on this system», `--force-non-host`), но путь авто-установки из override'а
+      # (maybe_ensure_active_toolchain → ensure_active_toolchain(true, …) →
+      # ensure_installed(…, force_non_host = true, …)) гейт обходит: раннер молча скачал бы
+      # компилятор ДЛЯ WINDOWS (rustc.exe/cargo.exe). Шаг делает инвариант видимым в логе и
+      # падает рано с понятной причиной, если триплет вернётся в файл. Заодно это и есть
+      # evidence F-11 для Linux: печатает резолвнутый тулчейн и требуемый пин.
+      - name: Verify toolchain pin (linux)
+        if: steps.ws.outputs.found == 'true'
+        run: |
+          set -euo pipefail
+          want="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' rust-toolchain.toml)"
+          if [ -z "$want" ]; then
+            echo "::error::не прочитал channel из rust-toolchain.toml"
+            exit 1
+          fi
+          case "$want" in
+            *-windows-*|*-apple-*|*-linux-*|*-unknown-*)
+              echo "::error::rust-toolchain.toml несёт host-триплет ($want): для rustup это non-host toolchain, авто-установка скачала бы компилятор чужой платформы. Пину положено нести только версию — host задаёт платформенный слой (scripts/local-env.sh на Windows, сам раннер в CI)."
+              exit 1 ;;
+          esac
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          release="$(rustc -vV | sed -n 's/^release: //p')"
+          rustup show
+          echo "resolved toolchain: channel=$want host=$host release=$release"
+          case "$host" in
+            *-windows-*|*-apple-*)
+              echo "::error::активный toolchain собран не для этого раннера ($host)"
+              exit 1 ;;
+          esac
+          if [[ "$want" == *.* ]] && [ "$release" != "$want" ]; then
+            echo "::error::версия rustc ($release) не совпадает с пином ($want) — пин не применился"
+            exit 1
+          fi
+
       - name: Ensure clippy and rustfmt
         if: steps.ws.outputs.found == 'true'
         run: rustup component add clippy rustfmt

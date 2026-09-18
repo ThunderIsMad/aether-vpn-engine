@@ -1,15 +1,38 @@
-# Пин компилятора Rust (F-11, аудит 3): проект пинит зависимости в Cargo.lock и
-# [workspace.dependencies] с TTL-перепроверками; компилятор был единственным незакреплённым
-# элементом. Rustfmt/clippy — компоненты того же тулчейна: CI всегда собирает под ним.
-# Бамп = осознанная операция: обновить канал здесь, прогнать fmt/clippy/test, отметить в PR.
+# Пин компилятора Rust (F-11, аудит 3; перевыпуск — разбор самопротиворечия).
 #
-# Канал пинится ПОЛНОСТЬЮ (`1.98.1-x86_64-pc-windows-gnu`), а не просто `1.98.1`:
-# неполная запись заставляет rustup ставить host-default тулчейн (msvc на Windows),
-# у локальной Windows-машины прод-сборка — windows-gnu (w64devkit-линкер,
-# scripts/local-env.sh). CI (ubuntu) резолвит gnu-канал через `rustup target add` —
-# у Linux-раннера cross-таргет не нужен, поэтому там действует стандартный
-# `dtolnay/rust-toolchain`/`rustup default stable`? НЕТ: CI читает этот же файл
-# (rustup делает это автоматически при любом cargo-вызове) и поставит названный
-# канал; на Linux host-gnu совпадает с x86_64-unknown-linux-gnu — сборка идёт.
+# ЧТО ПИНИТ ЭТОТ ФАЙЛ: только ВЕРСИЮ. Платформа/host — ответственность платформенного слоя.
+#
+# Почему здесь нет полного триплета (`1.98.1-x86_64-pc-windows-gnu`, как было в первом
+# выпуске F-11) — проверенные факты, а не рассуждение:
+#   * Грамматика `channel` из документа rustup (overrides → Toolchain file settings):
+#       (<channel>[-<date>]) | <custom toolchain name>
+#       <channel> = stable|beta|nightly|<versioned>[-<prerelease>]
+#     Хвост `-x86_64-pc-windows-gnu` не подходит ни под <versioned>, ни под <date>.
+#   * Для rustup это distributable-тулчейн ЧУЖОГО host'а = non-host toolchain
+#     («requires an emulator», флаг `--force-non-host`; локально повторено:
+#     `rustup toolchain install 1.98.1-x86_64-unknown-linux-gnu` на Windows →
+#     "error: toolchain '…' may not be able to run on this system").
+#   * Гейт не спасает CI: путь авто-установки из override'а обходит его по построению
+#     (`Cfg::maybe_ensure_active_toolchain` → `ensure_active_toolchain(true, …)` →
+#     `ensure_installed(…, force_non_host = true, …)`, а `check_non_host_toolchain`
+#     при `true` возвращает Ok). На ubuntu-раннере rustup молча скачал бы компилятор
+#     ДЛЯ WINDOWS (rustc.exe/cargo.exe), а не linux-компилятор с windows-таргетом, и
+#     обязательный rust-job упал бы на использовании чужого тулчейна.
+#   * Host-less канал rustup резолвит в свой default host: на машине прогона это
+#     x86_64-pc-windows-msvc (`rustup show`: «Default host: x86_64-pc-windows-msvc»),
+#     на ubuntu-раннере — x86_64-unknown-linux-gnu.
+#
+# Отсюда инвариант — host задаётся там, где он известен:
+#   * Windows/GNU (прод-сборка, w64devkit + self-contained линкер): scripts/local-env.sh
+#     читает версию отсюда и экспортирует RUSTUP_TOOLCHAIN=1.98.1-x86_64-pc-windows-gnu
+#     (env-переменная приоритетнее этого файла — проверено: `rustup show` →
+#     «active because: overridden by environment variable RUSTUP_TOOLCHAIN»);
+#     проверка хоста там же осталась, но стала пост-условием пина.
+#   * Linux CI: ничего не экспортирует — host-less канал даёт <версию> под host раннера.
+#     Шаг «Verify toolchain pin (linux)» в ci.yml печатает резолвнутый тулчейн и падает,
+#     если в этот файл вернётся host-триплет (иначе ошибка была бы поздней и невнятной).
+#
+# Бамп = осознанная операция: обновить канал здесь, прогнать fmt/clippy/test локально
+# после `source scripts/local-env.sh` и дождаться зелёного rust-job на Linux.
 [toolchain]
-channel = "1.98.1-x86_64-pc-windows-gnu"
+channel = "1.98.1"

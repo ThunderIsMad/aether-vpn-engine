@@ -215,6 +215,28 @@ cargo test -p e2e-harness --all-features    # шаг best-effort из ci.yml: 15
 `PQ_SHIM_DIR` (дефолт `tools/pq-shim` в репо), `BORING_TOOLS_DIR` (дефолт
 `~/Desktop/boring-probe/tools` — портативные NASM 2.16.03 и libclang из пробы).
 
+### Пин компилятора: версия vs host (F-11, перевыпуск 2026-09-18)
+
+`rust-toolchain.toml` пинит **только версию** (`1.98.1`). Первый выпуск F-11 писал туда
+полный триплет `1.98.1-x86_64-pc-windows-gnu`: для Windows это верно, для Linux CI — нет.
+
+- Для rustup канал с чужим host'ом — это non-host toolchain («requires an emulator»,
+  флаг `--force-non-host`); грамматика `channel` в документе rustup такого хвоста не
+  предусматривает.
+- CLI-форма `rustup toolchain install` такой канал гейтит (`error: toolchain '…' may not
+  be able to run on this system`), но **путь авто-установки из override'а гейт обходит**
+  (`maybe_ensure_active_toolchain` → `ensure_active_toolchain(true, …)` →
+  `ensure_installed(…, force_non_host = true, …)`). На ubuntu-раннере это значит: rustup
+  молча скачал бы компилятор для Windows (`rustc.exe`/`cargo.exe`), и обязательный
+  rust-job стал бы красным (в лучшем случае — «нет `bin/cargo` в тулчейне»).
+
+Устроено теперь так: версия одна на обе платформы, host добавляет тот, кому он известен.
+`scripts/local-env.sh` читает версию из того же файла и экспортирует
+`RUSTUP_TOOLCHAIN=1.98.1-x86_64-pc-windows-gnu` (env-переменная приоритетнее toolchain-файла);
+CI не экспортирует ничего — host-less канал резолвится в host раннера
+(`1.98.1-x86_64-unknown-linux-gnu`), а шаг «Verify toolchain pin (linux)» печатает
+резолвнутый тулчейн и падает, если триплет вернётся в файл или версия не совпадёт с пином.
+
 ### boring-sys на Windows/GNU (2026-09-17, b132)
 
 С `boring` 4.22 прод-зависимостью (`cover-reality`) `local-env.sh` дополнительно

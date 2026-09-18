@@ -20,6 +20,13 @@
 # Философия: explicit-fail. Любой отсутствующий компонент — понятная ошибка и подсказка,
 # не тихая деградация до «23 теста прошли, остальные не собрались».
 #
+# F-11 (перевыпуск): rust-toolchain.toml пинит только ВЕРСИЮ компилятора. Host-триплет в
+# том файле rustup на Linux читает как non-host toolchain («requires an emulator») и в
+# пути авто-установки из override'а качает компилятор ЧУЖОЙ платформы (Windows) — см.
+# rust-toolchain.toml и ci.yml → «Verify toolchain pin (linux)». Здесь host известен:
+# из версии в файле собирается RUSTUP_TOOLCHAIN=<версия>-x86_64-pc-windows-gnu, а
+# проверка хоста ниже из «предусловия» стала пост-условием пина.
+#
 # Использование:
 #   source scripts/local-env.sh
 #   cargo test --workspace --all-targets        # как CI
@@ -50,16 +57,49 @@ _local_env_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 W64DEVKIT_HOME="${W64DEVKIT_HOME:-$HOME/w64devkit}"
 PQ_SHIM_DIR="${PQ_SHIM_DIR:-$_local_env_root/tools/pq-shim}"
 
+# --- тулчейн: версия — из rust-toolchain.toml, host — ответственность этого скрипта ----
+# Единый источник версии: читаем channel из того же файла, что видит rustup. Триплет здесь
+# запрещён явно — если он вернётся в файл, ломать будет CI, а не эту машину.
+# awk, а не `sed | head`: одиночный процесс, первая же строка channel, никакой гонки SIGPIPE
+# (у вызывающего шелла может быть включён pipefail, и пустая подстановка выглядела бы как
+# «не прочитал channel» — диагноз не по адресу).
+_local_env_channel="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' \
+  "$_local_env_root/rust-toolchain.toml")"
+if [[ -z "$_local_env_channel" ]]; then
+  _local_env_fail "не прочитал channel из $_local_env_root/rust-toolchain.toml" \
+    "Ожидается строка вида: channel = \"1.98.1\""
+  return 1
+fi
+if [[ "$_local_env_channel" =~ -(x86_64|i686|aarch64|armv7|arm|s390x|powerpc64|riscv64)- ]]; then
+  _local_env_fail "channel в rust-toolchain.toml несёт host-триплет: '$_local_env_channel'" \
+    "Файл должен нести только версию: на Linux rustup читает такой канал как non-host" \
+    "toolchain и качает компилятор чужой платформы. Host задаёт этот скрипт."
+  return 1
+fi
+
+_local_env_toolchain="${_local_env_channel}-x86_64-pc-windows-gnu"
+
+# Уже выставленный RUSTUP_TOOLCHAIN молча не перетираем: либо он совпадает с пином (no-op),
+# либо это осознанное отклонение от воспроизводимости — пусть будет названо вслух.
+if [[ -n "${RUSTUP_TOOLCHAIN:-}" && "$RUSTUP_TOOLCHAIN" != "$_local_env_toolchain" ]]; then
+  _local_env_fail "RUSTUP_TOOLCHAIN='$RUSTUP_TOOLCHAIN' конфликтует с пином '$_local_env_toolchain'." \
+    "Сними переменную и запусти source заново: unset RUSTUP_TOOLCHAIN"
+  return 1
+fi
+export RUSTUP_TOOLCHAIN="$_local_env_toolchain"
+
 # --- проверки (explicit-fail; каждый фейл = return 1 из source) ---
 command -v rustc >/dev/null 2>&1 || {
   _local_env_fail "rustc не найден в PATH." "Установи rustup: https://rustup.rs"
   return 1
 }
 
+# Пост-условие пина: активный host — windows-gnu. На этом держится вся обвязка ниже
+# (sysroot, self-contained линкер), поэтому проверяем не «что-нибудь стоит», а именно пин.
 _local_env_host="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p')"
 if [[ "$_local_env_host" != "x86_64-pc-windows-gnu" ]]; then
-  _local_env_fail "активный тулчейн '$_local_env_host', а скрипт настроен только для x86_64-pc-windows-gnu." \
-    "Переключи: rustup default stable-x86_64-pc-windows-gnu"
+  _local_env_fail "активный тулчейн '$_local_env_host', ожидался x86_64-pc-windows-gnu ($_local_env_toolchain)." \
+    "Установи пин: rustup toolchain install $_local_env_toolchain"
   return 1
 fi
 
@@ -152,6 +192,7 @@ else
 fi
 
 echo "local-env: экспортировано:"
+echo "  TOOLCHAIN $RUSTUP_TOOLCHAIN  (версия из rust-toolchain.toml + host этой платформы; rustc $(rustc --version 2>/dev/null | awk '{print $2}'))"
 echo "  PATH      + $W64DEVKIT_HOME/bin + nasm-2.16.03  ($(gcc --version 2>/dev/null | head -1))"
 echo "  CFLAGS    -I $_local_env_shim_win  (шим __GNUC_PREREQ для PQClean, версионируется в репо)"
 echo "  LINKER    $_local_env_linker  (self-contained rustup: w64devkit-gcc линкером не годится, нет -lgcc_eh)"
@@ -161,4 +202,5 @@ echo "  дальше:   cargo test --workspace --all-targets"
 
 unset _local_env_root _local_env_host _local_env_sysroot _local_env_selfcont _local_env_linker \
       _local_env_libdir _local_env_shim_win _local_env_fail \
-      _local_env_libclang_native _local_env_bindgen_args _local_env_gcc_inc _local_env_mingw_inc
+      _local_env_libclang_native _local_env_bindgen_args _local_env_gcc_inc _local_env_mingw_inc \
+      _local_env_channel _local_env_toolchain
