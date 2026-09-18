@@ -64,14 +64,14 @@ jobs:
         if: steps.ws.outputs.found == 'false'
         run: echo "::notice title=Rust job skipped::No Cargo.toml at the repo root yet; the Phase 0 scaffold has not run, so cargo test/clippy are not enforced."
 
-      # F-11 (перевыпуск): host-триплет в rust-toolchain.toml для Linux — это non-host
-      # toolchain. CLI-форма `rustup toolchain install` такой канал гейтит («may not be able
-      # to run on this system», `--force-non-host`), но путь авто-установки из override'а
-      # (maybe_ensure_active_toolchain → ensure_active_toolchain(true, …) →
-      # ensure_installed(…, force_non_host = true, …)) гейт обходит: раннер молча скачал бы
-      # компилятор ДЛЯ WINDOWS (rustc.exe/cargo.exe). Шаг делает инвариант видимым в логе и
-      # падает рано с понятной причиной, если триплет вернётся в файл. Заодно это и есть
-      # evidence F-11 для Linux: печатает резолвнутый тулчейн и требуемый пин.
+      # F-11 (перевыпуск): evidence на Linux + защита от возврата host-триплета в
+      # rust-toolchain.toml. rustup такие имена в toolchain-файле запрещает по построению
+      # («toolchain files are portable», src/config.rs → `error: target tuple in channel
+      # name '<channel>'`), с исключением «этот тулчейн уже установлен» (PR #2141) — именно
+      # поэтому на Windows-машине файл с триплетом выглядел работающим. Замер на раннере
+      # (run 35308742887): со старым значением `rustc -vV` падал с этой ошибкой, с текущим
+      # активен 1.98.1-x86_64-unknown-linux-gnu (release 1.98.1). Шаг печатает резолвнутый
+      # тулчейн и падает рано с внятной причиной, если триплет вернётся в файл.
       - name: Verify toolchain pin (linux)
         if: steps.ws.outputs.found == 'true'
         run: |

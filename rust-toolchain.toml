@@ -1,36 +1,36 @@
-# Пин компилятора Rust (F-11, аудит 3; перевыпуск — разбор самопротиворечия).
+# Пин компилятора Rust (F-11, аудит 3; перевыпуск — снято самопротиворечие).
 #
 # ЧТО ПИНИТ ЭТОТ ФАЙЛ: только ВЕРСИЮ. Платформа/host — ответственность платформенного слоя.
 #
-# Почему здесь нет полного триплета (`1.98.1-x86_64-pc-windows-gnu`, как было в первом
-# выпуске F-11) — проверенные факты, а не рассуждение:
-#   * Грамматика `channel` из документа rustup (overrides → Toolchain file settings):
-#       (<channel>[-<date>]) | <custom toolchain name>
-#       <channel> = stable|beta|nightly|<versioned>[-<prerelease>]
-#     Хвост `-x86_64-pc-windows-gnu` не подходит ни под <versioned>, ни под <date>.
-#   * Для rustup это distributable-тулчейн ЧУЖОГО host'а = non-host toolchain
-#     («requires an emulator», флаг `--force-non-host`; локально повторено:
-#     `rustup toolchain install 1.98.1-x86_64-unknown-linux-gnu` на Windows →
-#     "error: toolchain '…' may not be able to run on this system").
-#   * Гейт не спасает CI: путь авто-установки из override'а обходит его по построению
-#     (`Cfg::maybe_ensure_active_toolchain` → `ensure_active_toolchain(true, …)` →
-#     `ensure_installed(…, force_non_host = true, …)`, а `check_non_host_toolchain`
-#     при `true` возвращает Ok). На ubuntu-раннере rustup молча скачал бы компилятор
-#     ДЛЯ WINDOWS (rustc.exe/cargo.exe), а не linux-компилятор с windows-таргетом, и
-#     обязательный rust-job упал бы на использовании чужого тулчейна.
-#   * Host-less канал rustup резолвит в свой default host: на машине прогона это
-#     x86_64-pc-windows-msvc (`rustup show`: «Default host: x86_64-pc-windows-msvc»),
-#     на ubuntu-раннере — x86_64-unknown-linux-gnu.
+# Полный триплет (`1.98.1-x86_64-pc-windows-gnu`, как было в первом выпуске F-11) в этом
+# файле rustup ЗАПРЕЩАЕТ, и запрет заложен в самом rustup:
+#   src/config.rs, find_override_config: «Do not permit architecture/os selection in
+#   channels as these are host specific and toolchain files are portable» →
+#     error: target tuple in channel name '<channel>'
+#   Исключение — ровно такой тулчейн уже установлен на машине (PR #2141). Поэтому локально
+#   на Windows-машине прогона файл «работал» (там этот тулчейн установлен) и противоречие
+#   не всплывало, а на ubuntu-раннере, где такого тулчейна нет, ломается первая же
+#   rustup-команда. Замерено на реальном раннере (run 35308742887, ветка ci-probe-results):
+#     rustup show → «active toolchain: no active toolchain»
+#     rustc -vV   → error: target tuple in channel name '1.98.1-x86_64-pc-windows-gnu'
+#   То есть до установки дело не доходит вообще: имя валидируется на разборе файла.
+#   (Гейт `--force-non-host` — про CLI-пути `rustup toolchain install`/`--toolchain`,
+#   к toolchain-файлу он не применяется.)
+#
+# Host-less канал rustup резолвит в свой default host: на машине прогона это
+# x86_64-pc-windows-msvc (`rustup show` → «Default host: x86_64-pc-windows-msvc»),
+# на ubuntu-раннере — x86_64-unknown-linux-gnu (замерено той же пробой: «active because:
+# overridden by '…/rust-toolchain.toml'», release=1.98.1).
 #
 # Отсюда инвариант — host задаётся там, где он известен:
 #   * Windows/GNU (прод-сборка, w64devkit + self-contained линкер): scripts/local-env.sh
 #     читает версию отсюда и экспортирует RUSTUP_TOOLCHAIN=1.98.1-x86_64-pc-windows-gnu
-#     (env-переменная приоритетнее этого файла — проверено: `rustup show` →
-#     «active because: overridden by environment variable RUSTUP_TOOLCHAIN»);
-#     проверка хоста там же осталась, но стала пост-условием пина.
+#     (env-переменная приоритетнее файла — проверено: `rustup show` → «active because:
+#     overridden by environment variable RUSTUP_TOOLCHAIN»); проверка хоста там же, но
+#     теперь как пост-условие пина.
 #   * Linux CI: ничего не экспортирует — host-less канал даёт <версию> под host раннера.
-#     Шаг «Verify toolchain pin (linux)» в ci.yml печатает резолвнутый тулчейн и падает,
-#     если в этот файл вернётся host-триплет (иначе ошибка была бы поздней и невнятной).
+#     Шаг «Verify toolchain pin (linux)» в ci.yml печатает резолвнутый тулчейн и падает
+#     рано и с внятной причиной, если триплет вернётся в этот файл.
 #
 # Бамп = осознанная операция: обновить канал здесь, прогнать fmt/clippy/test локально
 # после `source scripts/local-env.sh` и дождаться зелёного rust-job на Linux.

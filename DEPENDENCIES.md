@@ -220,21 +220,25 @@ cargo test -p e2e-harness --all-features    # шаг best-effort из ci.yml: 15
 `rust-toolchain.toml` пинит **только версию** (`1.98.1`). Первый выпуск F-11 писал туда
 полный триплет `1.98.1-x86_64-pc-windows-gnu`: для Windows это верно, для Linux CI — нет.
 
-- Для rustup канал с чужим host'ом — это non-host toolchain («requires an emulator»,
-  флаг `--force-non-host`); грамматика `channel` в документе rustup такого хвоста не
-  предусматривает.
-- CLI-форма `rustup toolchain install` такой канал гейтит (`error: toolchain '…' may not
-  be able to run on this system`), но **путь авто-установки из override'а гейт обходит**
-  (`maybe_ensure_active_toolchain` → `ensure_active_toolchain(true, …)` →
-  `ensure_installed(…, force_non_host = true, …)`). На ubuntu-раннере это значит: rustup
-  молча скачал бы компилятор для Windows (`rustc.exe`/`cargo.exe`), и обязательный
-  rust-job стал бы красным (в лучшем случае — «нет `bin/cargo` в тулчейне»).
+- rustup запрещает target-tuple в `channel` toolchain-файла по построению:
+  `src/config.rs`, `find_override_config` — «Do not permit architecture/os selection in
+  channels as these are host specific and toolchain files are portable» →
+  `error: target tuple in channel name '<channel>'`. Исключение — ровно такой тулчейн уже
+  установлен на машине (PR #2141), поэтому локально на Windows-машине прогона (где
+  `1.98.1-x86_64-pc-windows-gnu` установлен) файл «работал» и дефект не всплывал.
+- Замер на реальном ubuntu-раннере (проба `ci-probe-results`, run 35308742887): со старым
+  значением `rustup show` → «active toolchain: no active toolchain», `rustc -vV` →
+  `error: target tuple in channel name '1.98.1-x86_64-pc-windows-gnu'`. До установки
+  чужого компилятора дело не доходит: имя отбраковывается на разборе файла, обязательный
+  rust-job красный с первой же rustup-команды. (Гейт `--force-non-host` относится к
+  CLI-путям `rustup toolchain install`/`--toolchain`, а не к toolchain-файлу.)
 
 Устроено теперь так: версия одна на обе платформы, host добавляет тот, кому он известен.
 `scripts/local-env.sh` читает версию из того же файла и экспортирует
 `RUSTUP_TOOLCHAIN=1.98.1-x86_64-pc-windows-gnu` (env-переменная приоритетнее toolchain-файла);
 CI не экспортирует ничего — host-less канал резолвится в host раннера
-(`1.98.1-x86_64-unknown-linux-gnu`), а шаг «Verify toolchain pin (linux)» печатает
+(`1.98.1-x86_64-unknown-linux-gnu` — подтверждено на раннере: «active because: overridden
+by '…/rust-toolchain.toml'», release 1.98.1), а шаг «Verify toolchain pin (linux)» печатает
 резолвнутый тулчейн и падает, если триплет вернётся в файл или версия не совпадёт с пином.
 
 ### boring-sys на Windows/GNU (2026-09-17, b132)
