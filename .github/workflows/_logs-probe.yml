@@ -20,7 +20,7 @@ jobs:
       OUT_BRANCH: ci-probe-logs
     steps:
       - name: Checkout probe branch
-        uses: actions/checkout@3d3c42e5a2a1d1b0e5b1d0f22a8e33f5f5f7b7e3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
         with:
           persist-credentials: true
 
@@ -33,7 +33,7 @@ jobs:
           for i in $(seq 1 60); do
             sleep 20
             url="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${sha}&per_page=10"
-            json="$(curl -fsS -H 'Accept: application/vnd.github+json' "$url")"
+            json="$(curl -fsS -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer ${GITHUB_TOKEN}" "$url")"
             status="$(echo "$json" | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["workflow_runs"]; print(r[0]["status"] if r else "none")')"
             concl="$(echo "$json" | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["workflow_runs"]; print((r[0]["conclusion"] or "null") if r else "none")')"
             echo "poll $i: status=$status conclusion=$concl"
@@ -50,7 +50,7 @@ jobs:
         run: |
           set -eu
           mkdir -p logs
-          curl -fsSL -H 'Accept: application/vnd.github+json' \
+          curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/logs" -o logs.zip
           python3 -c "import zipfile; zipfile.ZipFile('logs.zip').extractall('logs')"
           find logs -type f | head -30
