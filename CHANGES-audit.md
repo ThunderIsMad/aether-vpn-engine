@@ -39,8 +39,11 @@ ciphertext (1088 B). Ошибки в v1 по этому пункту не был
 
 ## Что не изменилось
 
-- research/* — без структурных изменений; единственная правка-примечание: «carried in QUIC
-  Initial» в 04-pq-crypto и 02-current-articles читать как «на control-стриме поверх QUIC».
+- research/* — без структурных изменений. УТОЧНЕНИЕ (2026-09-18, doc-sync аудита 3):
+  заявленная здесь правка «carried in QUIC Initial» в 04-pq-crypto и 02-current-articles
+  **не вносилась** — формулировка в `research/04-pq-crypto.md:31` осталась прежней; читать
+  её как «на control-стриме поверх QUIC» следует по этой записи (и по «Исправлению v3»
+  в `design/02-protocols.md` §handshake), не по тексту research-файла.
 - Крипто-примитивы (X25519MLKEM768, Noise-XX, XChaCha20-Poly1305) — подтверждены как корректный выбор.
 - Направление (морфинг против ML-DPI, stateless egress, QUIC-субстрат) — подтверждено аудитом.
 

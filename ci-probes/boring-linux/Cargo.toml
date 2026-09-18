@@ -4,10 +4,15 @@ version = "0.0.0"
 edition = "2021"
 publish = false
 
+# > **УСТАРЕЛО (2026-09-18):** boring — прод-зависимость workspace с f226d05
+# > (`cover-reality`, пин 4.22 в `[workspace.dependencies]`). Этот пробный крейт
+# > сохранён как историческая разведка platform parity — см.
+# > `docs/phase-reports/reality-boring-probe.md` и `cover-reality`.
+#
 # РАЗВЕДКА (platform parity): проверка линковки boring-sys на Linux CI-раннере —
 # та же разведка, что и локальная Windows/GNU проба из
 # docs/phase-reports/reality-boring-probe.md, только на другой платформе.
-# Не прод-зависимость: boring НЕ добавлен в [workspace.dependencies], crates/ не
-# тронут; крейт исключён из workspace резолвера через exclude в корневом Cargo.toml.
+# На момент пробы boring НЕ был в [workspace.dependencies]; крейт исключён
+# из workspace резолвера через exclude в корневом Cargo.toml.
 [dependencies]
 boring = "4"

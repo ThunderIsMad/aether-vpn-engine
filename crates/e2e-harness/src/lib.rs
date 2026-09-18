@@ -11,8 +11,8 @@
 //!   (`len(4B BE) ‖ record.encode()`) — тот же формат, что интеграционный тест `phase0-path`;
 //! * `RESUME` — `ClientRotation::build_resume` байт в байт (kind `0x02`, PoP `sig_client`),
 //!   проверка `sig_node` ACK — `ClientRotation::accept_response` (`key-coordinator`);
-//! * `RESUME_ACK` на стороне узла собирается форматом harness-мока `rotation-tests`
-//!   (прод-крейт ACK-кадр пока не собирает; это задокументировано в отчёте, не спека);
+//! * `RESUME_ACK` на стороне узла — прод-эмиттер `key_coordinator::build_resume_ack`
+//!   (BLOCKER-2: единственный эмиттер ACK-кадра, harness кадр сам не собирает);
 //! * ротация N1→N2: узел N2 держит `eph_node_priv`, выводит `K_session'` той же функцией
 //!   `derive_rotated_session`, что и клиент (`02 §3.3`); совпадение видно по логам сторон.
 //!

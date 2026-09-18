@@ -144,7 +144,7 @@ SsPaddedBinding/MasqueBinding — не тронуты.
 
 | Крейт/файл | Что внутри | Тесты |
 |---|---|---|
-| `cover-reality` (новый) | `RealityBinding: CoverBinding` (каркас) + `encode/decode_reality_frame`, `classify_first_record` (верdict Authenticated/Fallback), `build_client_hello_tls` (boring-коннектор под `TargetSite`), `FallbackReply`, `TargetSite` (SNI параметризован; placeholder — не боевой домен); `DPI_PROFILE_REALITY_TCP = 0x05` (реэкспорт из transport-mux) | 10 + 2 ignored |
+| `cover-reality` (новый) | `RealityBinding: CoverBinding` (каркас) + `encode/decode_reality_frame`, `classify_first_record` (верdict Authenticated/Fallback), `build_client_hello_tls` (boring-коннектор под `TargetSite`), `FallbackReply`, `TargetSite` (SNI параметризован; placeholder — не боевой домен); `DPI_PROFILE_REALITY_TCP = 0x02` (реэкспорт из transport-mux) | 10 + 2 ignored |
 | `Cargo.toml` (workspace) | `boring = "4.22.0"` — **первая прод-зависимость boring**, owner `cover-reality`, TTL 180 дней (перепроверка до 2027-03-16) | — |
 | `scripts/local-env.sh` | Дополнен boring-блоком: NASM 2.16.03 в PATH, `LIBCLANG_PATH` (PyPI-колесо), `BINDGEN_EXTRA_CLANG_ARGS=-target x86_64-pc-windows-gnu…`, `CMAKE_GENERATOR=Ninja` — раньше это был `boring-probe-env.sh` только для пробы; также фикс: sysroot-путь больше не через внешний `tr` (busybox-tr из w64devkit в PATH ломал `C:\→C:CUsers`) | — |
 | `.github/workflows/ci.yml` | rust-job: `apt-get install cmake libclang-dev` — boring-sys теперь собирается в обязательном прогоне (на Linux NASM не нужен — ASM_NASM только для Windows) | — |
@@ -181,8 +181,10 @@ RST или иной маркер, характерный только для Rea
 
 `caps()` отдаёт `no_hol: false, datagram: false` — TCP-класс с HOL по построению
 (`02 §2.2` tradeoff, не дефект: морф-контроллер использует Reality только при явной
-блокировке QUIC-путей и уходит с него при первой возможности). `dpi_profile = 0x05`.
-Проверено тестом `caps_stream_class_not_no_hol`.
+блокировке QUIC-путей и уходит с него при первой возможности). `dpi_profile = 0x02`
+(`transport_mux::DPI_PROFILE_REALITY_TCP`).
+Проверено тестом `caps_stream_class_not_no_hol` (проверяет `dpi_profile ==
+DPI_PROFILE_REALITY_TCP` — константу, а не литерал 0x02).
 
 ## Тесты (все зелёные локально на Windows/GNU)
 

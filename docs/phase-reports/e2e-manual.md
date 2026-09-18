@@ -44,7 +44,7 @@ Phase 0 проверяла протоколы `02-protocols.md` моками (`r
 [client] Noise_IK complete: K_session#=ab12cd34ef56...
 [node1]  Noise_IK handshake complete: K_session#=ab12cd34ef56...   ← тот же хеш
 [node1]  record seq=0..4 accepted
-[client] ticket minted at N1 (165 B)
+[client] ticket minted at N1 (161 B)
 [client] RESUME accepted by N2: continuity_point=4, window=(0,4)
 [node2]  RESUME accepted: last_seq=4, window=(0,4), ticket consumed
 [node2]  re-key: K_session'#=9876fedcba54...

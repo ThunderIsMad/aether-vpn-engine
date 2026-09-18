@@ -1,8 +1,8 @@
-# VPN Engine Research & Design — `vpn/` (v2)
+# Aether VPN Engine — research, design и реализация (`vpn/`, v2)
 
 **Цель:** исследовать сетевые технологии и VPN, проанализировать современные архитектуры
 и существующие решения, спроектировать концепт современного VPN-движка с уникальной
-архитектурой — и сохранить исследование + описание проекта здесь.
+архитектурой — и **реализовать его** в Rust-workspace `crates/`.
 
 **Имя концепта: `Aether`** — adversarial-aware, self-morphing, stateless-egress,
 post-quantum VPN core. Архитектурный коднейм: **Liquid Tunnel**.
@@ -20,15 +20,37 @@ post-quantum VPN core. Архитектурный коднейм: **Liquid Tunne
 vpn/
 ├── README.md                  # этот файл — индекс + оркестрация
 ├── CHANGES-audit.md           # что и почему исправлено в v2
+├── QUESTIONS.md               # открытые/закрытые вопросы Q1–Q25, BLOCKER-1/2, аудит-фиксы
+├── DEPENDENCIES.md            # верифицированный стек зависимостей + TTL перепроверок
+├── AGENTS.md / .agents/       # правила и скиллы агентной оркестрации
 ├── research/                  # исследовательские материалы (без изменений, кроме пометок)
 │   ├── 00-index.md … 06-quic-transport.md
-└── design/                    # описание проекта (v2)
-    ├── 00-overview.md         # Aether на одном экране + честные ограничения
-    ├── 01-architecture.md     # слои + потоки + последовательность ротации
-    ├── 02-protocols.md        # frame-протокол, ротация, handshake, FSM морфинга
-    ├── 03-components.md       # модули + верифицированный стек крейтов
-    ├── 04-advantages.md       # цифры со статусами ИЗМЕРЕНО/ГИПОТЕЗА/ПРОЕКТНО
-    └── 05-roadmap.md          # фазы 0–4 + Phase 0.5 (спайк верификации стека)
+├── design/                    # описание проекта (v2)
+│   ├── 00-overview.md         # Aether на одном экране + честные ограничения
+│   ├── 01-architecture.md     # слои + потоки + последовательность ротации
+│   ├── 02-protocols.md        # frame-протокол, ротация, handshake, FSM морфинга
+│   ├── 03-components.md       # модули + верифицированный стек крейтов
+│   ├── 04-advantages.md       # цифры со статусами ИЗМЕРЕНО/ГИПОТЕЗА/ПРОЕКТНО
+│   └── 05-roadmap.md          # фазы 0–4 + Phase 0.5 (спайк верификации стека)
+├── crates/                    # Rust-workspace (Phase 0 реализована, Phase 1 в работе)
+│   ├── crypto-core/           # примитивы: PQ-handshake-обёртка, KDF, AEAD, гейт-ключи
+│   ├── frame-session/         # сессия: записи, дедуп, ротация, окна морфинга
+│   ├── transport-mux/         # контракт CoverBinding, кадры, Outbox, DPI-профили
+│   ├── key-coordinator/       # клиент ротации: mint/RESUME/ACK/NAK, re-key
+│   ├── ticket-mint/           # узел: минт тикетов, consumed-set, PoP
+│   ├── session-store/         # клиентское состояние, OS secure store
+│   ├── policy-engine/         # маршрутизация, fake-ip
+│   ├── phase0-path/           # склейка однохопового пути
+│   ├── cover-ss2022/          # обложка Phase 1: SS-2022-style padded
+│   ├── cover-masque/          # обложка Phase 1: MASQUE CONNECT-UDP
+│   ├── cover-reality/         # обложка Phase 1: Reality/TCP (boring)
+│   ├── device-adapter/        # TUN/устройство
+│   ├── rotation-tests/        # интеграционные спеки ротации
+│   └── e2e-harness/           # лаборатория E2E (клиент/узел, QUIC-лаборатория)
+├── docs/                      # отчёты фаз и проб (phase-reports)
+├── scripts/                   # локальное окружение сборки (local-env.sh и др.)
+├── ci-probes/                 # разведочные крейты вне workspace (boring-linux)
+└── .github/workflows/         # CI: skills, rust (test+clippy), fmt-check
 ```
 
 ## Шесть столпов (кратко)
