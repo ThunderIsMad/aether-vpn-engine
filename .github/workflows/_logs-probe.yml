@@ -1,0 +1,102 @@
+name: logs-probe (temporary, git-based CI confirmation)
+
+on:
+  push:
+    branches: [probe-v2, probe-v3]
+  workflow_dispatch:
+    branches: [probe-v2, probe-v3]
+
+concurrency:
+  group: probe-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  report-run:
+    runs-on: ubuntu-latest
+    env:
+      OUT_BRANCH: ci-probe-logs
+    steps:
+      - name: Checkout probe branch
+        uses: actions/checkout@3d3c42e5a2a1d1b0e5b1d0f22a8e33f5f5f7b7e3
+        with:
+          persist-credentials: true
+
+      - name: Wait for ci.yml run on main to finish
+        shell: bash
+        run: |
+          set -eu
+          sha="$(git rev-parse origin/main)"
+          echo "target sha: $sha"
+          for i in $(seq 1 60); do
+            sleep 20
+            url="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${sha}&per_page=10"
+            json="$(curl -fsS -H 'Accept: application/vnd.github+json' "$url")"
+            status="$(echo "$json" | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["workflow_runs"]; print(r[0]["status"] if r else "none")')"
+            concl="$(echo "$json" | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["workflow_runs"]; print((r[0]["conclusion"] or "null") if r else "none")')"
+            echo "poll $i: status=$status conclusion=$concl"
+            if [ "$status" = "completed" ]; then
+              echo "RUN_STATUS=$status" >> "$GITHUB_ENV"
+              echo "RUN_CONCLUSION=$concl" >> "$GITHUB_ENV"
+              echo "RUN_ID=$(echo "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["workflow_runs"][0]["id"])')" >> "$GITHUB_ENV"
+              break
+            fi
+          done
+
+      - name: Download run logs
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p logs
+          curl -fsSL -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/logs" -o logs.zip
+          python3 -c "import zipfile; zipfile.ZipFile('logs.zip').extractall('logs')"
+          find logs -type f | head -30
+
+      - name: Extract key numbers from logs
+        shell: bash
+        run: |
+          set -eu
+          report="logs/REPORT.md"
+          {
+            echo "# CI report for commit $(git rev-parse origin/main)"
+            echo
+            echo "- run: ${RUN_ID} status=${RUN_STATUS} conclusion=${RUN_CONCLUSION}"
+            echo
+            echo "## test result lines"
+            grep -rhoE "test result: [a-zA-Z]+\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored" logs || true
+            echo
+            echo "## fmt check result"
+            grep -rE "cargo fmt|Diff in" logs | tail -5 || true
+            echo
+            echo "## clippy result lines"
+            grep -rhE "clippy.*(error|warning|Finished)" logs | tail -5 || true
+            echo
+            echo "## rust-cache lines"
+            grep -rh "Restored from cache key" logs | tail -3 || true
+            echo
+            echo "## toolchain pin line"
+            grep -rh "resolves to" logs | tail -3 || true
+          } > "$report"
+          cat "$report"
+
+      - name: Publish report to archive branch
+        shell: bash
+        run: |
+          set -eu
+          git config user.name "probe-bot"
+          git config user.email "probe-bot@users.noreply.github.com"
+          git fetch origin "${OUT_BRANCH}" || true
+          if git rev-parse --verify "origin/${OUT_BRANCH}" >/dev/null 2>&1; then
+            git switch -c "${OUT_BRANCH}" "origin/${OUT_BRANCH}"
+          else
+            git switch --orphan "${OUT_BRANCH}"
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+          mkdir -p runs
+          cp logs/REPORT.md "runs/${RUN_ID}.md"
+          git add runs
+          git commit -m "probe: report for run ${RUN_ID} on $(git rev-parse origin/main)"
+          git push origin "${OUT_BRANCH}"
