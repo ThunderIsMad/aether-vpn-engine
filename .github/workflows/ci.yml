@@ -86,6 +86,10 @@ jobs:
               echo "::error::rust-toolchain.toml несёт host-триплет ($want): для rustup это non-host toolchain, авто-установка скачала бы компилятор чужой платформы. Пину положено нести только версию — host задаёт платформенный слой (scripts/local-env.sh на Windows, сам раннер в CI)."
               exit 1 ;;
           esac
+          # Явная установка пина: авто-установка тулчейна из toolchain-файла объявлена rustup'ом
+          # устаревшей («auto-installation is deprecated for most `rustup` commands») — CI не
+          # должен на неё опираться (замечание из живого лога, run 35308984056).
+          rustup toolchain install "$want"
           host="$(rustc -vV | sed -n 's/^host: //p')"
           release="$(rustc -vV | sed -n 's/^release: //p')"
           rustup show
