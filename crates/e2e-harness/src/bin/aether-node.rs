@@ -29,10 +29,11 @@ use e2e_harness::{
     NodeKeys,
 };
 use frame_session::{DedupWindow, Seq, Session};
+use key_coordinator::{build_resume_nak, ResumeNak};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
-use ticket_mint::{ResumeVerdict, Signature as MintSignature, TicketFactory, Window as MintWindow};
+use ticket_mint::{ResumeVerdict, Signature as MintSignature, TicketError, TicketFactory, Window as MintWindow};
 
 /// Флаги соединения: handshake — один раз (повторный handshake-стрим — ошибка).
 #[derive(Default)]
@@ -324,6 +325,9 @@ async fn datagram_loop(connection: quinn::Connection, state: Rc<RefCell<NodeStat
 }
 
 /// Разбор control-кадра: mint или RESUME. Форматы — из прод-крейтов (`wire.rs`).
+/// NAK на неразбираемый вход — прод-эмиттер `build_resume_nak` (F-06); для неизвестного
+/// тега причины нет — `BadPop` как «не разобрать не может» маркер (на практике не доходит:
+/// клиент сам не шлёт другие теги).
 fn handle_control(st: &mut NodeState, tag: u8, request: &[u8]) -> Vec<u8> {
     if tag == TAG_MINT {
         return handle_mint(st, request);
@@ -331,7 +335,8 @@ fn handle_control(st: &mut NodeState, tag: u8, request: &[u8]) -> Vec<u8> {
     if tag == TAG_RESUME {
         return handle_resume(st, request);
     }
-    vec![0x02, 0xFF]
+    st.log(&format!("control: неизвестный тег {tag:#x}"));
+    build_resume_nak(ResumeNak::BadPop)
 }
 
 /// Mint: `kind ‖ node_id ‖ ext{sid ‖ client_auth ‖ last_seq}` → ticket.
@@ -339,15 +344,15 @@ fn handle_control(st: &mut NodeState, tag: u8, request: &[u8]) -> Vec<u8> {
 fn handle_mint(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
     let Some((_node_id, sid, client_auth, last_seq)) = parse_mint_request(request) else {
         st.log("mint request malformed");
-        return vec![0x02, 0xFF];
+        return build_resume_nak(ResumeNak::BadPop);
     };
     if !st.authorized_clients.contains(&client_auth) {
         st.log("mint rejected: клиент не в авторизованном наборе");
-        return vec![0x02, 0xFF];
+        return build_resume_nak(ResumeNak::BadPop);
     }
     let Some(k_session) = st.k_session else {
         st.log("mint rejected: handshake не завершён");
-        return vec![0x02, 0xFF];
+        return build_resume_nak(ResumeNak::BadPop);
     };
     let window = MintWindow {
         lo: last_seq.saturating_sub(4096),
@@ -374,14 +379,20 @@ fn handle_mint(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
 fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
     let Some((blob, nonce, sealed)) = parse_resume_request(request) else {
         st.log("RESUME malformed");
-        return vec![0x02, 0xFF];
+        return build_resume_nak(ResumeNak::BadPop);
     };
     let blob_owned = ticket_mint::TicketBlob(blob.clone());
     let ticket = match st.factory.unwrap_at(&blob_owned, st.now) {
         Ok(ticket) => ticket,
+        // Ветка отказов — по коду unwrap (`02 §3.7`): чужая эпоха и просрочка —
+        // разные причины, клиент реагирует на них по-разному (F-06).
         Err(err) => {
             st.log(&format!("RESUME unwrap failed: {err:?}"));
-            return vec![0x02, 0xFF];
+            return build_resume_nak(match err {
+                TicketError::EpochMismatch => ResumeNak::Epoch,
+                TicketError::Expired => ResumeNak::Expired,
+                TicketError::BadWrap | TicketError::BadLayout => ResumeNak::BadPop,
+            });
         }
     };
     let k_resume = crypto_core::derive_k_resume(&ticket.sid.0, &KSession(ticket.k_session));
@@ -394,12 +405,12 @@ fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
         Ok(plain) => plain,
         Err(_) => {
             st.log("RESUME AEAD open failed");
-            return vec![0x02, 0xFF];
+            return build_resume_nak(ResumeNak::BadPop);
         }
     };
     let Some((ctx, sig)) = resume_ctx_from_plain(&blob, &plain) else {
         st.log("RESUME bad plaintext layout");
-        return vec![0x02, 0xFF];
+        return build_resume_nak(ResumeNak::BadPop);
     };
     match st.factory.handle_resume(&blob_owned, &sig, &ctx, st.now) {
         ResumeVerdict::Accept { ticket, anomaly } => {
@@ -462,7 +473,16 @@ fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
         }
         verdict => {
             st.log(&format!("RESUME rejected: {verdict:?}"));
-            vec![0x02, 0xFF]
+            // Причина NAK — ровно вердикт прод-разбора (`02 §3.7`), не заглушка 0xFF (F-06).
+            build_resume_nak(match verdict {
+                ResumeVerdict::NakReplay => ResumeNak::Replay,
+                ResumeVerdict::NakBadPop => ResumeNak::BadPop,
+                ResumeVerdict::NakEpoch => ResumeNak::Epoch,
+                ResumeVerdict::NakExpired => ResumeNak::Expired,
+                ResumeVerdict::Drop | ResumeVerdict::Accept { .. } => {
+                    unreachable!("Drop отфильтрован раньше; Accept обработан веткой выше")
+                }
+            })
         }
     }
 }

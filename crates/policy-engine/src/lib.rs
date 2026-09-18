@@ -27,6 +27,7 @@
 #![deny(unsafe_code)]
 
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
@@ -41,9 +42,16 @@ const FAKE_IP_LAST: u32 = 0xC612_FFFE; // 198.18.255.254
 /// Потолок пула fake-ip на процесс.
 ///
 /// Пул — по записи на хост; без потолка DNS-флуд растит `HashMap` неограниченно (OOM).
-/// При исчерпании адресов вытесняется старейшая привязка (FIFO — ближайший к LRU аналог
-/// без меток времени; точный LRU/TTL — решение Phase 1/2 вместе с DNS-TTL).
-pub const FAKE_IP_POOL_CAP: usize = 65_536;
+/// **CAP ≤ размеру диапазона** (F-03, аудит 3): выдача адресов — FAKE_IP_FIRST..=FAKE_IP_LAST,
+/// т.е. ровно 65 533 уникальных адресов; прежний CAP 65 536 делал вытеснение недостижимым
+/// (диапазон кончался раньше потолка) и исчерпание — перманентным. При исчерпании адресов
+/// вытесняется старейшая привязка (FIFO — ближайший к LRU аналог без меток времени;
+/// точный LRU/TTL — решение Phase 1/2 вместе с DNS-TTL), её адрес возвращается в пул.
+pub const FAKE_IP_POOL_CAP: usize = (FAKE_IP_LAST - FAKE_IP_FIRST) as usize + 1;
+
+/// Ручная проверка инварианта «CAP ≤ диапазон» (константы — до `const`-вычисления размера
+/// диапазона читаемый; это условие формулы выше).
+const _: () = assert!(FAKE_IP_POOL_CAP <= 65_533);
 
 /// Решение по потоку.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,6 +224,9 @@ pub struct FlowKey {
 /// Потолок `FAKE_IP_POOL_CAP` с FIFO-вытеснением старейших привязок вместо паники:
 /// исчерпание диапазона и переполнение пула — ошибки, возвращаемые вызывающему, а не
 /// крах процесса (аудит F-SEC: expect в lib-коде — process-fatal политика).
+/// Вытеснение **возвращает адрес в пул** (free-list, F-03): при исчерпании монотонного
+/// хвоста диапазона новый хост получает адрес вытесненной привязки, а не перманентный
+/// отказ — пул не «выдыхается» навсегда.
 #[derive(Debug, Clone)]
 pub struct FakeIpPool {
     by_host: HashMap<String, IpAddr>,
@@ -224,6 +235,9 @@ pub struct FakeIpPool {
     /// Следующий адрес диапазона; стартует с `FAKE_IP_FIRST`, исчерпание —
     /// `next > FAKE_IP_LAST`.
     next: u32,
+    /// Адреса, возвращённые вытеснением (FIFO free-list) — выдаются раньше
+    /// продолжения монотонного хвоста.
+    free: VecDeque<u32>,
 }
 
 impl Default for FakeIpPool {
@@ -234,6 +248,7 @@ impl Default for FakeIpPool {
             by_host: HashMap::new(),
             order: Vec::new(),
             next: FAKE_IP_FIRST,
+            free: VecDeque::new(),
         }
     }
 }
@@ -243,8 +258,8 @@ impl Default for FakeIpPool {
 pub enum FakeIpError {
     /// Хост не нормализуется (пустой, управляющие/недопустимые символы).
     BadHost,
-    /// Диапазон `FAKE_IP_RANGE` исчерпан и вытеснять нечего (пул пуст — аномалия,
-    /// недостижимая при `FAKE_IP_POOL_CAP` ≤ размеру диапазона).
+    /// Диапазон `FAKE_IP_RANGE` исчерпан и free-list пуст: при `CAP ≤ диапазон`
+    /// это значит «вытеснять нечего» — аномалия, а не штатный путь.
     Exhausted,
 }
 
@@ -254,20 +269,28 @@ impl FakeIpPool {
         if let Some(addr) = self.by_host.get(&host) {
             return Ok(*addr);
         }
-        // Пул полон → вытесняем старейшую привязку (FIFO), освобождая **ключ**, а не
-        // адрес: выдача всё равно монотонно идёт по диапазону.
+        // Пул полон → вытесняем старейшую привязку (FIFO), её адрес — в free-list.
         while self.by_host.len() >= FAKE_IP_POOL_CAP {
             let Some(oldest) = self.order.first().cloned() else {
                 return Err(FakeIpError::Exhausted);
             };
             self.order.remove(0);
-            self.by_host.remove(&oldest);
+            if let Some(IpAddr::V4(v4)) = self.by_host.remove(&oldest) {
+                self.free.push_back(u32::from(v4));
+            }
         }
-        if self.next > FAKE_IP_LAST {
-            return Err(FakeIpError::Exhausted);
-        }
-        let addr = IpAddr::V4(Ipv4Addr::from(self.next));
-        self.next = self.next.saturating_add(1);
+        // Сначала — возвращённые вытеснением адреса (F-03), потом монотонный хвост.
+        let addr_u32 = if let Some(reused) = self.free.pop_front() {
+            reused
+        } else {
+            if self.next > FAKE_IP_LAST {
+                return Err(FakeIpError::Exhausted);
+            }
+            let fresh = self.next;
+            self.next = self.next.saturating_add(1);
+            fresh
+        };
+        let addr = IpAddr::V4(Ipv4Addr::from(addr_u32));
         self.by_host.insert(host.clone(), addr);
         self.order.push(host);
         Ok(addr)
@@ -318,6 +341,14 @@ impl Engine {
     /// Сколько хостов сейчас держит fake-ip (телеметрия).
     pub fn fake_ip_entries(&self) -> usize {
         self.fakeip.len()
+    }
+
+    /// Есть ли привязка для хоста (телеметрия/тесты, не путь выдачи).
+    pub fn fake_ip_contains(&self, host: &str) -> bool {
+        match normalize_host(host) {
+            Some(h) => self.fakeip.by_host.contains_key(&h),
+            None => false,
+        }
     }
 }
 
@@ -412,8 +443,9 @@ mod tests {
         assert_eq!(engine.route(&key("tracker.example.org")).action, RouteAction::Route);
     }
 
-    /// Контракт отказов пула: исчерпание диапазона и переполнение пула — `Err`, не паника;
-    /// при переполнении вытесняется старейшая привязка (FIFO), а пул не растёт бесконечно.
+    /// Контракт отказов пула: переполнение пула — не паника (F-SEC), вытеснение — FIFO.
+    /// С F-03 исчерпание диапазона не перманентно (см. тест recovery ниже): здесь
+    /// фиксируем стабильность существующих привязок при полной занятости диапазона.
     #[test]
     fn contract_pool_exhaustion_errors_and_evicts_instead_of_panic() {
         let mut engine = Engine::new(RouteAction::Route, Vec::new());
@@ -431,12 +463,6 @@ mod tests {
         }
         assert_eq!(engine.fake_ip_entries(), FAKE_IP_POOL_CAP.min(span + 1));
 
-        // Диапазон исчерпан: новый хост — Exhausted, процесс жив.
-        assert_eq!(
-            engine.assign_fake_ip("fresh.example"),
-            Err(FakeIpError::Exhausted),
-            "исчерпание диапазона — ошибка, не паника"
-        );
         // Существующая привязка по-прежнему резолвится в свой адрес.
         assert_eq!(
             engine.assign_fake_ip("oldest.example").expect("стабильный адрес"),
@@ -445,15 +471,17 @@ mod tests {
         );
     }
 
-    /// Контракт FIFO-вытеснения: при переполнении пула (потолок меньше диапазона)
-    /// старейшая привязка вытесняется, потолок удерживается — HashMap не растёт без границ.
+    /// Контракт FIFO-вытеснения: при переполнении пула старейшая привязка вытесняется,
+    /// потолок удерживается — HashMap не растёт без границ.
     #[test]
     fn contract_pool_fifo_eviction_keeps_cap() {
         let mut pool = FakeIpPool {
             by_host: HashMap::new(),
             order: Vec::new(),
             next: FAKE_IP_FIRST,
+            free: VecDeque::new(),
         };
+        // Заполняем пул синтетически (не через assign: диапазон и так весь CAP).
         for i in 0..FAKE_IP_POOL_CAP {
             let host = format!("x{i}.example");
             pool.by_host
@@ -467,6 +495,46 @@ mod tests {
         assert_eq!(pool.len(), FAKE_IP_POOL_CAP, "потолок удержан");
         assert!(!pool.by_host.contains_key(&evicted), "старейшая вытеснена");
         assert!(pool.by_host.contains_key("fresh.example"));
+    }
+
+    /// F-03 (аудит 3): исчерпание диапазона НЕ перманентно — вытеснение возвращает адрес
+    /// в пул (free-list), новый хост получает адрес вытесненной привязки. И инвариант
+    /// CAP ≤ размеру диапазона: вытеснение достижимо ровно на последнем адресе диапазона,
+    /// «мёртвой зоны» между CAP и диапазоном больше нет.
+    #[test]
+    fn contract_pool_exhaustion_recovers_via_eviction_free_list() {
+        let mut engine = Engine::new(RouteAction::Route, Vec::new());
+        let span = (FAKE_IP_LAST - FAKE_IP_FIRST) as usize;
+        assert_eq!(
+            FAKE_IP_POOL_CAP,
+            span + 1,
+            "CAP равен числу выдаваемых адресов диапазона: вытеснение достижимо (F-03)"
+        );
+
+        // Занимаем весь диапазон: CAP = span+1 уникальных адресов.
+        let oldest_addr = engine
+            .assign_fake_ip("oldest.example")
+            .expect("первый адрес диапазона");
+        for i in 0..span {
+            engine
+                .assign_fake_ip(&format!("h{i}.example"))
+                .expect("диапазон ровно покрывает CAP привязок");
+        }
+        assert_eq!(engine.fake_ip_entries(), FAKE_IP_POOL_CAP);
+
+        // Пул полон и диапазон исчерпан, но вытеснение возвращает адрес: новый хост жив.
+        let recycled = engine
+            .assign_fake_ip("fresh.example")
+            .expect("вытеснение старейшей отдаёт её адрес — исчерпание не перманентно (F-03)");
+        assert_eq!(recycled, oldest_addr, "новый хост получил адрес вытесненной первой");
+        assert!(!engine.fake_ip_contains("oldest.example"), "старейшая вытеснена");
+        assert_eq!(engine.fake_ip_entries(), FAKE_IP_POOL_CAP, "потолок удержан");
+
+        // Существующие привязки стабильны после вытеснения.
+        let second_addr = engine
+            .assign_fake_ip("h0.example")
+            .expect("непотревоженная привязка жива");
+        assert_ne!(second_addr, recycled);
     }
 
     /// Контракт split-tunnel: `Block` отклоняет по домену, `Direct` — по CIDR,

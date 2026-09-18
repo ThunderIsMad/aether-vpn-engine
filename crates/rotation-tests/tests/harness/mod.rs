@@ -33,8 +33,8 @@ pub use frame_session::{
 pub use key_coordinator::{ack_nonce, ack_signing_payload, resume_signing_payload};
 pub use key_coordinator::{
     ChannelError, ClientRotation, Continuity, Ed25519Pub as KcEd25519Pub, Node, NodeId, ResumeCtx,
-    ResumeError, Rotation, RotationChannel, Signature as KcSignature, Ticket, TicketBlob,
-    X25519Pub as KcX25519Pub,
+    ResumeError, ResumeNak as KcResumeNak, Rotation, RotationChannel, Signature as KcSignature,
+    Ticket, TicketBlob, X25519Pub as KcX25519Pub,
 };
 pub use ticket_mint::{
     Ed25519Pub as MintEd25519Pub, ResumeCtx as MintResumeCtx, ResumeVerdict,
@@ -69,14 +69,12 @@ pub const WIRE_NAK: u8 = 0x02;
 /// Неизвестный тип — то, что узел отдаёт на неразбираемый вход.
 pub const WIRE_UNKNOWN: u8 = 0x03;
 
-/// Код ветки `bad_pop` (`02 §3.7`).
-pub const NAK_BAD_POP: u8 = 0x01;
-/// Код ветки `replay`.
-pub const NAK_REPLAY: u8 = 0x02;
-/// Код ветки `epoch`.
-pub const NAK_EPOCH: u8 = 0x03;
-/// Код ветки `expired`.
-pub const NAK_EXPIRED: u8 = 0x04;
+/// Коды веток NAK (`02 §3.7`) — реэкспорт прод-констант `key-coordinator` (F-06:
+/// один источник правды, мок больше не держит свои спектральные значения).
+pub const NAK_BAD_POP: u8 = key_coordinator::NAK_BAD_POP;
+pub const NAK_REPLAY: u8 = key_coordinator::NAK_REPLAY;
+pub const NAK_EPOCH: u8 = key_coordinator::NAK_EPOCH;
+pub const NAK_EXPIRED: u8 = key_coordinator::NAK_EXPIRED;
 
 /// Адаптер `crypto-core` → `frame-session::SessionCrypto`.
 ///
@@ -302,7 +300,10 @@ impl NodeSim {
     }
 
     fn nak(&self, code: u8) -> Vec<u8> {
-        vec![WIRE_NAK, code]
+        // F-06: прод-эмиттер `build_resume_nak`, не ручной литерал.
+        key_coordinator::build_resume_nak(
+            key_coordinator::ResumeNak::from_code(code).expect("код из прод-констант"),
+        )
     }
 
     /// `RESUME_ACK` — единственный прод-эмиттер `key_coordinator::build_resume_ack`

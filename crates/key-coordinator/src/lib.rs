@@ -166,10 +166,55 @@ pub enum ResumeError {
     AckTimeout,
     /// `sig_node` неверна → канал не подтверждён, узел в quarantine.
     BadNodeSignature,
-    /// Узел отклонил ticket: `bad_pop`, `replay`, `epoch`, `expired`.
-    Nacked,
-    /// Ответ узла не разбирается (кадрирование/длина).
+    /// Узел отклонил ticket с причиной (`F-06`): код-байт NAK-кадра разбирается, а не
+    /// отбрасывается — клиент обязан различать `Epoch`/`Expired` (фолбэк на полный
+    /// IK-handshake) и `Replay`/`BadPop` (rollback на старый канал / телеметрия).
+    Nacked(ResumeNak),
+    /// Ответ узла не разбирается (кадрирование/длина/неизвестный код NAK).
     Malformed,
+}
+
+/// Причина `RESUME_NAK` на проводе (`02 §3.7`, F-06). Коды зафиксированы в спеке §3.7;
+/// прод-эмиттер — `build_resume_nak`, прод-парсер — `accept_response` (единые, как и
+/// для ACK — прецедент BLOCKER-2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumeNak {
+    /// `sig_client` неверна: ticket не консумируется, инцидент в телеметрию узла.
+    BadPop,
+    /// Повтор ticket на том же узле (`consumed-set` эпохи, `02 §3.6`).
+    Replay,
+    /// `epoch_id` не совпал → фолбэк: полный IK-handshake (`02 §5`).
+    Epoch,
+    /// `exp` истёк → фолбэк: полный handshake.
+    Expired,
+}
+
+impl ResumeNak {
+    /// Код-байт NAK-кадра (`02 §3.7`).
+    pub fn code(self) -> u8 {
+        match self {
+            ResumeNak::BadPop => NAK_BAD_POP,
+            ResumeNak::Replay => NAK_REPLAY,
+            ResumeNak::Epoch => NAK_EPOCH,
+            ResumeNak::Expired => NAK_EXPIRED,
+        }
+    }
+
+    /// Обратное к `code`; неизвестный код — `None` (парсер → `Malformed`).
+    pub fn from_code(code: u8) -> Option<Self> {
+        match code {
+            NAK_BAD_POP => Some(ResumeNak::BadPop),
+            NAK_REPLAY => Some(ResumeNak::Replay),
+            NAK_EPOCH => Some(ResumeNak::Epoch),
+            NAK_EXPIRED => Some(ResumeNak::Expired),
+            _ => None,
+        }
+    }
+
+    /// Требует ли ветка фолбэка на полный IK-handshake (`02 §3.7`).
+    pub fn requires_full_handshake(self) -> bool {
+        matches!(self, ResumeNak::Epoch | ResumeNak::Expired)
+    }
 }
 
 /// Ошибка пост-ротационного re-key.
@@ -203,6 +248,14 @@ const KIND_MINT_REQ: u8 = 0x01;
 const KIND_RESUME: u8 = 0x02;
 const KIND_ACK: u8 = 0x01;
 const KIND_NAK: u8 = 0x02;
+
+/// Коды причин `RESUME_NAK` (`02 §3.7`, F-06). Единственный источник правды —
+/// `ResumeNak::code`/`from_code` здесь; эмиттеры обязаны звать `build_resume_nak`.
+pub const NAK_BAD_POP: u8 = 0x01;
+pub const NAK_REPLAY: u8 = 0x02;
+pub const NAK_EPOCH: u8 = 0x03;
+pub const NAK_EXPIRED: u8 = 0x04;
+
 const NONCE_LABEL_RESUME: [u8; 8] = *b"resume\x00\x00";
 const NONCE_LABEL_ACK: [u8; 8] = *b"resumeak";
 
@@ -274,6 +327,17 @@ pub fn ack_nonce(client_nonce: &[u8; 16]) -> [u8; 24] {
     nonce[..16].copy_from_slice(client_nonce);
     nonce[16..].copy_from_slice(&NONCE_LABEL_ACK);
     nonce
+}
+
+/// Собирает `RESUME_NAK` на узловой стороне (`02 §3.7`, F-06) — единственный прод-эмиттер
+/// NAK-кадра. Раньше ветки отказов дублировались литералами `vec![0x02, 0xFF]` в
+/// `e2e-harness` и спектральными кодами в моке `rotation-tests` (три источника правды,
+/// код-байт терялся). Парсер зеркальной стороны — `ClientRotation::accept_response`.
+///
+/// Провод: `kind(0x02) ‖ код причины(1B)` (`§3.7`: BadPop=1, Replay=2, Epoch=3, Expired=4).
+/// AAD/шифрования нет — NAK не несёт секрета, только причину отказа (как и раньше).
+pub fn build_resume_nak(reason: ResumeNak) -> Vec<u8> {
+    vec![KIND_NAK, reason.code()]
 }
 
 /// Собирает `RESUME_ACK` на узловой стороне (`02 §3.3`) — единственный прод-эмиттер ACK-кадра
@@ -498,9 +562,11 @@ impl<C: RotationChannel> ClientRotation<C> {
     ) -> Result<Continuity, ResumeError> {
         let kind = *response.first().ok_or(ResumeError::Malformed)?;
         // NAK детектируется фреймом целиком (`len == 2 && kind == 0x02`): первый байт
-        // длинного ответа — данные, а не маркер отказа (аудит F-CORR).
+        // длинного ответа — данные, а не маркер отказа (аудит F-CORR). Код-байт разбирается
+        // (F-06): причина нужна клиенту для ветки `§3.7`; неизвестный код — `Malformed`.
         if response.len() == 2 && kind == KIND_NAK {
-            return Err(ResumeError::Nacked);
+            let reason = ResumeNak::from_code(response[1]).ok_or(ResumeError::Malformed)?;
+            return Err(ResumeError::Nacked(reason));
         }
         if kind != KIND_ACK {
             return Err(ResumeError::Malformed);
@@ -1074,10 +1140,27 @@ mod tests {
     fn contract_nak_detection_is_framed_not_heuristic() {
         let (mut rotation, node, _node_priv, ctx, request) = ack_stand();
 
-        // RESUME-ответ: NAK-фрейм → Nacked; всё прочее с kind=NAK → Malformed.
+        // RESUME-ответ: NAK-фрейм → Nacked с причиной (F-06); всё прочее с kind=NAK → Malformed.
         assert_eq!(
-            rotation.accept_response(&node, &request, &[KIND_NAK, 0x01], &ctx),
-            Err(ResumeError::Nacked)
+            rotation.accept_response(&node, &request, &[KIND_NAK, NAK_BAD_POP], &ctx),
+            Err(ResumeError::Nacked(ResumeNak::BadPop))
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[KIND_NAK, NAK_REPLAY], &ctx),
+            Err(ResumeError::Nacked(ResumeNak::Replay))
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[KIND_NAK, NAK_EPOCH], &ctx),
+            Err(ResumeError::Nacked(ResumeNak::Epoch))
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[KIND_NAK, NAK_EXPIRED], &ctx),
+            Err(ResumeError::Nacked(ResumeNak::Expired))
+        );
+        assert_eq!(
+            rotation.accept_response(&node, &request, &[KIND_NAK, 0xFF], &ctx),
+            Err(ResumeError::Malformed),
+            "неизвестный код NAK — Malformed (код-байт больше не отбрасывается, F-06)"
         );
         assert_eq!(
             rotation.accept_response(&node, &request, &[KIND_NAK, 0x01, 0x02], &ctx),

@@ -66,8 +66,8 @@ fn rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake() {
     );
     assert_eq!(
         rotation.resume(&n2_manifest, &ticket, eph_public),
-        Err(ResumeError::Nacked),
-        "NAK доходит как `Nacked` (`03-components`, «Контракты»)"
+        Err(ResumeError::Nacked(KcResumeNak::Epoch)),
+        "NAK с причиной доходит клиенту (F-06); ветка `epoch` (`02 §3.7`)"
     );
     assert_eq!(
         last_response(&network),
@@ -158,8 +158,8 @@ fn rotation_stolen_ticket_naks_bad_pop_and_is_not_consumed() {
     );
     assert_eq!(
         thief.resume(&manifest, &ticket, thief_eph),
-        Err(ResumeError::Nacked),
-        "чужая подпись не даёт сессии (`02 §3.8`)"
+        Err(ResumeError::Nacked(KcResumeNak::BadPop)),
+        "чужая подпись не даёт сессии (`02 §3.8`); причина — bad_pop (F-06)"
     );
     // 2. Узел проверил `sig_client` по ключу **из ticket** и не консумировал билет.
     assert_eq!(last_response(&network), vec![WIRE_NAK, NAK_BAD_POP]);
@@ -315,7 +315,7 @@ fn rotation_bad_signatures_reject_and_keep_old_channel() {
     let ticket = thief.request_ticket(&n2_manifest).expect("ticket");
     assert_eq!(
         thief.resume(&n2_manifest, &ticket, eph_a),
-        Err(ResumeError::Nacked)
+        Err(ResumeError::Nacked(KcResumeNak::BadPop))
     );
     assert_eq!(last_response(&network), vec![WIRE_NAK, NAK_BAD_POP]);
     assert_eq!(network.borrow().nodes[&2].consumed_tickets(), 0);
@@ -355,7 +355,7 @@ fn rotation_bad_signatures_reject_and_keep_old_channel() {
     assert_eq!(err, ResumeError::BadNodeSignature);
     assert_ne!(
         err,
-        ResumeError::Nacked,
+        ResumeError::Nacked(KcResumeNak::BadPop),
         "спека различает эти исходы (`02 §3.7`)"
     );
     assert_eq!(victim.confirmed_eph_node(), None, "канал не подтверждён");

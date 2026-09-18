@@ -383,8 +383,8 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
     rotation.set_eph_client(eph_b_priv, eph_b);
     assert_eq!(
         rotation.resume(&manifest, &ticket, eph_b),
-        Err(ResumeError::Nacked),
-        "тот же ticket на том же узле → `RESUME_NAK replay` (`02 §3.7`)"
+        Err(ResumeError::Nacked(KcResumeNak::Replay)),
+        "тот же ticket на том же узле → `RESUME_NAK replay` (`02 §3.7`), причина доходит (F-06)"
     );
     assert_eq!(rotation.attempts(), 2);
     assert_eq!(
