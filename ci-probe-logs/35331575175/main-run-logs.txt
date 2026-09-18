@@ -1,0 +1,70 @@
+================ РЕАЛЬНЫЙ ПРОГОН ci.yml НА MAIN: run 35331575175 ================
+name=CI event=push ref=main sha=cfdb7c48c4b8434f77389d377d9c85b62329d097 status=completed/success created=2026-09-18T09:49:53Z url=https://github.com/ThunderIsMad/aether-vpn-engine/actions/runs/35331575175
+
+---- job'ы и шаги (status/conclusion) ----
+[Validate skills] completed/success id=105556883369
+    - 1. Set up job: completed/success
+    - 2. Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1: completed/success
+    - 3. Install validator dependencies: completed/success
+    - 4. Validate .agents/skills: completed/success
+    - 8. Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1: completed/success
+    - 9. Complete job: completed/success
+[Rust (test + clippy)] completed/success id=105556883687
+    - 1. Set up job: completed/success
+    - 2. Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1: completed/success
+    - 3. Install boring-sys build dependencies (linux): completed/success
+    - 4. Detect workspace: completed/success
+    - 5. No workspace yet: completed/skipped
+    - 6. Verify toolchain pin (linux): completed/success
+    - 7. Ensure clippy and rustfmt: completed/success
+    - 8. Cache cargo build artifacts: completed/success
+    - 9. cargo fmt --check: completed/success
+    - 10. cargo test: completed/success
+    - 11. cargo clippy: completed/success
+    - 12. cargo clippy (e2e feature): completed/success
+    - 13. cargo test (e2e feature, best-effort): completed/success
+    - 25. Post Cache cargo build artifacts: completed/success
+    - 26. Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1: completed/success
+    - 27. Complete job: completed/success
+[Reality boring probe (linux, recon)] completed/skipped id=105556884700
+job 105556883369: http=200 type=text/plain bytes=16846
+job 105556883369: тело — не zip (text/plain), беру как есть
+clean-105556883369.log: 181 строк
+job 105556883687: http=200 type=text/plain bytes=62982
+job 105556883687: тело — не zip (text/plain), беру как есть
+clean-105556883687.log: 755 строк
+
+---- числа тестов ПО ШАГАМ (ожидание: 107/0/2 workspace, 16/0 e2e) ----
+cargo test --locked --workspace --all-targets                          passed=110 failed=0 ignored=2
+cargo test --locked -p e2e-harness --all-features                      passed=17 failed=0 ignored=0
+
+---- резолв toolchain-пина ----
+active toolchain
+name: 1.98.1-x86_64-unknown-linux-gnu
+active because: overridden by '/home/runner/work/aether-vpn-engine/aether-vpn-engine/rust-toolchain.toml'
+resolved toolchain: channel=1.98.1 host=x86_64-unknown-linux-gnu release=1.98.1
+
+---- признаки отказа (пусто = нет) ----
+
+---- строки с 'test result:' как есть ----
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 14 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.18s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+collect finished for run 35331575175

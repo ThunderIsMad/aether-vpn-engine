@@ -1,0 +1,755 @@
+﻿2026-09-18T09:49:56.9288198Z Current runner version: '2.337.0'
+2026-09-18T09:49:56.9315751Z ##[group]Runner Image Provisioner
+2026-09-18T09:49:56.9316748Z Hosted Compute Agent
+2026-09-18T09:49:56.9317408Z Version: 20260828.587
+2026-09-18T09:49:56.9318066Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-18T09:49:56.9318899Z Build Date: 2026-08-28T16:44:25Z
+2026-09-18T09:49:56.9319618Z Worker ID: {3c55fc2f-95b5-4c6c-abf0-98f35dcc108d}
+2026-09-18T09:49:56.9320386Z Azure Region: eastus
+2026-09-18T09:49:56.9321036Z ##[endgroup]
+2026-09-18T09:49:56.9322553Z ##[group]Operating System
+2026-09-18T09:49:56.9323299Z Ubuntu
+2026-09-18T09:49:56.9323849Z 24.04.5
+2026-09-18T09:49:56.9325227Z LTS
+2026-09-18T09:49:56.9325866Z ##[endgroup]
+2026-09-18T09:49:56.9326447Z ##[group]Runner Image
+2026-09-18T09:49:56.9327144Z Image: ubuntu-24.04
+2026-09-18T09:49:56.9327732Z Version: 20260907.300.1
+2026-09-18T09:49:56.9329035Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-18T09:49:56.9330659Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260907.300
+2026-09-18T09:49:56.9331747Z ##[endgroup]
+2026-09-18T09:49:56.9332906Z ##[group]GITHUB_TOKEN Permissions
+2026-09-18T09:49:56.9335389Z Contents: read
+2026-09-18T09:49:56.9336023Z Metadata: read
+2026-09-18T09:49:56.9336584Z ##[endgroup]
+2026-09-18T09:49:56.9338793Z Secret source: Actions
+2026-09-18T09:49:56.9340098Z Cache mode: write
+2026-09-18T09:49:56.9341619Z Prepare workflow directory
+2026-09-18T09:49:56.9672317Z Prepare all required actions
+2026-09-18T09:49:56.9722083Z Getting action download info
+2026-09-18T09:49:57.1948580Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-09-18T09:49:57.3180509Z Download action repository 'Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6' (SHA:6323deb102c322ba6fcbdcafc7e3dddab59af2b6)
+2026-09-18T09:49:57.6078042Z Complete job name: Rust (test + clippy)
+2026-09-18T09:49:57.6888478Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-09-18T09:49:57.6889586Z with:
+2026-09-18T09:49:57.6890052Z   persist-credentials: false
+2026-09-18T09:49:57.6890614Z   repository: ThunderIsMad/aether-vpn-engine
+2026-09-18T09:49:57.6894730Z   token: ***
+2026-09-18T09:49:57.6895182Z   ssh-strict: true
+2026-09-18T09:49:57.6895622Z   ssh-user: git
+2026-09-18T09:49:57.6896047Z   clean: true
+2026-09-18T09:49:57.6896516Z   sparse-checkout-cone-mode: true
+2026-09-18T09:49:57.6897050Z   fetch-depth: 1
+2026-09-18T09:49:57.6897489Z   fetch-tags: false
+2026-09-18T09:49:57.6897944Z   show-progress: true
+2026-09-18T09:49:57.6898394Z   lfs: false
+2026-09-18T09:49:57.6898863Z   submodules: false
+2026-09-18T09:49:57.6899340Z   set-safe-directory: true
+2026-09-18T09:49:57.6899851Z   allow-unsafe-pr-checkout: false
+2026-09-18T09:49:57.6900658Z ##[endgroup]
+2026-09-18T09:49:57.7910916Z Syncing repository: ThunderIsMad/aether-vpn-engine
+2026-09-18T09:49:57.7914531Z ##[group]Getting Git version info
+2026-09-18T09:49:57.7915975Z Working directory is '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+2026-09-18T09:49:57.7918018Z [command]/usr/bin/git version
+2026-09-18T09:49:57.8014979Z git version 2.55.0
+2026-09-18T09:49:57.8039136Z ##[endgroup]
+2026-09-18T09:49:57.8050871Z Temporarily overriding HOME='/home/runner/work/_temp/36bb3a04-c54d-44c1-b89d-5d9394a492fd' before making global git config changes
+2026-09-18T09:49:57.8053441Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-18T09:49:57.8059354Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T09:49:57.8115134Z Deleting the contents of '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+2026-09-18T09:49:57.8119175Z ##[group]Determining repository object format
+2026-09-18T09:49:57.8120955Z ##[endgroup]
+2026-09-18T09:49:57.8122237Z ##[group]Initializing the repository
+2026-09-18T09:49:57.8126986Z [command]/usr/bin/git init /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T09:49:57.8257567Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-18T09:49:57.8260043Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-18T09:49:57.8262363Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-18T09:49:57.8263537Z hint: call:
+2026-09-18T09:49:57.8264431Z hint:
+2026-09-18T09:49:57.8265173Z hint: 	git config --global init.defaultBranch <name>
+2026-09-18T09:49:57.8266018Z hint:
+2026-09-18T09:49:57.8266793Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-18T09:49:57.8267858Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-18T09:49:57.8268742Z hint:
+2026-09-18T09:49:57.8269321Z hint: 	git branch -m <name>
+2026-09-18T09:49:57.8269968Z hint:
+2026-09-18T09:49:57.8271017Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-18T09:49:57.8272489Z Initialized empty Git repository in /home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/
+2026-09-18T09:49:57.8275421Z [command]/usr/bin/git remote add origin https://github.com/ThunderIsMad/aether-vpn-engine
+2026-09-18T09:49:57.8328399Z ##[endgroup]
+2026-09-18T09:49:57.8329227Z ##[group]Disabling automatic garbage collection
+2026-09-18T09:49:57.8332523Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-18T09:49:57.8369511Z ##[endgroup]
+2026-09-18T09:49:57.8370680Z ##[group]Setting up auth
+2026-09-18T09:49:57.8371383Z Removing SSH command configuration
+2026-09-18T09:49:57.8378329Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-18T09:49:57.8419122Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-18T09:49:57.8808752Z Removing HTTP extra header
+2026-09-18T09:49:57.8814872Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-18T09:49:57.8850158Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-18T09:49:57.9092338Z Removing includeIf entries pointing to credentials config files
+2026-09-18T09:49:57.9098079Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-18T09:49:57.9139330Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-18T09:49:57.9396613Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-18T09:49:57.9439840Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git.path /home/runner/work/_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config
+2026-09-18T09:49:57.9475417Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config
+2026-09-18T09:49:57.9526521Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config
+2026-09-18T09:49:57.9562769Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config
+2026-09-18T09:49:57.9595821Z ##[endgroup]
+2026-09-18T09:49:57.9597461Z ##[group]Fetching the repository
+2026-09-18T09:49:57.9603341Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +cfdb7c48c4b8434f77389d377d9c85b62329d097:refs/remotes/origin/main
+2026-09-18T09:49:58.2708367Z From https://github.com/ThunderIsMad/aether-vpn-engine
+2026-09-18T09:49:58.2710090Z  * [new ref]         cfdb7c48c4b8434f77389d377d9c85b62329d097 -> origin/main
+2026-09-18T09:49:58.2725680Z [command]/usr/bin/git branch --list --remote origin/main
+2026-09-18T09:49:58.2765420Z   origin/main
+2026-09-18T09:49:58.2767577Z [command]/usr/bin/git rev-parse refs/remotes/origin/main
+2026-09-18T09:49:58.2805100Z cfdb7c48c4b8434f77389d377d9c85b62329d097
+2026-09-18T09:49:58.2806920Z ##[endgroup]
+2026-09-18T09:49:58.2807706Z ##[group]Determining the checkout info
+2026-09-18T09:49:58.2809416Z ##[endgroup]
+2026-09-18T09:49:58.2810281Z [command]/usr/bin/git sparse-checkout disable
+2026-09-18T09:49:58.2878426Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-18T09:49:58.2919629Z ##[group]Checking out the ref
+2026-09-18T09:49:58.2923790Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-09-18T09:49:58.3078471Z Switched to a new branch 'main'
+2026-09-18T09:49:58.3083415Z branch 'main' set up to track 'origin/main'.
+2026-09-18T09:49:58.3091200Z ##[endgroup]
+2026-09-18T09:49:58.3139090Z [command]/usr/bin/git log -1 --format=%H
+2026-09-18T09:49:58.3169566Z cfdb7c48c4b8434f77389d377d9c85b62329d097
+2026-09-18T09:49:58.3179642Z ##[group]Removing auth
+2026-09-18T09:49:58.3180724Z Removing SSH command configuration
+2026-09-18T09:49:58.3185364Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-18T09:49:58.3225781Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-18T09:49:58.3459888Z Removing HTTP extra header
+2026-09-18T09:49:58.3463829Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-18T09:49:58.3505746Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-18T09:49:58.3729002Z Removing includeIf entries pointing to credentials config files
+2026-09-18T09:49:58.3731714Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-18T09:49:58.3766129Z includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git.path
+2026-09-18T09:49:58.3768861Z includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/worktrees/*.path
+2026-09-18T09:49:58.3770749Z includeif.gitdir:/github/workspace/.git.path
+2026-09-18T09:49:58.3772043Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-18T09:49:58.3776083Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git.path
+2026-09-18T09:49:58.3808144Z /home/runner/work/_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config
+2026-09-18T09:49:58.3821885Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-4b5886fd\-9fe1\-4aff\-908c\-722a29382e02\.config
+2026-09-18T09:49:58.3884995Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/worktrees/*.path
+2026-09-18T09:49:58.3913323Z /home/runner/work/_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config
+2026-09-18T09:49:58.3923608Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-4b5886fd\-9fe1\-4aff\-908c\-722a29382e02\.config
+2026-09-18T09:49:58.3968049Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-09-18T09:49:58.4023639Z /github/runner_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config
+2026-09-18T09:49:58.4032245Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-4b5886fd\-9fe1\-4aff\-908c\-722a29382e02\.config
+2026-09-18T09:49:58.4088366Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-18T09:49:58.4118988Z /github/runner_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config
+2026-09-18T09:49:58.4130120Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-4b5886fd\-9fe1\-4aff\-908c\-722a29382e02\.config
+2026-09-18T09:49:58.4169658Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-18T09:49:58.4393713Z Removing credentials config '/home/runner/work/_temp/git-credentials-4b5886fd-9fe1-4aff-908c-722a29382e02.config'
+2026-09-18T09:49:58.4402060Z ##[endgroup]
+2026-09-18T09:49:58.4625276Z ##[group]Run sudo apt-get update
+2026-09-18T09:49:58.4626218Z [36;1msudo apt-get update[0m
+2026-09-18T09:49:58.4627402Z [36;1msudo apt-get install -y --no-install-recommends cmake libclang-dev[0m
+2026-09-18T09:49:58.4669125Z shell: /usr/bin/bash -e {0}
+2026-09-18T09:49:58.4669849Z ##[endgroup]
+2026-09-18T09:49:58.6066600Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2026-09-18T09:49:58.6327532Z Get:6 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+2026-09-18T09:49:58.6545187Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+2026-09-18T09:49:58.6571799Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+2026-09-18T09:49:58.6657611Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+2026-09-18T09:49:58.6705938Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+2026-09-18T09:49:58.7050778Z Get:7 https://dl.google.com/linux/chrome-stable/deb stable InRelease [2548 B]
+2026-09-18T09:49:58.7467995Z Get:8 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [476 kB]
+2026-09-18T09:49:58.7624884Z Get:9 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [427 kB]
+2026-09-18T09:49:58.8689565Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1275 kB]
+2026-09-18T09:49:58.8791289Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [294 kB]
+2026-09-18T09:49:58.8807750Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [181 kB]
+2026-09-18T09:49:58.8829859Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1689 kB]
+2026-09-18T09:49:58.8938004Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [338 kB]
+2026-09-18T09:49:58.8966811Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [388 kB]
+2026-09-18T09:49:58.9025924Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1580 kB]
+2026-09-18T09:49:58.9106136Z Get:17 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [359 kB]
+2026-09-18T09:49:58.9115543Z Get:18 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Packages [45.7 kB]
+2026-09-18T09:49:58.9133664Z Get:19 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse Translation-en [13.1 kB]
+2026-09-18T09:49:58.9586674Z Get:20 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
+2026-09-18T09:49:58.9601171Z Get:21 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Packages [65.9 kB]
+2026-09-18T09:49:58.9619713Z Get:22 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [5748 B]
+2026-09-18T09:49:58.9634921Z Get:23 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Packages [34.6 kB]
+2026-09-18T09:49:58.9650907Z Get:24 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe Translation-en [18.7 kB]
+2026-09-18T09:49:58.9664245Z Get:25 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [12.6 kB]
+2026-09-18T09:49:58.9963875Z Get:26 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1009 kB]
+2026-09-18T09:49:58.9993386Z Get:27 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [214 kB]
+2026-09-18T09:49:59.0008476Z Get:28 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Components [46.4 kB]
+2026-09-18T09:49:59.0036163Z Get:29 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1208 kB]
+2026-09-18T09:49:59.0097437Z Get:30 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [243 kB]
+2026-09-18T09:49:59.0115983Z Get:31 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [76.2 kB]
+2026-09-18T09:49:59.0137022Z Get:32 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1449 kB]
+2026-09-18T09:49:59.0205123Z Get:33 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [336 kB]
+2026-09-18T09:49:59.0663722Z Get:35 https://dl.google.com/linux/chrome-stable/deb stable/main amd64 Packages [1408 B]
+2026-09-18T09:49:59.0702019Z Get:34 http://azure.archive.ubuntu.com/ubuntu noble-security/multiverse Translation-en [11.3 kB]
+2026-09-18T09:50:05.3195899Z Fetched 12.2 MB in 1s (8706 kB/s)
+2026-09-18T09:50:06.1455292Z Reading package lists...
+2026-09-18T09:50:06.1767786Z Reading package lists...
+2026-09-18T09:50:06.3632022Z Building dependency tree...
+2026-09-18T09:50:06.3641616Z Reading state information...
+2026-09-18T09:50:06.5182807Z The following additional packages will be installed:
+2026-09-18T09:50:06.5189977Z   cmake-data libclang-18-dev libjsoncpp25 librhash0
+2026-09-18T09:50:06.5195617Z Suggested packages:
+2026-09-18T09:50:06.5196168Z   cmake-doc cmake-format elpa-cmake-mode ninja-build
+2026-09-18T09:50:06.5486514Z The following NEW packages will be installed:
+2026-09-18T09:50:06.5495196Z   cmake cmake-data libclang-18-dev libclang-dev libjsoncpp25 librhash0
+2026-09-18T09:50:06.5663674Z 0 upgraded, 6 newly installed, 0 to remove and 73 not upgraded.
+2026-09-18T09:50:06.5664783Z Need to get 42.4 MB of archives.
+2026-09-18T09:50:06.5665478Z After this operation, 341 MB of additional disk space will be used.
+2026-09-18T09:50:06.5666243Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2026-09-18T09:50:06.5950860Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 libjsoncpp25 amd64 1.9.5-6build1 [82.8 kB]
+2026-09-18T09:50:06.6047597Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 librhash0 amd64 1.4.3-3build1 [129 kB]
+2026-09-18T09:50:06.6142262Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 cmake-data all 3.28.3-1build7 [2155 kB]
+2026-09-18T09:50:06.6611176Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 cmake amd64 3.28.3-1build7 [11.2 MB]
+2026-09-18T09:50:06.8386504Z Get:6 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 libclang-18-dev amd64 1:18.1.3-1ubuntu1 [28.8 MB]
+2026-09-18T09:50:07.1744918Z Get:7 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 libclang-dev amd64 1:18.0-59~exp2 [5424 B]
+2026-09-18T09:50:07.4516135Z Fetched 42.4 MB in 1s (68.5 MB/s)
+2026-09-18T09:50:07.5045345Z Selecting previously unselected package libjsoncpp25:amd64.
+2026-09-18T09:50:07.5532297Z (Reading database ... 
+2026-09-18T09:50:07.5533074Z (Reading database ... 5%
+2026-09-18T09:50:07.5533661Z (Reading database ... 10%
+2026-09-18T09:50:07.5534583Z (Reading database ... 15%
+2026-09-18T09:50:07.5535240Z (Reading database ... 20%
+2026-09-18T09:50:07.5535774Z (Reading database ... 25%
+2026-09-18T09:50:07.5536436Z (Reading database ... 30%
+2026-09-18T09:50:07.5537033Z (Reading database ... 35%
+2026-09-18T09:50:07.5537599Z (Reading database ... 40%
+2026-09-18T09:50:07.5538188Z (Reading database ... 45%
+2026-09-18T09:50:07.5538749Z (Reading database ... 50%
+2026-09-18T09:50:07.6000433Z (Reading database ... 55%
+2026-09-18T09:50:07.9117922Z (Reading database ... 60%
+2026-09-18T09:50:08.1621444Z (Reading database ... 65%
+2026-09-18T09:50:08.3962960Z (Reading database ... 70%
+2026-09-18T09:50:08.6631067Z (Reading database ... 75%
+2026-09-18T09:50:09.0612834Z (Reading database ... 80%
+2026-09-18T09:50:09.5117180Z (Reading database ... 85%
+2026-09-18T09:50:09.9885024Z (Reading database ... 90%
+2026-09-18T09:50:10.5138067Z (Reading database ... 95%
+2026-09-18T09:50:10.5138629Z (Reading database ... 100%
+2026-09-18T09:50:10.5139446Z (Reading database ... 201818 files and directories currently installed.)
+2026-09-18T09:50:10.5182739Z Preparing to unpack .../0-libjsoncpp25_1.9.5-6build1_amd64.deb ...
+2026-09-18T09:50:10.5262601Z Unpacking libjsoncpp25:amd64 (1.9.5-6build1) ...
+2026-09-18T09:50:10.5550680Z Selecting previously unselected package librhash0:amd64.
+2026-09-18T09:50:10.5674646Z Preparing to unpack .../1-librhash0_1.4.3-3build1_amd64.deb ...
+2026-09-18T09:50:10.5686156Z Unpacking librhash0:amd64 (1.4.3-3build1) ...
+2026-09-18T09:50:10.5934856Z Selecting previously unselected package cmake-data.
+2026-09-18T09:50:10.6059310Z Preparing to unpack .../2-cmake-data_3.28.3-1build7_all.deb ...
+2026-09-18T09:50:10.6128702Z Unpacking cmake-data (3.28.3-1build7) ...
+2026-09-18T09:50:11.1607430Z Selecting previously unselected package cmake.
+2026-09-18T09:50:11.1744439Z Preparing to unpack .../3-cmake_3.28.3-1build7_amd64.deb ...
+2026-09-18T09:50:11.1755449Z Unpacking cmake (3.28.3-1build7) ...
+2026-09-18T09:50:11.3412247Z Selecting previously unselected package libclang-18-dev.
+2026-09-18T09:50:11.3537462Z Preparing to unpack .../4-libclang-18-dev_1%3a18.1.3-1ubuntu1_amd64.deb ...
+2026-09-18T09:50:11.3550757Z Unpacking libclang-18-dev (1:18.1.3-1ubuntu1) ...
+2026-09-18T09:50:12.2894801Z Selecting previously unselected package libclang-dev.
+2026-09-18T09:50:12.3024915Z Preparing to unpack .../5-libclang-dev_1%3a18.0-59~exp2_amd64.deb ...
+2026-09-18T09:50:12.3037821Z Unpacking libclang-dev (1:18.0-59~exp2) ...
+2026-09-18T09:50:12.3400366Z Setting up libclang-18-dev (1:18.1.3-1ubuntu1) ...
+2026-09-18T09:50:12.3433043Z Setting up libjsoncpp25:amd64 (1.9.5-6build1) ...
+2026-09-18T09:50:12.3462905Z Setting up librhash0:amd64 (1.4.3-3build1) ...
+2026-09-18T09:50:12.3490205Z Setting up cmake-data (3.28.3-1build7) ...
+2026-09-18T09:50:12.3562406Z Setting up libclang-dev (1:18.0-59~exp2) ...
+2026-09-18T09:50:12.3591160Z Setting up cmake (3.28.3-1build7) ...
+2026-09-18T09:50:12.3620823Z Processing triggers for man-db (2.12.0-4build2) ...
+2026-09-18T09:50:12.3643514Z Not building database; man-db/auto-update is not 'true'.
+2026-09-18T09:50:12.3658887Z Processing triggers for libc-bin (2.39-0ubuntu8.8) ...
+2026-09-18T09:50:13.4431977Z 
+2026-09-18T09:50:13.4432755Z Running kernel seems to be up-to-date.
+2026-09-18T09:50:13.4433078Z 
+2026-09-18T09:50:13.4433218Z No services need to be restarted.
+2026-09-18T09:50:13.4433449Z 
+2026-09-18T09:50:13.4433573Z No containers need to be restarted.
+2026-09-18T09:50:13.4433841Z 
+2026-09-18T09:50:13.4434428Z No user sessions are running outdated binaries.
+2026-09-18T09:50:13.4434759Z 
+2026-09-18T09:50:13.4435034Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
+2026-09-18T09:50:14.3340894Z ##[group]Run if [ -f Cargo.toml ]; then
+2026-09-18T09:50:14.3341240Z [36;1mif [ -f Cargo.toml ]; then[0m
+2026-09-18T09:50:14.3341531Z [36;1m  echo "found=true" >> "$GITHUB_OUTPUT"[0m
+2026-09-18T09:50:14.3341811Z [36;1melse[0m
+2026-09-18T09:50:14.3342041Z [36;1m  echo "found=false" >> "$GITHUB_OUTPUT"[0m
+2026-09-18T09:50:14.3342311Z [36;1mfi[0m
+2026-09-18T09:50:14.3380003Z shell: /usr/bin/bash -e {0}
+2026-09-18T09:50:14.3380256Z ##[endgroup]
+2026-09-18T09:50:14.3509803Z ##[group]Run set -euo pipefail
+2026-09-18T09:50:14.3510129Z [36;1mset -euo pipefail[0m
+2026-09-18T09:50:14.3510556Z [36;1mwant="$(awk -F'"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' rust-toolchain.toml)"[0m
+2026-09-18T09:50:14.3511002Z [36;1mif [ -z "$want" ]; then[0m
+2026-09-18T09:50:14.3511507Z [36;1m  echo "::error::не прочитал channel из rust-toolchain.toml"[0m
+2026-09-18T09:50:14.3511854Z [36;1m  exit 1[0m
+2026-09-18T09:50:14.3512049Z [36;1mfi[0m
+2026-09-18T09:50:14.3512243Z [36;1mcase "$want" in[0m
+2026-09-18T09:50:14.3512516Z [36;1m  *-windows-*|*-apple-*|*-linux-*|*-unknown-*)[0m
+2026-09-18T09:50:14.3513493Z [36;1m    echo "::error::rust-toolchain.toml несёт host-триплет ($want): для rustup это non-host toolchain, авто-установка скачала бы компилятор чужой платформы. Пину положено нести только версию — host задаёт платформенный слой (scripts/local-env.sh на Windows, сам раннер в CI)."[0m
+2026-09-18T09:50:14.3514742Z [36;1m    exit 1 ;;[0m
+2026-09-18T09:50:14.3515004Z [36;1mesac[0m
+2026-09-18T09:50:14.3515348Z [36;1m# Явная установка пина: авто-установка тулчейна из toolchain-файла объявлена rustup'ом[0m
+2026-09-18T09:50:14.3515897Z [36;1m# устаревшей («auto-installation is deprecated for most `rustup` commands») — CI не[0m
+2026-09-18T09:50:14.3516382Z [36;1m# должен на неё опираться (замечание из живого лога, run 35308984056).[0m
+2026-09-18T09:50:14.3516752Z [36;1mrustup toolchain install "$want"[0m
+2026-09-18T09:50:14.3517073Z [36;1mhost="$(rustc -vV | sed -n 's/^host: //p')"[0m
+2026-09-18T09:50:14.3517439Z [36;1mrelease="$(rustc -vV | sed -n 's/^release: //p')"[0m
+2026-09-18T09:50:14.3517750Z [36;1mrustup show[0m
+2026-09-18T09:50:14.3518077Z [36;1mecho "resolved toolchain: channel=$want host=$host release=$release"[0m
+2026-09-18T09:50:14.3518457Z [36;1mcase "$host" in[0m
+2026-09-18T09:50:14.3518684Z [36;1m  *-windows-*|*-apple-*)[0m
+2026-09-18T09:50:14.3519043Z [36;1m    echo "::error::активный toolchain собран не для этого раннера ($host)"[0m
+2026-09-18T09:50:14.3519401Z [36;1m    exit 1 ;;[0m
+2026-09-18T09:50:14.3519605Z [36;1mesac[0m
+2026-09-18T09:50:14.3519851Z [36;1mif [[ "$want" == *.* ]] && [ "$release" != "$want" ]; then[0m
+2026-09-18T09:50:14.3520316Z [36;1m  echo "::error::версия rustc ($release) не совпадает с пином ($want) — пин не применился"[0m
+2026-09-18T09:50:14.3520725Z [36;1m  exit 1[0m
+2026-09-18T09:50:14.3520921Z [36;1mfi[0m
+2026-09-18T09:50:14.3555639Z shell: /usr/bin/bash -e {0}
+2026-09-18T09:50:14.3555891Z ##[endgroup]
+2026-09-18T09:50:14.4119566Z info: syncing channel updates for 1.98.1-x86_64-unknown-linux-gnu
+2026-09-18T09:50:14.5212207Z info: latest update on 2026-09-03 for version 1.98.1 (48a229cea 2026-09-01)
+2026-09-18T09:50:14.5214649Z info: downloading 3 components
+2026-09-18T09:50:21.8517727Z 
+2026-09-18T09:50:21.8591637Z   1.98.1-x86_64-unknown-linux-gnu installed - rustc 1.98.1 (48a229cea 2026-09-01)
+2026-09-18T09:50:21.8592025Z 
+2026-09-18T09:50:21.8943222Z Default host: x86_64-unknown-linux-gnu
+2026-09-18T09:50:21.8943599Z rustup home:  /home/runner/.rustup
+2026-09-18T09:50:21.8943837Z 
+2026-09-18T09:50:21.8944351Z installed toolchains
+2026-09-18T09:50:21.8944704Z --------------------
+2026-09-18T09:50:21.8945009Z stable-x86_64-unknown-linux-gnu (default)
+2026-09-18T09:50:21.8945335Z 1.98.1-x86_64-unknown-linux-gnu (active)
+2026-09-18T09:50:21.8945563Z 
+2026-09-18T09:50:21.8945656Z active toolchain
+2026-09-18T09:50:21.8945899Z ----------------
+2026-09-18T09:50:21.8946148Z name: 1.98.1-x86_64-unknown-linux-gnu
+2026-09-18T09:50:21.8946932Z active because: overridden by '/home/runner/work/aether-vpn-engine/aether-vpn-engine/rust-toolchain.toml'
+2026-09-18T09:50:21.8947490Z installed targets:
+2026-09-18T09:50:21.9111086Z   x86_64-unknown-linux-gnu
+2026-09-18T09:50:21.9125799Z resolved toolchain: channel=1.98.1 host=x86_64-unknown-linux-gnu release=1.98.1
+2026-09-18T09:50:21.9160185Z ##[group]Run rustup component add clippy rustfmt
+2026-09-18T09:50:21.9160571Z [36;1mrustup component add clippy rustfmt[0m
+2026-09-18T09:50:21.9196956Z shell: /usr/bin/bash -e {0}
+2026-09-18T09:50:21.9197212Z ##[endgroup]
+2026-09-18T09:50:22.0054978Z info: downloading 2 components
+2026-09-18T09:50:22.7396722Z ##[group]Run Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+2026-09-18T09:50:22.7397148Z with:
+2026-09-18T09:50:22.7397540Z   cache-on-failure: true
+2026-09-18T09:50:22.7397781Z   prefix-key: v1-rust
+2026-09-18T09:50:22.7398004Z   add-job-id-key: true
+2026-09-18T09:50:22.7398241Z   add-rust-environment-hash-key: true
+2026-09-18T09:50:22.7398510Z   cache-targets: true
+2026-09-18T09:50:22.7398728Z   cache-all-crates: false
+2026-09-18T09:50:22.7398966Z   cache-workspace-crates: false
+2026-09-18T09:50:22.7399200Z   save-if: true
+2026-09-18T09:50:22.7399400Z   cache-provider: github
+2026-09-18T09:50:22.7399626Z   cache-bin: true
+2026-09-18T09:50:22.7399825Z   lookup-only: false
+2026-09-18T09:50:22.7400029Z   cmd-format: {0}
+2026-09-18T09:50:22.7400223Z ##[endgroup]
+2026-09-18T09:50:23.1636613Z ##[group]Cache Configuration
+2026-09-18T09:50:23.1637260Z Cache Provider:
+2026-09-18T09:50:23.1637714Z     github
+2026-09-18T09:50:23.1638058Z Workspaces:
+2026-09-18T09:50:23.1638795Z     /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T09:50:23.1639358Z Cache Paths:
+2026-09-18T09:50:23.1658382Z     /home/runner/.cargo/bin
+2026-09-18T09:50:23.1660365Z     /home/runner/.cargo/.crates.toml
+2026-09-18T09:50:23.1661004Z     /home/runner/.cargo/.crates2.json
+2026-09-18T09:50:23.1661686Z     /home/runner/.cargo/registry
+2026-09-18T09:50:23.1662123Z     /home/runner/.cargo/git
+2026-09-18T09:50:23.1662826Z     /home/runner/work/aether-vpn-engine/aether-vpn-engine/target
+2026-09-18T09:50:23.1663468Z Restore Key:
+2026-09-18T09:50:23.1664097Z     v1-rust-rust-Linux-x64-5d4fabd5
+2026-09-18T09:50:23.1664660Z Cache Key:
+2026-09-18T09:50:23.1665232Z     v1-rust-rust-Linux-x64-5d4fabd5-2f0dac5c
+2026-09-18T09:50:23.1665824Z .. Prefix:
+2026-09-18T09:50:23.1666254Z   - v1-rust-rust-Linux-x64
+2026-09-18T09:50:23.1666790Z .. Environment considered:
+2026-09-18T09:50:23.1667332Z   - Rust Versions:
+2026-09-18T09:50:23.1667944Z     - 1.98.1 x86_64-unknown-linux-gnu 48a229ceaefd4985c50990b14116b6d856af0985
+2026-09-18T09:50:23.1668650Z   - CARGO_INCREMENTAL
+2026-09-18T09:50:23.1669187Z .. Lockfiles considered:
+2026-09-18T09:50:23.1669749Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/Cargo.lock
+2026-09-18T09:50:23.1670654Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-masque/Cargo.toml
+2026-09-18T09:50:23.1671454Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-reality/Cargo.toml
+2026-09-18T09:50:23.1672196Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-ss2022/Cargo.toml
+2026-09-18T09:50:23.1672915Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/crypto-core/Cargo.toml
+2026-09-18T09:50:23.1673647Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/device-adapter/Cargo.toml
+2026-09-18T09:50:23.1674956Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/e2e-harness/Cargo.toml
+2026-09-18T09:50:23.1675997Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/frame-session/Cargo.toml
+2026-09-18T09:50:23.1677044Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/key-coordinator/Cargo.toml
+2026-09-18T09:50:23.1678093Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/phase0-path/Cargo.toml
+2026-09-18T09:50:23.1678905Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/policy-engine/Cargo.toml
+2026-09-18T09:50:23.1679487Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/rotation-tests/Cargo.toml
+2026-09-18T09:50:23.1680065Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/session-store/Cargo.toml
+2026-09-18T09:50:23.1680624Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/ticket-mint/Cargo.toml
+2026-09-18T09:50:23.1681185Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/transport-mux/Cargo.toml
+2026-09-18T09:50:23.1681728Z   - /home/runner/work/aether-vpn-engine/aether-vpn-engine/rust-toolchain.toml
+2026-09-18T09:50:23.1682399Z ##[endgroup]
+2026-09-18T09:50:23.1682936Z 
+2026-09-18T09:50:23.1683046Z ... Restoring cache ...
+2026-09-18T09:50:23.2200250Z Cache hit for: v1-rust-rust-Linux-x64-5d4fabd5-2f0dac5c
+2026-09-18T09:50:24.2779319Z Received 260046848 of 332095915 (78.3%), 247.3 MBs/sec
+2026-09-18T09:50:24.5470829Z Received 332095915 of 332095915 (100.0%), 249.0 MBs/sec
+2026-09-18T09:50:24.5471905Z Cache Size: ~317 MB (332095915 B)
+2026-09-18T09:50:24.5577765Z [command]/usr/bin/tar -xf /home/runner/work/_temp/285cfc37-dd88-47a6-8a4e-6f450cc14f35/cache.tzst -P -C /home/runner/work/aether-vpn-engine/aether-vpn-engine --use-compress-program unzstd
+2026-09-18T09:50:26.7280974Z Cache restored successfully
+2026-09-18T09:50:26.7419989Z Restored from cache key "v1-rust-rust-Linux-x64-5d4fabd5-2f0dac5c" full match: true.
+2026-09-18T09:50:26.7582433Z ##[group]Run cargo fmt --all --check
+2026-09-18T09:50:26.7582772Z [36;1mcargo fmt --all --check[0m
+2026-09-18T09:50:26.7620823Z shell: /usr/bin/bash -e {0}
+2026-09-18T09:50:26.7621084Z env:
+2026-09-18T09:50:26.7621281Z   CACHE_ON_FAILURE: true
+2026-09-18T09:50:26.7621526Z   CARGO_INCREMENTAL: 0
+2026-09-18T09:50:26.7621768Z ##[endgroup]
+2026-09-18T09:50:27.0092395Z ##[group]Run cargo test --locked --workspace --all-targets
+2026-09-18T09:50:27.0092956Z [36;1mcargo test --locked --workspace --all-targets[0m
+2026-09-18T09:50:27.0128835Z shell: /usr/bin/bash -e {0}
+2026-09-18T09:50:27.0129088Z env:
+2026-09-18T09:50:27.0129292Z   CACHE_ON_FAILURE: true
+2026-09-18T09:50:27.0129535Z   CARGO_INCREMENTAL: 0
+2026-09-18T09:50:27.0129751Z ##[endgroup]
+2026-09-18T09:50:27.0736115Z     Updating crates.io index
+2026-09-18T09:50:28.4444946Z    Compiling frame-session v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/frame-session)
+2026-09-18T09:50:28.4455270Z    Compiling crypto-core v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/crypto-core)
+2026-09-18T09:50:28.4515545Z    Compiling ticket-mint v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/ticket-mint)
+2026-09-18T09:50:28.4546132Z    Compiling rotation-tests v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/rotation-tests)
+2026-09-18T09:50:28.4785186Z    Compiling policy-engine v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/policy-engine)
+2026-09-18T09:50:28.6221327Z    Compiling transport-mux v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/transport-mux)
+2026-09-18T09:50:28.7322515Z    Compiling key-coordinator v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/key-coordinator)
+2026-09-18T09:50:28.8146000Z    Compiling cover-masque v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-masque)
+2026-09-18T09:50:28.8855804Z    Compiling cover-reality v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-reality)
+2026-09-18T09:50:28.9645529Z    Compiling cover-ss2022 v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-ss2022)
+2026-09-18T09:50:29.5086112Z    Compiling phase0-path v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/phase0-path)
+2026-09-18T09:50:29.8086839Z    Compiling e2e-harness v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/e2e-harness)
+2026-09-18T09:50:31.9745624Z    Compiling device-adapter v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/device-adapter)
+2026-09-18T09:50:32.2104519Z    Compiling session-store v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/session-store)
+2026-09-18T09:50:32.8158928Z     Finished `test` profile [unoptimized + debuginfo] target(s) in 5.77s
+2026-09-18T09:50:32.8432237Z      Running unittests src/lib.rs (target/debug/deps/cover_masque-758ef116c54dceb6)
+2026-09-18T09:50:32.8446361Z 
+2026-09-18T09:50:32.8446649Z running 14 tests
+2026-09-18T09:50:32.8453725Z test h3_live::tests::connect_request_carries_capsule_protocol_header ... ok
+2026-09-18T09:50:32.8455119Z test h3_live::tests::connect_request_does_not_duplicate_pseudo_headers ... ok
+2026-09-18T09:50:32.8456181Z test tests::caps_skeleton_not_rfc_client ... ok
+2026-09-18T09:50:32.8457271Z test tests::capsule_layout_matches_rfc ... ok
+2026-09-18T09:50:32.8458280Z test tests::capsule_roundtrip ... ok
+2026-09-18T09:50:32.8459391Z test tests::closed_channel_and_failure_paths ... ok
+2026-09-18T09:50:32.8460348Z test tests::connect_udp_request_shape ... ok
+2026-09-18T09:50:32.8461183Z test h3_live::tests::live_caps_form ... ok
+2026-09-18T09:50:32.8461793Z test tests::queue_roundtrip_and_backpressure ... ok
+2026-09-18T09:50:32.8468663Z test tests::varint_matches_rfc9000_examples ... ok
+2026-09-18T09:50:32.8469318Z test tests::send_rejects_payload_over_rfc_limit ... ok
+2026-09-18T09:50:32.8469923Z test tests::malformed_frames_are_errors ... ok
+2026-09-18T09:50:32.8470525Z test tests::udp_payload_limit_boundary ... ok
+2026-09-18T09:50:32.8471210Z test tests::varint_rejects_truncated_and_roundtrips_max ... ok
+2026-09-18T09:50:32.8471612Z 
+2026-09-18T09:50:32.8471867Z test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:32.8472368Z 
+2026-09-18T09:50:32.8472884Z      Running unittests src/lib.rs (target/debug/deps/cover_reality-53d152f4829d9a65)
+2026-09-18T09:50:32.8484201Z 
+2026-09-18T09:50:32.8484369Z running 16 tests
+2026-09-18T09:50:32.8491278Z test tests::binding_contract_sync_and_async_failures ... ok
+2026-09-18T09:50:32.8492145Z test tests::bad_record_inside_valid_tag ... ok
+2026-09-18T09:50:32.8492981Z test tests::authenticated_first_record_passes ... ok
+2026-09-18T09:50:32.8494304Z test tests::caps_stream_class_not_no_hol ... ok
+2026-09-18T09:50:32.8495155Z test tests::gate_accepts_first_entry_without_session ... ok
+2026-09-18T09:50:32.8505067Z test tests::gate_decision_accepts_valid_tag_and_relays_rest ... ok
+2026-09-18T09:50:32.8523191Z test tests::gate_tag_covers_client_hello_bytes ... ok
+2026-09-18T09:50:32.8525250Z test tests::live_authenticated_client_reaches_aether ... ignored, live peer: нужен Reality-сервер и клиент с K_cover
+2026-09-18T09:50:32.8527069Z test tests::live_splice_probe_gets_real_site_bytes ... ignored, live splice: требует сокетов (e2e-класс, как rotation/e2e-harness)
+2026-09-18T09:50:32.8528410Z test tests::probe_resistance_all_failures_look_alike ... ok
+2026-09-18T09:50:32.8529291Z test tests::reality_frame_layout ... ok
+2026-09-18T09:50:32.8529872Z test tests::reality_frame_round_trip ... ok
+2026-09-18T09:50:32.8530579Z test tests::prod_nonce_never_repeats_across_binding_instances ... ok
+2026-09-18T09:50:32.8531304Z test tests::target_site_is_parameterized ... ok
+2026-09-18T09:50:32.9250582Z test tests::binding_contract_backpressure ... ok
+2026-09-18T09:50:33.0239074Z test tests::client_hello_connector_builds ... ok
+2026-09-18T09:50:33.0239521Z 
+2026-09-18T09:50:33.0239815Z test result: ok. 14 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.18s
+2026-09-18T09:50:33.0240188Z 
+2026-09-18T09:50:33.0244472Z      Running unittests src/lib.rs (target/debug/deps/cover_ss2022-32ef081eb689c98f)
+2026-09-18T09:50:33.0257290Z 
+2026-09-18T09:50:33.0257488Z running 7 tests
+2026-09-18T09:50:33.0274801Z test tests::caps_stream_class_not_no_hol ... ok
+2026-09-18T09:50:33.0275455Z test tests::closed_channel_and_failure_paths ... ok
+2026-09-18T09:50:33.0276029Z test tests::malformed_frames_are_errors ... ok
+2026-09-18T09:50:33.0293183Z test tests::prod_nonce_never_repeats_across_binding_instances ... ok
+2026-09-18T09:50:33.0294769Z test tests::cover_frame_roundtrip ... ok
+2026-09-18T09:50:33.0295521Z test tests::queue_roundtrip_and_backpressure ... ok
+2026-09-18T09:50:33.0374509Z test tests::padding_bounds_and_window_neutrality ... ok
+2026-09-18T09:50:33.0374963Z 
+2026-09-18T09:50:33.0375423Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+2026-09-18T09:50:33.0376028Z 
+2026-09-18T09:50:33.0376873Z      Running unittests src/lib.rs (target/debug/deps/crypto_core-d7c7c5dfd88586e4)
+2026-09-18T09:50:33.0388156Z 
+2026-09-18T09:50:33.0388440Z running 8 tests
+2026-09-18T09:50:33.0404912Z test tests::contract_probe_fleet_key_bootstrap_and_domain ... ok
+2026-09-18T09:50:33.0416171Z test tests::contract_probe_tag_hmac_gate ... ok
+2026-09-18T09:50:33.0417796Z test tests::contract_record_seal_open ... ok
+2026-09-18T09:50:33.0418868Z test tests::contract_secret_keys_debug_is_redacted ... ok
+2026-09-18T09:50:33.0419589Z test tests::contract_tags_equal_ct_semantics ... ok
+2026-09-18T09:50:33.0906431Z test tests::contract_ml_kem_768_kat_and_interop ... ok
+2026-09-18T09:50:33.1180313Z test tests::contract_k_session_ikm_is_chaining_key ... ok
+2026-09-18T09:50:33.1963891Z test tests::contract_noise_ik_two_messages_one_rtt ... ok
+2026-09-18T09:50:33.1964734Z 
+2026-09-18T09:50:33.1965293Z test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+2026-09-18T09:50:33.1965914Z 
+2026-09-18T09:50:33.1967895Z      Running unittests src/lib.rs (target/debug/deps/device_adapter-4f367ceea0f12c62)
+2026-09-18T09:50:33.1979863Z 
+2026-09-18T09:50:33.1980024Z running 3 tests
+2026-09-18T09:50:33.1983328Z test tests::config_and_mtu_boundaries ... ok
+2026-09-18T09:50:33.1984670Z test tests::contract_linux_tun_stub_roundtrip ... ok
+2026-09-18T09:50:33.1985506Z test tests::contract_unsupported_platform_is_result_not_panic ... ok
+2026-09-18T09:50:33.1985979Z 
+2026-09-18T09:50:33.1986453Z      Running unittests src/lib.rs (target/debug/deps/e2e_harness-64efb087cb934389)
+2026-09-18T09:50:33.1987175Z test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:33.1987635Z 
+2026-09-18T09:50:33.1998727Z 
+2026-09-18T09:50:33.1998879Z running 13 tests
+2026-09-18T09:50:33.2005140Z test tests::lab_config_sid_is_deterministic ... ok
+2026-09-18T09:50:33.2012661Z test tests::manifest_rejects_garbage ... ok
+2026-09-18T09:50:33.2013491Z test tests::core_crypto_roundtrip ... ok
+2026-09-18T09:50:33.2014278Z test tests::client_keys_are_deterministic ... ok
+2026-09-18T09:50:33.2014847Z test tests::short_hash_is_prefix_of_sha256 ... ok
+2026-09-18T09:50:33.2015371Z test tests::unhex_roundtrip ... ok
+2026-09-18T09:50:33.2015914Z test tests::record_frame_roundtrip_uses_transport_mux ... ok
+2026-09-18T09:50:33.2016543Z test wire::tests::mint_request_roundtrip ... ok
+2026-09-18T09:50:33.2017082Z test wire::tests::resume_request_parse ... ok
+2026-09-18T09:50:33.2017624Z test wire::tests::oversized_frame_is_rejected ... ok
+2026-09-18T09:50:33.2018302Z test wire::tests::frame_roundtrip ... ok
+2026-09-18T09:50:33.2018790Z test wire::tests::tagged_roundtrip ... ok
+2026-09-18T09:50:33.2233131Z test tests::manifest_roundtrip ... ok
+2026-09-18T09:50:33.2233366Z 
+2026-09-18T09:50:33.2233651Z test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+2026-09-18T09:50:33.2234293Z 
+2026-09-18T09:50:33.2237297Z      Running unittests src/lib.rs (target/debug/deps/frame_session-505edc738a290e83)
+2026-09-18T09:50:33.2250486Z 
+2026-09-18T09:50:33.2250730Z running 6 tests
+2026-09-18T09:50:33.2256479Z test tests::contract_dedup_window_boundaries ... ok
+2026-09-18T09:50:33.2257487Z test tests::contract_open_failure_does_not_consume_dedup_slot ... ok
+2026-09-18T09:50:33.2259428Z test tests::contract_overlap_window_budget_and_ack_closure ... ok
+2026-09-18T09:50:33.2260349Z test tests::contract_record_key_is_constant_time_per_seq ... ok
+2026-09-18T09:50:33.2261207Z test tests::contract_record_layout_and_nonce ... ok
+2026-09-18T09:50:33.2261858Z test tests::contract_session_survives_rotation ... ok
+2026-09-18T09:50:33.2262258Z 
+2026-09-18T09:50:33.2262678Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:33.2263123Z 
+2026-09-18T09:50:33.2264239Z      Running unittests src/lib.rs (target/debug/deps/key_coordinator-71baabf2bacae731)
+2026-09-18T09:50:33.2273391Z 
+2026-09-18T09:50:33.2273757Z running 7 tests
+2026-09-18T09:50:33.2445246Z test tests::contract_nak_detection_is_framed_not_heuristic ... ok
+2026-09-18T09:50:33.2541314Z test tests::contract_ack_nonce_is_derived_from_client_nonce ... ok
+2026-09-18T09:50:33.2546556Z test tests::contract_aead_failure_is_malformed_not_bad_signature ... ok
+2026-09-18T09:50:33.2552688Z test tests::contract_local_malformed_does_not_burn_retry_budget ... ok
+2026-09-18T09:50:33.2588967Z test tests::contract_post_rotation_rekey_is_fresh_dh ... ok
+2026-09-18T09:50:33.2985091Z test tests::contract_resume_ack_emitter_matches_parser ... ok
+2026-09-18T09:50:33.3706503Z test tests::contract_resume_requires_proof_of_possession ... ok
+2026-09-18T09:50:33.3707033Z 
+2026-09-18T09:50:33.3707499Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+2026-09-18T09:50:33.3708099Z 
+2026-09-18T09:50:33.3709999Z      Running unittests src/lib.rs (target/debug/deps/phase0_path-ef984ea3f14d9237)
+2026-09-18T09:50:33.3724073Z 
+2026-09-18T09:50:33.3724263Z running 8 tests
+2026-09-18T09:50:33.3730418Z test tests::binding_error_propagates ... ok
+2026-09-18T09:50:33.3732108Z test tests::end_to_end_packet_reaches_binding_and_opens ... ok
+2026-09-18T09:50:33.3733814Z test tests::flow_identity_is_stable_per_destination ... ok
+2026-09-18T09:50:33.3739549Z test tests::packet_through_masque_binding_roundtrip ... ok
+2026-09-18T09:50:33.3741505Z test tests::packet_through_cover_binding_roundtrip ... ok
+2026-09-18T09:50:33.3742478Z test tests::non_ipv4_packet_routes_by_default ... ok
+2026-09-18T09:50:33.3743069Z test tests::policy_gates_before_seal ... ok
+2026-09-18T09:50:33.3746589Z test tests::packet_through_reality_binding_roundtrip ... ok
+2026-09-18T09:50:33.3746874Z 
+2026-09-18T09:50:33.3747238Z test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:33.3747641Z 
+2026-09-18T09:50:33.3749277Z      Running unittests src/lib.rs (target/debug/deps/policy_engine-62dd3a6e83adf926)
+2026-09-18T09:50:33.3759671Z 
+2026-09-18T09:50:33.3759845Z running 7 tests
+2026-09-18T09:50:33.3763442Z test tests::cidr_boundary_and_family_mismatch ... ok
+2026-09-18T09:50:33.3764586Z test tests::contract_fake_ip_is_stable_and_in_range ... ok
+2026-09-18T09:50:33.3765748Z test tests::contract_host_normalization_rejects_and_dedups ... ok
+2026-09-18T09:50:33.3805060Z test tests::contract_route_actions ... ok
+2026-09-18T09:50:33.5050452Z test tests::contract_pool_fifo_eviction_keeps_cap ... ok
+2026-09-18T09:50:33.5133235Z test tests::contract_pool_exhaustion_recovers_via_eviction_free_list ... ok
+2026-09-18T09:50:33.5708372Z test tests::contract_pool_exhaustion_errors_and_evicts_instead_of_panic ... ok
+2026-09-18T09:50:33.5708766Z 
+2026-09-18T09:50:33.5709021Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+2026-09-18T09:50:33.5709360Z 
+2026-09-18T09:50:33.5728892Z      Running unittests src/lib.rs (target/debug/deps/rotation_tests-fe476cb5ce6d4a48)
+2026-09-18T09:50:33.5740740Z 
+2026-09-18T09:50:33.5740924Z running 0 tests
+2026-09-18T09:50:33.5741153Z 
+2026-09-18T09:50:33.5741436Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:33.5741791Z 
+2026-09-18T09:50:33.5743528Z      Running tests/morph.rs (target/debug/deps/morph-d20726b11f5b2ca4)
+2026-09-18T09:50:33.5753377Z 
+2026-09-18T09:50:33.5753571Z running 1 test
+2026-09-18T09:50:33.5765210Z test morph_quic_to_mock_reality_keeps_frame_session_alive ... ok
+2026-09-18T09:50:33.5765506Z 
+2026-09-18T09:50:33.5765769Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:33.5766135Z 
+2026-09-18T09:50:33.5767603Z      Running tests/rotation.rs (target/debug/deps/rotation-c86307afc6e07db8)
+2026-09-18T09:50:33.5777710Z 
+2026-09-18T09:50:33.5777855Z running 3 tests
+2026-09-18T09:50:33.6544957Z test rotation_happy_path_three_streams_no_loss ... ok
+2026-09-18T09:50:33.6836589Z test rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once ... ok
+2026-09-18T09:50:33.6842186Z test rotation_forward_secrecy_old_k_session_cannot_open_new_records ... ok
+2026-09-18T09:50:33.6842760Z 
+2026-09-18T09:50:33.6843196Z test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+2026-09-18T09:50:33.6843811Z 
+2026-09-18T09:50:33.6846326Z      Running tests/rotation_failures.rs (target/debug/deps/rotation_failures-74469b67697d65b2)
+2026-09-18T09:50:33.6859417Z 
+2026-09-18T09:50:33.6859584Z running 6 tests
+2026-09-18T09:50:33.7845359Z test rotation_node_down_mid_rotation_rolls_back_without_session_break ... ok
+2026-09-18T09:50:33.7982337Z test rotation_bad_signatures_reject_and_keep_old_channel ... ok
+2026-09-18T09:50:33.7991617Z test rotation_replay_same_ticket_is_idempotent_nak_not_second_session ... ok
+2026-09-18T09:50:33.8181778Z test rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake ... ok
+2026-09-18T09:50:33.8851355Z test rotation_stolen_ticket_naks_bad_pop_and_is_not_consumed ... ok
+2026-09-18T09:50:33.9095612Z test rotation_two_acks_race_first_valid_wins_second_quarantined ... ok
+2026-09-18T09:50:33.9096308Z 
+2026-09-18T09:50:33.9096827Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+2026-09-18T09:50:33.9097706Z 
+2026-09-18T09:50:33.9100464Z      Running tests/rotation_loss.rs (target/debug/deps/rotation_loss-7a7ba433e694f711)
+2026-09-18T09:50:33.9113473Z 
+2026-09-18T09:50:33.9113631Z running 2 tests
+2026-09-18T09:50:33.9337099Z test rotation_loss_on_both_channels_falls_back_to_buffer_path ... ok
+2026-09-18T09:50:33.9569146Z test rotation_loss_on_one_channel_stays_within_duplicate_budget ... ok
+2026-09-18T09:50:33.9569606Z 
+2026-09-18T09:50:33.9569988Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+2026-09-18T09:50:33.9570448Z 
+2026-09-18T09:50:33.9572012Z      Running unittests src/lib.rs (target/debug/deps/session_store-5b75209d8c3f1744)
+2026-09-18T09:50:33.9583568Z 
+2026-09-18T09:50:33.9583770Z running 3 tests
+2026-09-18T09:50:33.9588775Z test tests::contract_client_identity_is_owned_here ... ok
+2026-09-18T09:50:33.9589213Z test tests::contract_restart_restores_full_state ... ok
+2026-09-18T09:50:33.9589600Z test tests::contract_secrets_at_rest_and_wipe ... ok
+2026-09-18T09:50:33.9589836Z 
+2026-09-18T09:50:33.9590110Z test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:33.9590465Z 
+2026-09-18T09:50:33.9590705Z      Running unittests src/lib.rs (target/debug/deps/ticket_mint-6c79e903f77bcc5b)
+2026-09-18T09:50:33.9599461Z 
+2026-09-18T09:50:33.9599606Z running 4 tests
+2026-09-18T09:50:33.9612222Z test tests::contract_mint_is_probabilistic_and_debug_redacted ... ok
+2026-09-18T09:50:33.9613327Z test tests::contract_mint_binds_client_pub_and_window ... ok
+2026-09-18T09:50:33.9618468Z test tests::contract_trait_path_uses_injected_clock ... ok
+2026-09-18T09:50:33.9948340Z test tests::contract_pop_and_replay_rejection ... ok
+2026-09-18T09:50:33.9948780Z 
+2026-09-18T09:50:33.9949255Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+2026-09-18T09:50:33.9949846Z 
+2026-09-18T09:50:33.9951711Z      Running unittests src/lib.rs (target/debug/deps/transport_mux-7f98ce3606fccde4)
+2026-09-18T09:50:33.9964302Z 
+2026-09-18T09:50:33.9964496Z running 4 tests
+2026-09-18T09:50:33.9967594Z test tests::contract_frame_codec_round_trip ... ok
+2026-09-18T09:50:33.9968300Z test tests::contract_mem_binding_loss_and_journal ... ok
+2026-09-18T09:50:33.9968905Z test tests::contract_quic_binding_caps ... ok
+2026-09-18T09:50:33.9969505Z test tests::contract_sync_and_async_failure_paths ... ok
+2026-09-18T09:50:33.9969898Z 
+2026-09-18T09:50:33.9970294Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:33.9970648Z 
+2026-09-18T09:50:34.0056552Z ##[group]Run cargo clippy --locked --workspace --all-targets -- -D warnings
+2026-09-18T09:50:34.0057108Z [36;1mcargo clippy --locked --workspace --all-targets -- -D warnings[0m
+2026-09-18T09:50:34.0092466Z shell: /usr/bin/bash -e {0}
+2026-09-18T09:50:34.0092716Z env:
+2026-09-18T09:50:34.0092923Z   CACHE_ON_FAILURE: true
+2026-09-18T09:50:34.0093161Z   CARGO_INCREMENTAL: 0
+2026-09-18T09:50:34.0093380Z ##[endgroup]
+2026-09-18T09:50:34.1808288Z     Checking frame-session v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/frame-session)
+2026-09-18T09:50:34.1810373Z     Checking crypto-core v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/crypto-core)
+2026-09-18T09:50:34.1860506Z     Checking ticket-mint v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/ticket-mint)
+2026-09-18T09:50:34.1862408Z     Checking rotation-tests v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/rotation-tests)
+2026-09-18T09:50:34.2111097Z     Checking policy-engine v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/policy-engine)
+2026-09-18T09:50:34.2988781Z     Checking key-coordinator v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/key-coordinator)
+2026-09-18T09:50:34.3000075Z     Checking transport-mux v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/transport-mux)
+2026-09-18T09:50:34.3916027Z     Checking cover-masque v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-masque)
+2026-09-18T09:50:34.4206832Z     Checking cover-reality v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-reality)
+2026-09-18T09:50:34.4304728Z     Checking cover-ss2022 v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-ss2022)
+2026-09-18T09:50:34.5361010Z     Checking e2e-harness v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/e2e-harness)
+2026-09-18T09:50:34.5475706Z     Checking phase0-path v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/phase0-path)
+2026-09-18T09:50:35.0495549Z     Checking session-store v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/session-store)
+2026-09-18T09:50:35.1275630Z     Checking device-adapter v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/device-adapter)
+2026-09-18T09:50:35.3602854Z     Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.31s
+2026-09-18T09:50:35.3816059Z ##[group]Run cargo clippy --locked -p e2e-harness --all-targets --all-features -- -D warnings
+2026-09-18T09:50:35.3817339Z [36;1mcargo clippy --locked -p e2e-harness --all-targets --all-features -- -D warnings[0m
+2026-09-18T09:50:35.3860114Z shell: /usr/bin/bash -e {0}
+2026-09-18T09:50:35.3860558Z env:
+2026-09-18T09:50:35.3860922Z   CACHE_ON_FAILURE: true
+2026-09-18T09:50:35.3861361Z   CARGO_INCREMENTAL: 0
+2026-09-18T09:50:35.3861762Z ##[endgroup]
+2026-09-18T09:50:35.5561712Z     Checking transport-mux v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/transport-mux)
+2026-09-18T09:50:35.5563107Z     Checking crypto-core v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/crypto-core)
+2026-09-18T09:50:35.5564586Z     Checking ticket-mint v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/ticket-mint)
+2026-09-18T09:50:35.6223113Z     Checking cover-masque v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-masque)
+2026-09-18T09:50:35.6700840Z     Checking key-coordinator v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/key-coordinator)
+2026-09-18T09:50:35.7534228Z     Checking e2e-harness v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/e2e-harness)
+2026-09-18T09:50:36.1702819Z     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.75s
+2026-09-18T09:50:36.1881899Z ##[group]Run cargo test --locked -p e2e-harness --all-features
+2026-09-18T09:50:36.1882405Z [36;1mcargo test --locked -p e2e-harness --all-features[0m
+2026-09-18T09:50:36.1918216Z shell: /usr/bin/bash -e {0}
+2026-09-18T09:50:36.1918486Z env:
+2026-09-18T09:50:36.1918695Z   CACHE_ON_FAILURE: true
+2026-09-18T09:50:36.1918943Z   CARGO_INCREMENTAL: 0
+2026-09-18T09:50:36.1919173Z ##[endgroup]
+2026-09-18T09:50:36.3311456Z    Compiling transport-mux v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/transport-mux)
+2026-09-18T09:50:36.3313174Z    Compiling crypto-core v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/crypto-core)
+2026-09-18T09:50:36.3314602Z    Compiling ticket-mint v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/ticket-mint)
+2026-09-18T09:50:36.4338440Z    Compiling cover-masque v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/cover-masque)
+2026-09-18T09:50:36.5115778Z    Compiling key-coordinator v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/key-coordinator)
+2026-09-18T09:50:36.6695593Z    Compiling e2e-harness v0.0.0 (/home/runner/work/aether-vpn-engine/aether-vpn-engine/crates/e2e-harness)
+2026-09-18T09:50:38.4989113Z     Finished `test` profile [unoptimized + debuginfo] target(s) in 2.29s
+2026-09-18T09:50:38.5078429Z      Running unittests src/lib.rs (target/debug/deps/e2e_harness-bb02f87740e0d9a1)
+2026-09-18T09:50:38.5094562Z 
+2026-09-18T09:50:38.5094790Z running 16 tests
+2026-09-18T09:50:38.5114843Z test tests::client_keys_are_deterministic ... ok
+2026-09-18T09:50:38.5132189Z test tests::core_crypto_roundtrip ... ok
+2026-09-18T09:50:38.5134476Z test tests::lab_config_sid_is_deterministic ... ok
+2026-09-18T09:50:38.5135160Z test tests::manifest_rejects_garbage ... ok
+2026-09-18T09:50:38.5135735Z test quic_lab::tests::cert_generation ... ok
+2026-09-18T09:50:38.5136309Z test quic_lab::tests::endpoints_bind ... ok
+2026-09-18T09:50:38.5136896Z test tests::short_hash_is_prefix_of_sha256 ... ok
+2026-09-18T09:50:38.5137453Z test tests::unhex_roundtrip ... ok
+2026-09-18T09:50:38.5137940Z test wire::tests::frame_roundtrip ... ok
+2026-09-18T09:50:38.5138490Z test wire::tests::mint_request_roundtrip ... ok
+2026-09-18T09:50:38.5139082Z test wire::tests::oversized_frame_is_rejected ... ok
+2026-09-18T09:50:38.5139795Z test tests::record_frame_roundtrip_uses_transport_mux ... ok
+2026-09-18T09:50:38.5140471Z test wire::tests::resume_request_parse ... ok
+2026-09-18T09:50:38.5141040Z test wire::tests::tagged_roundtrip ... ok
+2026-09-18T09:50:38.5218205Z test masque_lab::tests::masque_rfc9298_live_roundtrip ... ok
+2026-09-18T09:50:38.5351172Z test tests::manifest_roundtrip ... ok
+2026-09-18T09:50:38.5351560Z 
+2026-09-18T09:50:38.5352007Z test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+2026-09-18T09:50:38.5352619Z 
+2026-09-18T09:50:38.5357108Z      Running unittests src/bin/aether-client.rs (target/debug/deps/aether_client-4a23f3c88a8a8586)
+2026-09-18T09:50:38.5367371Z 
+2026-09-18T09:50:38.5367507Z running 0 tests
+2026-09-18T09:50:38.5367780Z 
+2026-09-18T09:50:38.5368129Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:38.5368493Z 
+2026-09-18T09:50:38.5370054Z      Running unittests src/bin/aether-node.rs (target/debug/deps/aether_node-04a123031a18ad63)
+2026-09-18T09:50:38.5379727Z 
+2026-09-18T09:50:38.5379892Z running 1 test
+2026-09-18T09:50:38.5382427Z test tests::resume_ctx_from_plain_layout ... ok
+2026-09-18T09:50:38.5382775Z 
+2026-09-18T09:50:38.5383038Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:38.5383388Z 
+2026-09-18T09:50:38.5384452Z    Doc-tests e2e_harness
+2026-09-18T09:50:38.5735496Z 
+2026-09-18T09:50:38.5735964Z running 0 tests
+2026-09-18T09:50:38.5736317Z 
+2026-09-18T09:50:38.5736876Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+2026-09-18T09:50:38.5737604Z 
+2026-09-18T09:50:38.5902136Z Post job cleanup.
+2026-09-18T09:50:38.7124614Z Cache up-to-date.
+2026-09-18T09:50:38.7326254Z Post job cleanup.
+2026-09-18T09:50:38.8179438Z [command]/usr/bin/git version
+2026-09-18T09:50:38.8222315Z git version 2.55.0
+2026-09-18T09:50:38.8268716Z Temporarily overriding HOME='/home/runner/work/_temp/c469e2e4-cb67-48f2-9402-f41a298c9fcd' before making global git config changes
+2026-09-18T09:50:38.8270132Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-18T09:50:38.8274137Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T09:50:38.8306898Z Removing SSH command configuration
+2026-09-18T09:50:38.8313216Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-18T09:50:38.8349450Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-18T09:50:38.8594935Z Removing HTTP extra header
+2026-09-18T09:50:38.8600418Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-18T09:50:38.8635930Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-18T09:50:38.8930917Z Removing includeIf entries pointing to credentials config files
+2026-09-18T09:50:38.8940635Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-18T09:50:38.8997756Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-18T09:50:38.9451281Z Cleaning up orphan processes
