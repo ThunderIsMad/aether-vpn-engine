@@ -1,102 +1,143 @@
-name: logs-probe (temporary, git-based CI confirmation)
+name: Logs probe (temporary, scratch branch only)
+
+# СЛУЖЕБНЫЙ workflow. Живёт только на служебной ветке (ci-probe-results) и никогда
+# не попадает в main.
+#
+# Зачем: реальный прогон ci.yml на main намеренно read-only (permissions: contents:
+# read, persist-credentials: false, никакой записи через API), а репозиторий приватный
+# — Actions API без токена отдаёт 404. То есть прогон не оставляет в git видимого
+# следа. Пробник берёт токен раннера (actions: read) и складывает СЫРЫЕ логи
+# нужных прогонов ci.yml на main в служебную ветку ci-probe-logs, откуда их можно
+# прочитать обычным `git fetch`.
+#
+# Что выяснилось по ходу (оба наблюдения — из логов раннера, не из документации):
+#   1) `curl -L` со `-H Authorization` на /actions/jobs/{id}/logs: заголовок НЕ
+#      переносится на другой хост (blob.core.windows.net) — это и нужно, подписанный
+#      URL самодостаточен; с `--location-trusted` прилетает 401 InvalidAuthenticationInfo.
+#   2) на этом деплое эндпоинт отдаёт `text/plain` СЫРОЙ ТЕКСТ, а не zip, поэтому
+#      предыдущие отчёты падали на `unzip` («End-of-central-directory signature not
+#      found») — отсюда пустые «числа тестов». Здесь поддерживаются обе формы.
 
 on:
   push:
-    branches: [probe-v2, probe-v3]
-  workflow_dispatch:
-    branches: [probe-v2, probe-v3]
-
-concurrency:
-  group: probe-${{ github.ref }}
-  cancel-in-progress: false
+    branches: [probe-v2]
 
 permissions:
-  contents: write
+  actions: read # чтение runs/jobs/логов
+  contents: write # публикация логов в служебную ветку
+
+env:
+  OUT_BRANCH: ci-probe-logs
+  # Run id через пробел. Пусто = самый новый завершённый push-прогон ci.yml на main.
+  # Явные id позволяют снять и «грязный» прогон (с этой отчётной инфраструктурой),
+  # и чистый dc0602e — без временного job'а — одним проходом.
+  RUN_IDS_OVERRIDE: ""
 
 jobs:
-  report-run:
+  fetch-logs:
+    name: Fetch logs of the real main runs
     runs-on: ubuntu-latest
-    env:
-      OUT_BRANCH: ci-probe-logs
     steps:
-      - name: Checkout probe branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: true
 
-      - name: Wait for ci.yml run on main to finish
-        shell: bash
+      - name: Collect (job/step statuses + raw logs + numbers)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -eu
-          sha="$(git rev-parse origin/main)"
-          echo "target sha: $sha"
-          for i in $(seq 1 60); do
-            sleep 20
-            url="https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${sha}&per_page=10"
-            json="$(curl -fsS -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer ${GITHUB_TOKEN}" "$url")"
-            status="$(echo "$json" | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["workflow_runs"]; print(r[0]["status"] if r else "none")')"
-            concl="$(echo "$json" | python3 -c 'import json,sys; d=json.load(sys.stdin); r=d["workflow_runs"]; print((r[0]["conclusion"] or "null") if r else "none")')"
-            echo "poll $i: status=$status conclusion=$concl"
-            if [ "$status" = "completed" ]; then
-              echo "RUN_STATUS=$status" >> "$GITHUB_ENV"
-              echo "RUN_CONCLUSION=$concl" >> "$GITHUB_ENV"
-              echo "RUN_ID=$(echo "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["workflow_runs"][0]["id"])')" >> "$GITHUB_ENV"
-              break
-            fi
+          # Actions запускает run-блоки как `bash -e`: падения собираем сами
+          set +e
+          set -uo pipefail
+          API="$GITHUB_API_URL/repos/$GITHUB_REPOSITORY"
+          AUTH=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+          mkdir -p ci-probe-logs
+
+          command -v jq >/dev/null || sudo apt-get install -y --no-install-recommends jq
+          command -v unzip >/dev/null || sudo apt-get install -y --no-install-recommends unzip
+
+          # --- какие push-прогоны ci.yml на main вообще есть ---
+          curl -sS "${AUTH[@]}" "$API/actions/runs?branch=main&event=push&per_page=20" -o runs.json
+          echo "curl runs exit=$?" >&2
+          {
+            echo "probe sha: $GITHUB_SHA   probe run: $GITHUB_RUN_ID"
+            echo "---- push-прогоны ci.yml на main (новые сверху) ----"
+            jq -r '.workflow_runs[] | select(.path == ".github/workflows/ci.yml")
+                   | "run \(.id) sha=\(.head_sha[0:9]) status=\(.status)/\(.conclusion) created=\(.created_at)"' runs.json
+          } > ci-probe-logs/main-runs.txt 2>&1
+
+          RUN_IDS="$RUN_IDS_OVERRIDE"
+          if [ -z "$RUN_IDS" ]; then
+            RUN_IDS="$(jq -r '[.workflow_runs[] | select(.path == ".github/workflows/ci.yml") | select(.status == "completed")] | .[0].id // empty' runs.json)"
+          fi
+          echo "прогоны к разбору: ${RUN_IDS:-<нет>}" >> ci-probe-logs/main-runs.txt
+
+          for RID in $RUN_IDS; do
+            D="ci-probe-logs/$RID"
+            OUT="$D/main-run-logs.txt"
+            mkdir -p "$D"
+
+            curl -sS "${AUTH[@]}" "$API/actions/runs/$RID" -o "$D/run.json"
+            curl -sS "${AUTH[@]}" "$API/actions/runs/$RID/jobs?per_page=100" -o "$D/jobs.json"
+
+            {
+              echo "================ РЕАЛЬНЫЙ ПРОГОН ci.yml НА MAIN: run $RID ================"
+              jq -r '"name=\(.name) event=\(.event) ref=\(.head_branch) sha=\(.head_sha) status=\(.status)/\(.conclusion) created=\(.created_at) url=\(.html_url)"' "$D/run.json"
+              echo
+              echo "---- job'ы и шаги (status/conclusion) ----"
+              jq -r '.jobs[] | "[\(.name)] \(.status)/\(.conclusion) id=\(.id)", (.steps[]? | "    - \(.number). \(.name): \(.status)/\(.conclusion)")' "$D/jobs.json"
+            } > "$OUT" 2>&1
+
+            # --- сырые логи каждого job'а (skipped качать нечего) ---
+            jq -r '.jobs[] | select(.conclusion != "skipped") | .id' "$D/jobs.json" > "$D/jobids.txt"
+            while read -r jid; do
+              [ -n "$jid" ] || continue
+              curl -sS -L "${AUTH[@]}" -o "$D/body-$jid" \
+                -w "job $jid: http=%{http_code} type=%{content_type} bytes=%{size_download}\n" \
+                "$API/actions/jobs/$jid/logs" >> "$OUT" 2>&1
+              if unzip -t -q "$D/body-$jid" >/dev/null 2>&1; then
+                echo "job $jid: тело — zip, распаковываю" >> "$OUT"
+                rm -rf "$D/x-$jid"; unzip -o -q "$D/body-$jid" -d "$D/x-$jid" 2>>"$OUT"
+                cat "$D/x-$jid"/* > "$D/raw-$jid.log" 2>/dev/null
+              else
+                echo "job $jid: тело — не zip (text/plain), беру как есть" >> "$OUT"
+                cp "$D/body-$jid" "$D/raw-$jid.log"
+              fi
+              # убрать BOM, префикс времени и ANSI-раскраску: логи читаются диффом
+              sed -E 's/^\xef\xbb\xbf//; s/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' "$D/raw-$jid.log" \
+                | sed -E 's/\x1b\[[0-9;]*m//g' > "$D/clean-$jid.log"
+              echo "clean-$jid.log: $(wc -l < "$D/clean-$jid.log") строк" >> "$OUT"
+            done < "$D/jobids.txt"
+
+            # --- главное: числа тестов по шагам, резолв пина, отказы ---
+            {
+              echo
+              echo "---- числа тестов ПО ШАГАМ (ожидание: 107/0/2 workspace, 16/0 e2e) ----"
+              awk '
+                /^##\[group\]Run / { cur=$0; sub(/^##\[group\]Run /, "", cur) }
+                /^test result:/   { p[cur]+=$4; f[cur]+=$6; i[cur]+=$8 }
+                END { for (c in p) printf "%-70s passed=%d failed=%d ignored=%d\n", c, p[c], f[c], i[c] }
+              ' "$D"/clean-*.log 2>/dev/null | sort
+              echo
+              echo "---- резолв toolchain-пина ----"
+              grep -hE "^resolved toolchain:|^active toolchain|^name:|^active because:|^release:|^host:" "$D"/clean-*.log 2>/dev/null | head -20
+              echo
+              echo "---- признаки отказа (пусто = нет) ----"
+              grep -hE "^error|^error\[|^::error::|^panicked" "$D"/clean-*.log 2>/dev/null | head -40
+              echo
+              echo "---- строки с 'test result:' как есть ----"
+              grep -h "^test result:" "$D"/clean-*.log 2>/dev/null | head -20
+            } >> "$OUT" 2>&1
+            echo "collect finished for run $RID" >> "$OUT"
           done
 
-      - name: Download run logs
-        shell: bash
+      - name: Publish logs to the scratch branch
+        if: ${{ always() }}
         run: |
-          set -eu
-          mkdir -p logs
-          curl -fsSL -H 'Accept: application/vnd.github+json' -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/logs" -o logs.zip
-          python3 -c "import zipfile; zipfile.ZipFile('logs.zip').extractall('logs')"
-          find logs -type f | head -30
-
-      - name: Extract key numbers from logs
-        shell: bash
-        run: |
-          set -eu
-          report="logs/REPORT.md"
-          {
-            echo "# CI report for commit $(git rev-parse origin/main)"
-            echo
-            echo "- run: ${RUN_ID} status=${RUN_STATUS} conclusion=${RUN_CONCLUSION}"
-            echo
-            echo "## test result lines"
-            grep -rhoE "test result: [a-zA-Z]+\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored" logs || true
-            echo
-            echo "## fmt check result"
-            grep -rE "cargo fmt|Diff in" logs | tail -5 || true
-            echo
-            echo "## clippy result lines"
-            grep -rhE "clippy.*(error|warning|Finished)" logs | tail -5 || true
-            echo
-            echo "## rust-cache lines"
-            grep -rh "Restored from cache key" logs | tail -3 || true
-            echo
-            echo "## toolchain pin line"
-            grep -rh "resolves to" logs | tail -3 || true
-          } > "$report"
-          cat "$report"
-
-      - name: Publish report to archive branch
-        shell: bash
-        run: |
-          set -eu
-          git config user.name "probe-bot"
-          git config user.email "probe-bot@users.noreply.github.com"
-          git fetch origin "${OUT_BRANCH}" || true
-          if git rev-parse --verify "origin/${OUT_BRANCH}" >/dev/null 2>&1; then
-            git switch -c "${OUT_BRANCH}" "origin/${OUT_BRANCH}"
-          else
-            git switch --orphan "${OUT_BRANCH}"
-            git rm -rf . >/dev/null 2>&1 || true
-          fi
-          mkdir -p runs
-          cp logs/REPORT.md "runs/${RUN_ID}.md"
-          git add runs
-          git commit -m "probe: report for run ${RUN_ID} on $(git rev-parse origin/main)"
-          git push origin "${OUT_BRANCH}"
+          set -euxo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$OUT_BRANCH"
+          git add -A ci-probe-logs
+          git commit -m "logs: raw ci.yml main run logs (probe sha ${GITHUB_SHA})"
+          git push --force origin "HEAD:refs/heads/$OUT_BRANCH"
