@@ -125,6 +125,8 @@ jobs:
       # артефакт до boring-sys build-директорий; save пропускается при «Cache up-to-date»),
       # поэтому bump префикса = новый чистый ключ, который заполнит завершённый прогон.
       # Дисциплина: поднимать префикс при аналогичном «залипании» или смене базовой схемы.
+      # Замер v0→v1 (run 35330604357 = заполняющий): заполнение 332 MB, полный save только
+      # у завершённого прогона; отменённый concurrency-группой сохраняет частичный артефакт.
       - name: Cache cargo build artifacts
         if: steps.ws.outputs.found == 'true'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
