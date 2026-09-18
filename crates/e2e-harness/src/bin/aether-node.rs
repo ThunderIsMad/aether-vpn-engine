@@ -66,8 +66,9 @@ struct NodeState {
 
 impl NodeState {
     fn new(config: &LabConfig, node_id: u32, keys: NodeKeys, eph_node_priv: [u8; 32]) -> Self {
-        let mut factory =
-            TicketFactory::new(tfk_epoch(), 0, 0, config.ticket_ttl_seconds, config.now);
+        // Без `mut`: с F-12 часы фабрики задаются при создании (`config.now`), отдельного
+        // `set_now` больше нет — до этого `mut` был нужен именно под него.
+        let factory = TicketFactory::new(tfk_epoch(), 0, 0, config.ticket_ttl_seconds, config.now);
         let client = ClientKeys::from_seed([0xCD; 32]);
         Self {
             node_id,
@@ -402,6 +403,13 @@ fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
             return build_resume_nak(match err {
                 TicketError::EpochMismatch => ResumeNak::Epoch,
                 TicketError::Expired => ResumeNak::Expired,
+                // F-12 добавил `NodeSetMismatch` (сверка `node_set_id` тикета с набором узла)
+                // и обновил прод-разбор (`TicketFactory::handle_resume` → `ResumeVerdict::Drop`)
+                // и harness rotation-tests, но не эту лабораторную ветку — она не собиралась
+                // без `--all-features`, поэтому пропуск не был виден в обычном прогоне.
+                // Класс — тот же «не наш тикет», что и битый blob, а wire-видимый ответ
+                // лабораторного узла на этот класс — `bad_pop` (как у BadWrap/BadLayout).
+                TicketError::NodeSetMismatch => ResumeNak::BadPop,
                 TicketError::BadWrap | TicketError::BadLayout => ResumeNak::BadPop,
             });
         }
