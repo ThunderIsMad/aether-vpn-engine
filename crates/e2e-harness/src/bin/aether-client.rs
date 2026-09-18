@@ -21,9 +21,7 @@
 
 use crypto_core::{x25519_keypair, Handshake, IkInitiator};
 use e2e_harness::quic_lab;
-use e2e_harness::wire::{
-    build_mint_request, read_tagged, send_tagged, TAG_HANDSHAKE, TAG_MINT,
-};
+use e2e_harness::wire::{build_mint_request, read_tagged, send_tagged, TAG_HANDSHAKE, TAG_MINT};
 use e2e_harness::{new_session, read_manifest, short_hash, ClientKeys, LabConfig};
 use frame_session::FlowId;
 use key_coordinator::{
@@ -110,8 +108,10 @@ async fn run(
     // ── 1. policy-engine: правило лаборатории → Route ──────────────────────────
     let mut engine = policy_engine::Engine::new(
         policy_engine::RouteAction::Direct,
-        vec![policy_engine::Rule::new("tunnel-lab", policy_engine::RouteAction::Route)
-            .with_host("lab.aether.test")],
+        vec![
+            policy_engine::Rule::new("tunnel-lab", policy_engine::RouteAction::Route)
+                .with_host("lab.aether.test"),
+        ],
     );
     let fake_ip = engine
         .assign_fake_ip("lab.aether.test")
@@ -124,11 +124,7 @@ async fn run(
     let rule = engine.route(&flow);
     println!(
         "[client] policy: {}:{} ({:?}) → {:?} ({})",
-        flow.dst,
-        flow.dst_port,
-        flow.host,
-        rule.action,
-        rule.name
+        flow.dst, flow.dst_port, flow.host, rule.action, rule.name
     );
     if rule.action != policy_engine::RouteAction::Route {
         return Err("правило лаборатории должно давать Route".into());
@@ -144,7 +140,8 @@ async fn run(
         .map_err(|e| format!("handshake stream: {e}"))?;
     let mut send = send;
     let client_static = x25519_keypair(&client_keys.static_priv);
-    let client_static_kem = crypto_core::mlkem768_genkey().map_err(|e| format!("kem genkey: {e:?}"))?;
+    let client_static_kem =
+        crypto_core::mlkem768_genkey().map_err(|e| format!("kem genkey: {e:?}"))?;
     let mut initiator = IkInitiator::new(
         config.session_id,
         client_static,
@@ -263,9 +260,7 @@ async fn run(
     rotation
         .post_rotation_rekey(&continuity.eph_node)
         .map_err(|e| format!("re-key: {e:?}"))?;
-    let k_prime = rotation
-        .k_session_prime()
-        .expect("K_session' после re-key");
+    let k_prime = rotation.k_session_prime().expect("K_session' после re-key");
     session.ratchet_from(&k_prime);
     println!(
         "[client] re-key: K_session'#={} (ожидается тот же у N2), seq продолжается с {}",

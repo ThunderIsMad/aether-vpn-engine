@@ -18,14 +18,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 pub use crypto_core::{
-    derive_k_resume, derive_rotated_session, ed25519_genkey, ed25519_pubkey, ed25519_sign,
-    derive_record_key, ed25519_verify, mlkem768_genkey, sha256, x25519_dh, x25519_genkey,
-    x25519_keypair, Handshake, IkInitiator, IkResponder, Ed25519Pub, KSession, KRecord,
+    derive_k_resume, derive_record_key, derive_rotated_session, ed25519_genkey, ed25519_pubkey,
+    ed25519_sign, ed25519_verify, mlkem768_genkey, sha256, x25519_dh, x25519_genkey,
+    x25519_keypair, Ed25519Pub, Handshake, IkInitiator, IkResponder, KRecord, KSession,
     MlKem768Pub, RecordAead, RecordCrypto, RecordNonce, Signature, X25519Pub as CoreX25519Pub,
     MLKEM768_EK_BYTES,
 };
 pub use frame_session::{
-    record_nonce, t_ack_ms, t_morph_ms, DedupWindow, DedupOutcome, DuplicateStep, DuplicateWindow,
+    record_nonce, t_ack_ms, t_morph_ms, DedupOutcome, DedupWindow, DuplicateStep, DuplicateWindow,
     FlowId, Record, RecordError, RecordType, ResumeNak, Seq, Session, SessionCrypto, SessionId,
     Signature as FrameSignature, StreamId, X25519Pub as FrameX25519Pub, DUPLICATE_WINDOW_RECORDS,
     MAX_RESUME_ATTEMPTS, T_QUARANTINE_MS,
@@ -248,12 +248,9 @@ impl NodeSim {
         // `K_resume` выводится из `K_session` внутри ticket: снаружи его не знает никто,
         // кроме того, кто уже прочитал ticket флотским ключом (`02 §3.3`).
         let k_resume = k_resume_for(&ticket.k_session);
-        let Ok(plain) = RecordAead.open(
-            &KRecord(k_resume),
-            &RecordNonce(nonce_array),
-            blob,
-            sealed,
-        ) else {
+        let Ok(plain) =
+            RecordAead.open(&KRecord(k_resume), &RecordNonce(nonce_array), blob, sealed)
+        else {
             return vec![WIRE_UNKNOWN];
         };
         if plain.len() != 136 {

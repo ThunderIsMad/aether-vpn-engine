@@ -32,9 +32,11 @@ pub fn self_signed_cert() -> LabCert {
     let key_pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ED25519).expect("Ed25519 keygen");
     let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string()])
         .expect("SAN localhost валиден");
-    params.subject_alt_names.push(rcgen::SanType::IpAddress(
-        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-    ));
+    params
+        .subject_alt_names
+        .push(rcgen::SanType::IpAddress(std::net::IpAddr::V4(
+            std::net::Ipv4Addr::LOCALHOST,
+        )));
     // CA, чтобы сертификат мог быть собственным корнем в RootCertStore.
     params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
     let mut name = rcgen::DistinguishedName::new();
@@ -61,7 +63,9 @@ pub fn server_config(cert: &LabCert) -> Result<quinn::ServerConfig, String> {
         .with_single_cert(vec![cert_der], key.into())
         .map_err(|e| format!("cert/key: {e}"))?;
     let server = QuicServerConfig::try_from(tls).map_err(|e| format!("quic server: {e}"))?;
-    Ok(quinn::ServerConfig::with_crypto(std::sync::Arc::new(server)))
+    Ok(quinn::ServerConfig::with_crypto(std::sync::Arc::new(
+        server,
+    )))
 }
 
 /// Сервер-эндпоинт на 127.0.0.1:`port` (0 — свободный); возвращает фактический порт.
@@ -95,9 +99,7 @@ pub fn client_config(cert_der: &[u8]) -> Result<quinn::ClientConfig, String> {
 
 /// Единственный клиентский endpoint процесса (исходящий сокет 127.0.0.1:0).
 pub fn client_endpoint() -> Result<quinn::Endpoint, String> {
-    let addr: std::net::SocketAddr = "127.0.0.1:0"
-        .parse()
-        .expect("литерал 127.0.0.1:0 валиден");
+    let addr: std::net::SocketAddr = "127.0.0.1:0".parse().expect("литерал 127.0.0.1:0 валиден");
     quinn::Endpoint::client(addr).map_err(|e| format!("client endpoint: {e}"))
 }
 

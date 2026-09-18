@@ -283,7 +283,8 @@ fn encode_descriptor(state: &SessionState) -> Result<Vec<u8>, StoreError> {
     if state.subscription_id.0.len() > u16::MAX as usize || state.chain.len() > u16::MAX as usize {
         return Err(StoreError::Corrupt);
     }
-    let mut out = Vec::with_capacity(2 + state.subscription_id.0.len() + 34 + state.chain.len() * 16);
+    let mut out =
+        Vec::with_capacity(2 + state.subscription_id.0.len() + 34 + state.chain.len() * 16);
     out.extend_from_slice(&(state.subscription_id.0.len() as u16).to_be_bytes());
     out.extend_from_slice(state.subscription_id.0.as_bytes());
     out.extend_from_slice(&state.uuid);
@@ -374,8 +375,10 @@ impl<S: SecureStore> SessionStore for ClientSessionStore<S> {
 
     fn save(&mut self, state: &SessionState) -> Result<(), StoreError> {
         let descriptor = encode_descriptor(state)?;
-        self.backend.put(KEY_CLIENT_IDENTITY, state.secrets.identity())?;
-        self.backend.put(KEY_CLIENT_STATIC, state.secrets.statics())?;
+        self.backend
+            .put(KEY_CLIENT_IDENTITY, state.secrets.identity())?;
+        self.backend
+            .put(KEY_CLIENT_STATIC, state.secrets.statics())?;
         self.backend.put(KEY_K_SESSION, &state.k_session)?;
         self.backend.put(KEY_DESCRIPTOR, &descriptor)?;
         // Tickets остаются в памяти: `03` §7 прямо запрещает им переживать процесс.
@@ -460,7 +463,10 @@ mod tests {
         assert_eq!(store.tickets(), &[vec![0xd4u8; 161]]);
 
         // Загрузка возвращает и дескриптор, и секреты, но не tickets.
-        let loaded = store.load().expect("хранилище читается").expect("сессия есть");
+        let loaded = store
+            .load()
+            .expect("хранилище читается")
+            .expect("сессия есть");
         assert_eq!(loaded.subscription_id, SubscriptionId("sub-42".to_string()));
         assert_eq!(loaded.uuid, [0x11; 16]);
         assert_eq!(loaded.session_id, [0x22; 16]);
@@ -468,7 +474,10 @@ mod tests {
         assert_eq!(loaded.chain, vec![[0x33; 16], [0x44; 16]]);
         assert_eq!(loaded.secrets.identity(), &IDENTITY);
         assert_eq!(loaded.secrets.statics(), &STATIC);
-        assert!(loaded.tickets.is_empty(), "tickets resumption-процесса — не из диска");
+        assert!(
+            loaded.tickets.is_empty(),
+            "tickets resumption-процесса — не из диска"
+        );
 
         // Секреты, вынутые из backend'а по одному, — `Corrupt`, а не сессия без PoP.
         let mut broken = ClientSessionStore::new(store.backend().clone());
@@ -553,11 +562,17 @@ mod tests {
 
         let second = ClientSessionStore::new(backend);
         let restored = second.load().expect("чтение").expect("сессия есть");
-        assert_eq!(restored.subscription_id, SubscriptionId("sub-42".to_string()));
+        assert_eq!(
+            restored.subscription_id,
+            SubscriptionId("sub-42".to_string())
+        );
         assert_eq!(restored.session_id, [0x22; 16]);
         assert_eq!(restored.chain.len(), 2);
         assert_eq!(restored.secrets.statics(), &STATIC);
-        assert!(restored.tickets.is_empty(), "tickets переживали бы только память");
+        assert!(
+            restored.tickets.is_empty(),
+            "tickets переживали бы только память"
+        );
 
         // Испорченный дескриптор — `Corrupt`, не «сессия с чужим sid».
         let mut corrupt = ClientSessionStore::new(store_with_bad_descriptor());
@@ -568,7 +583,9 @@ mod tests {
 
     fn store_with_bad_descriptor() -> InMemorySecureStore {
         let mut backend = InMemorySecureStore::new();
-        backend.put(KEY_DESCRIPTOR, &[0x00, 0x08, 0x41]).expect("put");
+        backend
+            .put(KEY_DESCRIPTOR, &[0x00, 0x08, 0x41])
+            .expect("put");
         backend.put(KEY_CLIENT_IDENTITY, &IDENTITY).expect("put");
         backend.put(KEY_CLIENT_STATIC, &STATIC).expect("put");
         backend.put(KEY_K_SESSION, &K_SESSION).expect("put");

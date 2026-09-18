@@ -52,8 +52,14 @@ fn rotation_loss_on_one_channel_stays_within_duplicate_budget() {
         (0, 0),
     );
     let ticket = rotation.request_ticket(&manifest).expect("ticket");
-    let timeout = driver.start_overlap(MemBinding::new(BindingCaps::QUIC).with_loss_every(3), SRTT_MS);
-    assert_eq!(timeout, 300, "T_morph = 2 × SRTT, внутри клипа `[200 ms, 2 s]`");
+    let timeout = driver.start_overlap(
+        MemBinding::new(BindingCaps::QUIC).with_loss_every(3),
+        SRTT_MS,
+    );
+    assert_eq!(
+        timeout, 300,
+        "T_morph = 2 × SRTT, внутри клипа `[200 ms, 2 s]`"
+    );
 
     // Окно: 6 записей на оба канала, затем валидный ACK.
     let mut during = Vec::new();
@@ -75,7 +81,9 @@ fn rotation_loss_on_one_channel_stays_within_duplicate_budget() {
     // 1. Выживший канал (N1) донёс всё: ни одна запись не потеряна.
     assert_eq!(
         records_set(&records),
-        n1.union(&n2).copied().collect::<std::collections::BTreeSet<_>>(),
+        n1.union(&n2)
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
         "выживший канал донёс все записи"
     );
     assert!(
@@ -106,8 +114,15 @@ fn rotation_loss_on_one_channel_stays_within_duplicate_budget() {
     // 3/5. Бюджет окна соблюдён: `N ≤ 4096` записей **или** `T_morph` — что раньше; `T_ack` тот же.
     assert!(driver.duplicated <= frame_session::DUPLICATE_WINDOW_RECORDS);
     assert_eq!(driver.duplicated as usize, during.len());
-    assert_eq!(driver.exhausted, 0, "бюджет не исчерпан — это деградация, не провал");
-    assert_eq!(t_ack_ms(SRTT_MS), timeout, "T_ack владеет FrameSession (`02 §3.7`)");
+    assert_eq!(
+        driver.exhausted, 0,
+        "бюджет не исчерпан — это деградация, не провал"
+    );
+    assert_eq!(
+        t_ack_ms(SRTT_MS),
+        timeout,
+        "T_ack владеет FrameSession (`02 §3.7`)"
+    );
 
     // 6. Сессия не рвётся, `seq` продолжается.
     let after = driver.emit_after_rotation(streams[0], b"after-loss");
@@ -151,11 +166,18 @@ fn rotation_loss_on_both_channels_falls_back_to_buffer_path() {
         (0, 0),
     );
     let ticket = rotation.request_ticket(&manifest).expect("ticket");
-    assert_eq!(ticket.blob.0.len(), 161, "ticket выдан, но резюма в этом прогоне не будет");
+    assert_eq!(
+        ticket.blob.0.len(),
+        161,
+        "ticket выдан, но резюма в этом прогоне не будет"
+    );
 
     // (а) Потеря на обоих каналах: запись не доставлена ни одним из них, но сессия жива.
     driver.old.set_loss_every(2);
-    let timeout = driver.start_overlap(MemBinding::new(BindingCaps::QUIC).with_loss_every(1), SRTT_MS);
+    let timeout = driver.start_overlap(
+        MemBinding::new(BindingCaps::QUIC).with_loss_every(1),
+        SRTT_MS,
+    );
     assert_eq!(timeout, 300);
     let lost = driver.emit(streams[0], b"lost-everywhere", 0);
     assert!(
@@ -174,19 +196,26 @@ fn rotation_loss_on_both_channels_falls_back_to_buffer_path() {
     assert_eq!(driver.session.stream_table().len(), 2, "потоки не сброшены");
 
     // (б) Бюджет окна исчерпан по времени → `MorphFailed` → откат, окно не закрывается ACK'ом.
-    assert!(!driver.promote_on_ack(false), "невалидный ACK окно не закрывает");
+    assert!(
+        !driver.promote_on_ack(false),
+        "невалидный ACK окно не закрывает"
+    );
     let mut exhausted_after = 0;
     for _ in 0..3 {
-        if matches!(
-            driver.session.duplicate(timeout),
-            DuplicateStep::Exhausted
-        ) {
+        if matches!(driver.session.duplicate(timeout), DuplicateStep::Exhausted) {
             exhausted_after += 1;
         }
     }
-    assert_eq!(exhausted_after, 3, "по истечении `T_morph` окно исчерпано (`02 §4`)");
+    assert_eq!(
+        exhausted_after, 3,
+        "по истечении `T_morph` окно исчерпано (`02 §4`)"
+    );
     assert!(
-        driver.session.overlap().expect("окно открыто").is_exhausted(),
+        driver
+            .session
+            .overlap()
+            .expect("окно открыто")
+            .is_exhausted(),
         "исчерпание — это `MorphFailed`, а не «деградация» (`02 §4`)"
     );
     assert!(
@@ -198,9 +227,16 @@ fn rotation_loss_on_both_channels_falls_back_to_buffer_path() {
     let after_rollback = driver.emit_after_rotation(streams[1], b"after-rollback");
     assert!(after_rollback.seq > lost.seq);
     assert_eq!(driver.session.stream_table().len(), 2);
-    assert_eq!(driver.session.ratchet_restarts(), 0, "откат не трогает ключи");
+    assert_eq!(
+        driver.session.ratchet_restarts(),
+        0,
+        "откат не трогает ключи"
+    );
 
     // 3/5. Quarantine и граница измерения: `T_quar` = 5 мин, метрика — frame-слой.
-    assert_eq!(T_QUARANTINE_MS, 300_000, "канал в quarantine на 5 минут (`02 §4`)");
+    assert_eq!(
+        T_QUARANTINE_MS, 300_000,
+        "канал в quarantine на 5 минут (`02 §4`)"
+    );
     assert_eq!(timeout, t_morph_ms(SRTT_MS));
 }

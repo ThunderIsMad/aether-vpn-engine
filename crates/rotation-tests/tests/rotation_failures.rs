@@ -56,7 +56,9 @@ fn rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake() {
         last_seq,
         (0, 0),
     );
-    let ticket = rotation.request_ticket(&mint_manifest).expect("ticket эпохи N1");
+    let ticket = rotation
+        .request_ticket(&mint_manifest)
+        .expect("ticket эпохи N1");
 
     // 1/5. Узел чужой эпохи не разворачивает ticket и отвечает веткой `epoch`.
     assert_eq!(
@@ -79,7 +81,11 @@ fn rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake() {
         0,
         "чужой узел ничего не консумирует"
     );
-    assert_eq!(rotation.k_session_prime(), None, "второй сессии не появилось");
+    assert_eq!(
+        rotation.k_session_prime(),
+        None,
+        "второй сессии не появилось"
+    );
 
     // 2. Фолбэк — полный гибридный IK-handshake (`02 §5`), один RTT, общий `K_session`.
     let (_, node_static_priv) = x25519_genkey().expect("node static");
@@ -109,7 +115,10 @@ fn rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake() {
     let (msg2, ks_node) = responder.respond(&msg1).expect("msg2");
     let ks_client = initiator.finish_initiator(&msg2).expect("K_session");
     assert_eq!(ks_client, ks_node, "фолбэк даёт общий `K_session`");
-    assert!(msg2.len() >= crypto_core::MLKEM768_CT_BYTES, "msg2 несёт `kem_ct`");
+    assert!(
+        msg2.len() >= crypto_core::MLKEM768_CT_BYTES,
+        "msg2 несёт `kem_ct`"
+    );
 
     // 3/4. Старый канал жив, состояние сессии не сброшено: NAK — не разрыв (`02 §1`, `§3.8`).
     let during = driver.emit(streams[1], b"during-nak", 0);
@@ -265,7 +274,11 @@ fn rotation_replay_same_ticket_is_idempotent_nak_not_second_session() {
         Seq(parts.continuity_point),
         "повтор не сдвигает continuity_point (`02 §3.5`)"
     );
-    assert_eq!(rotation.attempts(), 1, "повтор идёт мимо клиентского ретрая");
+    assert_eq!(
+        rotation.attempts(),
+        1,
+        "повтор идёт мимо клиентского ретрая"
+    );
     assert_eq!(rotation.k_session_prime(), None);
 
     // 5. В пределах жизни узла: набор теряется только при рестарте узла — принято (`02 §3.6`).
@@ -300,7 +313,12 @@ fn rotation_bad_signatures_reject_and_keep_old_channel() {
         .add_node(NodeSim::new(3, 0x51, 0x61, EPOCH_ID));
     let n2_manifest = network.borrow().nodes[&2].manifest();
     let n3_manifest = network.borrow().nodes[&3].manifest();
-    network.borrow_mut().nodes.get_mut(&3).expect("узел 3").corrupt_sig_node = true;
+    network
+        .borrow_mut()
+        .nodes
+        .get_mut(&3)
+        .expect("узел 3")
+        .corrupt_sig_node = true;
 
     // (а) битый `sig_client`: узел отвечает `bad_pop` и не консумирует ticket.
     let (eph_a, eph_a_priv) = fresh_eph();
@@ -360,7 +378,11 @@ fn rotation_bad_signatures_reject_and_keep_old_channel() {
     );
     assert_eq!(victim.confirmed_eph_node(), None, "канал не подтверждён");
     assert_eq!(victim.k_session_prime(), None, "ratchet не перезапущен");
-    assert_eq!(network.borrow().nodes[&3].accepted, 1, "узел-нарушитель ответил");
+    assert_eq!(
+        network.borrow().nodes[&3].accepted,
+        1,
+        "узел-нарушитель ответил"
+    );
 
     // 3/5. Сессия не рвётся: `K_session`, `seq` и потоки на месте, старый канал несёт трафик.
     let during = driver.emit(streams[2], b"during-bad-sig", 0);
@@ -467,7 +489,11 @@ fn rotation_two_acks_race_first_valid_wins_second_quarantined() {
         Some(k_prime),
         "в сессии остался ключ победителя"
     );
-    assert_eq!(driver.session.ratchet_restarts(), 1, "второй ACK ничего не меняет");
+    assert_eq!(
+        driver.session.ratchet_restarts(),
+        1,
+        "второй ACK ничего не меняет"
+    );
     assert_eq!(driver.session.last_seq(), seq_after_winner);
     assert_ne!(
         derive_rotated_session(
@@ -576,8 +602,7 @@ fn rotation_node_down_mid_rotation_rolls_back_without_session_break() {
     assert!(driver.session.overlap().expect("окно").is_closed());
     let after = driver.emit_after_rotation(streams[2], b"after-old-down");
     assert!(
-        delivered(driver.new.as_ref().expect("новый канал"))
-            .contains(&(streams[2].0, after.seq.0)),
+        delivered(driver.new.as_ref().expect("новый канал")).contains(&(streams[2].0, after.seq.0)),
         "запись доставлена новым каналом"
     );
 

@@ -129,7 +129,9 @@ pub fn encode_frame(rec: &Record) -> Vec<u8> {
 /// Разбор кадра. Обрезанный кадр, несовпадение префикса длины или битый record —
 /// `BindingError::Unsupported` (это не отказ транспорта, а невалидный вход).
 pub fn decode_frame(frame: &[u8]) -> Result<Record, BindingError> {
-    let (prefix, body) = frame.split_at_checked(FRAME_LEN_BYTES).ok_or(BindingError::Unsupported)?;
+    let (prefix, body) = frame
+        .split_at_checked(FRAME_LEN_BYTES)
+        .ok_or(BindingError::Unsupported)?;
     let declared = u32::from_be_bytes(prefix.try_into().map_err(|_| BindingError::Unsupported)?);
     if declared as usize != body.len() {
         return Err(BindingError::Unsupported);
@@ -495,7 +497,11 @@ mod tests {
         assert_eq!(binding.send(&rec), Err(BindingError::TransportDown));
         assert_eq!(binding.on_failure(), Some(BindingFailure::Closed));
         assert_eq!(binding.send(&rec), Err(BindingError::TransportDown));
-        assert_eq!(binding.journal().len(), 0, "в закрытый байндинг ничего не ушло");
+        assert_eq!(
+            binding.journal().len(),
+            0,
+            "в закрытый байндинг ничего не ушло"
+        );
 
         // Backpressure — тоже синхронный отказ, а не рост памяти. Кадры: большой —
         // `rec` (len(4) + header(5) + ciphertext(7) = 16 B), малый — `small` (4 + 5 + 1 = 10 B).
@@ -516,7 +522,10 @@ mod tests {
             "второй кадр в остаток не влезает — backpressure, а не рост памяти"
         );
         assert_eq!(tight.take_pending().len(), 1);
-        assert!(tight.pending().is_empty(), "вычерпывание освобождает очередь");
+        assert!(
+            tight.pending().is_empty(),
+            "вычерпывание освобождает очередь"
+        );
         assert_eq!(tight.enqueue(&small), Ok(()), "место освободилось");
     }
 
@@ -544,7 +553,10 @@ mod tests {
     fn contract_frame_codec_round_trip() {
         let rec = record(300, 4, b"cipher");
         let frame = encode_frame(&rec);
-        assert_eq!(&frame[..FRAME_LEN_BYTES], &(rec.encode().len() as u32).to_be_bytes());
+        assert_eq!(
+            &frame[..FRAME_LEN_BYTES],
+            &(rec.encode().len() as u32).to_be_bytes()
+        );
         assert_eq!(&frame[FRAME_LEN_BYTES..], rec.encode().as_slice());
         assert_eq!(decode_frame(&frame), Ok(rec.clone()));
 
@@ -571,10 +583,19 @@ mod tests {
         assert_eq!(binding.dropped(), 2, "каждая третья запись потеряна в сети");
         assert_eq!(
             binding.journal(),
-            &[(StreamId(1), 0), (StreamId(1), 1), (StreamId(1), 3), (StreamId(1), 4)]
+            &[
+                (StreamId(1), 0),
+                (StreamId(1), 1),
+                (StreamId(1), 3),
+                (StreamId(1), 4)
+            ]
         );
         let pending = binding.take_pending();
-        assert_eq!(pending.len(), 4, "доставленные кадры ушли в очередь писателя");
+        assert_eq!(
+            pending.len(),
+            4,
+            "доставленные кадры ушли в очередь писателя"
+        );
         assert_eq!(pending[0].0, StreamId(1));
         assert_eq!(binding.pending_bytes(), 0);
 

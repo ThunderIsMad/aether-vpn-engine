@@ -84,7 +84,10 @@ impl Cidr {
         if prefix > max {
             return None;
         }
-        Some(Self { addr, prefix_len: prefix })
+        Some(Self {
+            addr,
+            prefix_len: prefix,
+        })
     }
 
     /// Содержит ли префикс адрес. Сравнение только внутри одного семейства.
@@ -437,10 +440,22 @@ mod tests {
             dst_port: 443,
             host: Some(host.to_owned()),
         };
-        assert_eq!(engine.route(&key("tracker.example")).action, RouteAction::Block);
-        assert_eq!(engine.route(&key("tracker.example.")).action, RouteAction::Block);
-        assert_eq!(engine.route(&key("TRACKER.example")).action, RouteAction::Block);
-        assert_eq!(engine.route(&key("tracker.example.org")).action, RouteAction::Route);
+        assert_eq!(
+            engine.route(&key("tracker.example")).action,
+            RouteAction::Block
+        );
+        assert_eq!(
+            engine.route(&key("tracker.example.")).action,
+            RouteAction::Block
+        );
+        assert_eq!(
+            engine.route(&key("TRACKER.example")).action,
+            RouteAction::Block
+        );
+        assert_eq!(
+            engine.route(&key("tracker.example.org")).action,
+            RouteAction::Route
+        );
     }
 
     /// Контракт отказов пула: переполнение пула — не паника (F-SEC), вытеснение — FIFO.
@@ -465,7 +480,9 @@ mod tests {
 
         // Существующая привязка по-прежнему резолвится в свой адрес.
         assert_eq!(
-            engine.assign_fake_ip("oldest.example").expect("стабильный адрес"),
+            engine
+                .assign_fake_ip("oldest.example")
+                .expect("стабильный адрес"),
             first,
             "повтор исчерпанного пула не ломает старые привязки"
         );
@@ -526,9 +543,19 @@ mod tests {
         let recycled = engine
             .assign_fake_ip("fresh.example")
             .expect("вытеснение старейшей отдаёт её адрес — исчерпание не перманентно (F-03)");
-        assert_eq!(recycled, oldest_addr, "новый хост получил адрес вытесненной первой");
-        assert!(!engine.fake_ip_contains("oldest.example"), "старейшая вытеснена");
-        assert_eq!(engine.fake_ip_entries(), FAKE_IP_POOL_CAP, "потолок удержан");
+        assert_eq!(
+            recycled, oldest_addr,
+            "новый хост получил адрес вытесненной первой"
+        );
+        assert!(
+            !engine.fake_ip_contains("oldest.example"),
+            "старейшая вытеснена"
+        );
+        assert_eq!(
+            engine.fake_ip_entries(),
+            FAKE_IP_POOL_CAP,
+            "потолок удержан"
+        );
 
         // Существующие привязки стабильны после вытеснения.
         let second_addr = engine
@@ -545,8 +572,7 @@ mod tests {
         let engine = Engine::new(
             RouteAction::Route,
             vec![
-                Rule::new("block-tracker", RouteAction::Block)
-                    .with_host("tracker.example"),
+                Rule::new("block-tracker", RouteAction::Block).with_host("tracker.example"),
                 Rule::new("lan-direct", RouteAction::Direct)
                     .with_cidr(Cidr::parse("192.168.0.0/16").expect("валидный CIDR")),
             ],
@@ -580,12 +606,16 @@ mod tests {
             .with_cidr(Cidr::parse("10.0.0.0/8").expect("валидный CIDR"));
         let engine_and = Engine::new(RouteAction::Route, vec![both]);
         assert_eq!(
-            engine_and.route(&key(ip("10.1.2.3"), Some("a.example"))).action,
+            engine_and
+                .route(&key(ip("10.1.2.3"), Some("a.example")))
+                .action,
             RouteAction::Direct,
             "оба матчера совпали"
         );
         assert_eq!(
-            engine_and.route(&key(ip("10.1.2.3"), Some("b.example"))).action,
+            engine_and
+                .route(&key(ip("10.1.2.3"), Some("b.example")))
+                .action,
             RouteAction::Route,
             "хост не совпал — правило не сработало"
         );
@@ -601,7 +631,11 @@ mod tests {
         let v6 = Cidr::parse("fd00::/8").expect("валидный CIDR");
         assert!(v6.contains(&ip("fd12::1")));
         assert!(!v6.contains(&ip("fe80::1")));
-        assert_eq!(Cidr::parse("10.0.0.0/33"), None, "префикс длиннее 32 отклонён");
+        assert_eq!(
+            Cidr::parse("10.0.0.0/33"),
+            None,
+            "префикс длиннее 32 отклонён"
+        );
         assert_eq!(Cidr::parse("не-адрес/8"), None);
     }
 }

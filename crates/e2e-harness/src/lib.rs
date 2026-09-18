@@ -165,7 +165,8 @@ pub fn write_manifest(
 
 /// Читает манифест узла; любая порча — ошибка, а не частичный разбор.
 pub fn read_manifest(path: &std::path::Path) -> Result<NodeManifest, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let mut lines = text.lines();
     if lines.next() != Some(MANIFEST_MAGIC) {
         return Err(format!("{}: не манифест лаборатории", path.display()));
@@ -178,7 +179,9 @@ pub fn read_manifest(path: &std::path::Path) -> Result<NodeManifest, String> {
         fields.insert(key, value);
     }
     let field = |name: &str| fields.get(name).copied().ok_or(format!("нет поля {name}"));
-    let node_id: u32 = field("node_id")?.parse().map_err(|e| format!("node_id: {e}"))?;
+    let node_id: u32 = field("node_id")?
+        .parse()
+        .map_err(|e| format!("node_id: {e}"))?;
     let port: u16 = field("port")?.parse().map_err(|e| format!("port: {e}"))?;
     let identity: [u8; 32] = unhex(field("identity")?)
         .ok_or("identity: плохой hex")?
@@ -424,7 +427,8 @@ mod tests {
     fn manifest_roundtrip() {
         let keys = NodeKeys::from_seed([9u8; 32]);
         let cert = vec![0xABu8; 311];
-        let path = std::env::temp_dir().join(format!("aether-e2e-manifest-{}.txt", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("aether-e2e-manifest-{}.txt", std::process::id()));
         write_manifest(&keys, 2, 4442, &cert, &path).expect("write");
         let manifest = read_manifest(&path).expect("read");
         let _ = std::fs::remove_file(&path);
@@ -434,15 +438,20 @@ mod tests {
         assert_eq!(manifest.identity, identity);
         assert_eq!(manifest.node_static, node_static);
         assert_eq!(manifest.node_static_kem, kem);
-        assert_eq!(manifest.node_static_kem.len(), crypto_core::MLKEM768_EK_BYTES);
+        assert_eq!(
+            manifest.node_static_kem.len(),
+            crypto_core::MLKEM768_EK_BYTES
+        );
         assert_eq!(manifest.quic_cert_der, cert);
     }
 
     /// Кривой манифест (обрезанный) — ошибка, а не частичный разбор.
     #[test]
     fn manifest_rejects_garbage() {
-        let path =
-            std::env::temp_dir().join(format!("aether-e2e-manifest-bad-{}.txt", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "aether-e2e-manifest-bad-{}.txt",
+            std::process::id()
+        ));
         std::fs::write(&path, "not a manifest\n").expect("write");
         assert!(read_manifest(&path).is_err());
         let _ = std::fs::remove_file(&path);

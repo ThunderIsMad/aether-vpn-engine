@@ -20,9 +20,7 @@
 #![deny(unsafe_code)]
 
 use crypto_core::{KRecord, RecordAead, RecordCrypto, RecordNonce};
-use frame_session::{
-    FlowId, RecordError, Session, SessionCrypto, SessionId, StreamId,
-};
+use frame_session::{FlowId, RecordError, Session, SessionCrypto, SessionId, StreamId};
 use policy_engine::{Engine, FlowKey, RouteAction};
 use transport_mux::{BindingError, CoverBinding};
 
@@ -212,7 +210,13 @@ mod tests {
         let mut binding = MemBinding::new(transport_mux::BindingCaps::QUIC);
         let mut flows = std::collections::HashMap::new();
 
-        let packet = ipv4_packet(match fake_ip { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"GET /");
+        let packet = ipv4_packet(
+            match fake_ip {
+                IpAddr::V4(v4) => v4,
+                _ => panic!("v4"),
+            },
+            b"GET /",
+        );
         let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet)
             .expect("route = Route");
         let stream = match outcome {
@@ -266,8 +270,15 @@ mod tests {
             send_packet(&policy, &mut flows, &mut sender, &mut binding, &direct),
             Ok(StepOutcome::Direct)
         );
-        assert!(binding.take_pending().is_empty(), "ничего не ушло в туннель");
-        assert_eq!(sender.last_seq(), frame_session::Seq(0), "seq не израсходован");
+        assert!(
+            binding.take_pending().is_empty(),
+            "ничего не ушло в туннель"
+        );
+        assert_eq!(
+            sender.last_seq(),
+            frame_session::Seq(0),
+            "seq не израсходован"
+        );
 
         // Непокрытый адрес — дефолт Route: запись уходит.
         let routed = ipv4_packet(Ipv4Addr::new(198, 18, 0, 9), b"z");
@@ -298,20 +309,35 @@ mod tests {
             IpAddr::V4(v4) => ipv4_packet(v4, b"p"),
             _ => panic!("v4"),
         };
-        let s1 = match send_packet(&policy, &mut flows, &mut sender, &mut binding, &to_v4(fake_a))
-        {
+        let s1 = match send_packet(
+            &policy,
+            &mut flows,
+            &mut sender,
+            &mut binding,
+            &to_v4(fake_a),
+        ) {
             Ok(StepOutcome::Sent(s)) => s,
             other => panic!("{other:?}"),
         };
-        let s2 = match send_packet(&policy, &mut flows, &mut sender, &mut binding, &to_v4(fake_a))
-        {
+        let s2 = match send_packet(
+            &policy,
+            &mut flows,
+            &mut sender,
+            &mut binding,
+            &to_v4(fake_a),
+        ) {
             Ok(StepOutcome::Sent(s)) => s,
             other => panic!("{other:?}"),
         };
         assert_eq!(s1, s2, "один адрес — один поток");
 
-        let s3 = match send_packet(&policy, &mut flows, &mut sender, &mut binding, &to_v4(fake_b))
-        {
+        let s3 = match send_packet(
+            &policy,
+            &mut flows,
+            &mut sender,
+            &mut binding,
+            &to_v4(fake_b),
+        ) {
             Ok(StepOutcome::Sent(s)) => s,
             other => panic!("{other:?}"),
         };
@@ -333,7 +359,9 @@ mod tests {
         let packet = ipv4_packet(Ipv4Addr::new(198, 18, 0, 3), b"q");
         assert_eq!(
             send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet),
-            Err(PathError::Binding(transport_mux::BindingError::TransportDown))
+            Err(PathError::Binding(
+                transport_mux::BindingError::TransportDown
+            ))
         );
     }
 
@@ -346,7 +374,13 @@ mod tests {
         let mut binding = MemBinding::new(transport_mux::BindingCaps::QUIC);
         let mut flows = std::collections::HashMap::new();
 
-        let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &[0x60, 0, 0, 0]);
+        let outcome = send_packet(
+            &policy,
+            &mut flows,
+            &mut sender,
+            &mut binding,
+            &[0x60, 0, 0, 0],
+        );
         assert!(matches!(outcome, Ok(StepOutcome::Sent(_))));
     }
 
@@ -361,13 +395,21 @@ mod tests {
             .assign_fake_ip("example.com")
             .expect("валидный хост резервирует адрес");
         let sid = [0x5au8; 16];
-        let cover =
-            crypto_core::derive_cover_key(&sid, &crypto_core::derive_session(&sid, b"cover path test"));
+        let cover = crypto_core::derive_cover_key(
+            &sid,
+            &crypto_core::derive_session(&sid, b"cover path test"),
+        );
         let k = test_key();
         let mut sender = session(k);
         let mut binding = SsPaddedBinding::with_padding(cover, 256);
         let mut flows = std::collections::HashMap::new();
-        let packet = ipv4_packet(match fake { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"cover me");
+        let packet = ipv4_packet(
+            match fake {
+                IpAddr::V4(v4) => v4,
+                _ => panic!("v4"),
+            },
+            b"cover me",
+        );
         let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet)
             .expect("обложка принимает запись");
         let stream = match outcome {
@@ -409,14 +451,23 @@ mod tests {
         let mut binding = MasqueBinding::new();
         let mut flows = std::collections::HashMap::new();
 
-        let packet = ipv4_packet(match fake { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"masque me");
+        let packet = ipv4_packet(
+            match fake {
+                IpAddr::V4(v4) => v4,
+                _ => panic!("v4"),
+            },
+            b"masque me",
+        );
         let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet)
             .expect("байндинг принимает запись");
         let stream = match outcome {
             StepOutcome::Sent(s) => s,
             other => panic!("ожидали Sent, получили {other:?}"),
         };
-        assert!(!binding.supports().no_hol, "каркас без h3: no-HOL не заявляем");
+        assert!(
+            !binding.supports().no_hol,
+            "каркас без h3: no-HOL не заявляем"
+        );
 
         // Капсула вынимается из очереди и вскрывается до записи frame-слоя.
         let pending = binding.take_pending();
@@ -450,21 +501,32 @@ mod tests {
             .assign_fake_ip("reality.example")
             .expect("валидный хост резервирует адрес");
         let sid = [0x5au8; 16];
-        let cover =
-            crypto_core::derive_cover_key(&sid, &crypto_core::derive_session(&sid, b"reality path test"));
+        let cover = crypto_core::derive_cover_key(
+            &sid,
+            &crypto_core::derive_session(&sid, b"reality path test"),
+        );
         let k = test_key();
         let mut sender = session(k);
         let mut binding = RealityBinding::new(cover, cover_reality::TargetSite::placeholder());
         let mut flows = std::collections::HashMap::new();
 
-        let packet = ipv4_packet(match fake { IpAddr::V4(v4) => v4, _ => panic!("v4") }, b"reality me");
+        let packet = ipv4_packet(
+            match fake {
+                IpAddr::V4(v4) => v4,
+                _ => panic!("v4"),
+            },
+            b"reality me",
+        );
         let outcome = send_packet(&policy, &mut flows, &mut sender, &mut binding, &packet)
             .expect("байндинг принимает запись");
         let stream = match outcome {
             StepOutcome::Sent(s) => s,
             other => panic!("ожидали Sent, получили {other:?}"),
         };
-        assert!(!binding.supports().no_hol, "Reality/TCP: no-HOL не заявляем (02 §2.2)");
+        assert!(
+            !binding.supports().no_hol,
+            "Reality/TCP: no-HOL не заявляем (02 §2.2)"
+        );
 
         // Reality-обёртка вынимается и вскрывается тем же ключом обложки.
         let pending = binding.take_pending();

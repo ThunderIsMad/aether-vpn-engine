@@ -13,4 +13,4 @@ frame-session.workspace = true
 transport-mux.workspace = true
 # Системный CSPRNG для nonce/padding прод-пути (F-01: детерминированный xorshift
 # в send() был прод-дефектом). Тот же паттерн explicit-fail, что в ticket-mint.
-getrandom = "0.3"
+getrandom.workspace = true

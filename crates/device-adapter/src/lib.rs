@@ -180,10 +180,7 @@ impl DeviceAdapter for LinuxTunStub {
         if self.inner.is_none() {
             return Err(DeviceError::Unavailable);
         }
-        let packet = self
-            .inbound
-            .pop_front()
-            .ok_or(DeviceError::Unavailable)?;
+        let packet = self.inbound.pop_front().ok_or(DeviceError::Unavailable)?;
         let n = packet.len();
         if buf.len() < n {
             // Не помещается в буфер вызывающего: вернуть пакет в очередь, чтобы
@@ -237,7 +234,11 @@ mod tests {
 
         let handle = tun.open(&config()).expect("Linux-сборка открывает стаб");
         assert_eq!(tun.handle(), Some(handle), "дескриптор выдан и возвращён");
-        assert_eq!(tun.opened_config(), Some(&config()), "конфигурация записана");
+        assert_eq!(
+            tun.opened_config(),
+            Some(&config()),
+            "конфигурация записана"
+        );
 
         // Повторное открытие того же устройства — PermissionDenied («одно на процесс»).
         assert_eq!(tun.open(&config()), Err(DeviceError::PermissionDenied));
@@ -291,9 +292,13 @@ mod tests {
 
         // MTU 1400: 1401 байт — PacketTooLarge, журнал не растёт.
         let oversized = vec![0u8; 1401];
-        assert_eq!(tun.write_packet(&oversized), Err(DeviceError::PacketTooLarge));
+        assert_eq!(
+            tun.write_packet(&oversized),
+            Err(DeviceError::PacketTooLarge)
+        );
         assert!(tun.written().is_empty());
-        tun.write_packet(&vec![0u8; 1400]).expect("ровно MTU проходит");
+        tun.write_packet(&vec![0u8; 1400])
+            .expect("ровно MTU проходит");
 
         // Короткий буфер: пакет возвращается в очередь, ретрай с большим читает его.
         tun.inject_inbound(&[1, 2, 3]);

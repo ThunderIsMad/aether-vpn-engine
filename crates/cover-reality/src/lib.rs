@@ -136,8 +136,12 @@ pub fn encode_reality_frame(
     rng_fill(&mut nonce);
     // Заявленная длина тела кадра: nonce + шифротекст (тело записи + тег Poly1305).
     let declared = (AUTH_NONCE_LEN + body.len() + POLY1305_TAG) as u32;
-    let ciphertext =
-        RecordAead.seal(&KRecord(cover.0), &RecordNonce(nonce), &declared.to_be_bytes(), &body);
+    let ciphertext = RecordAead.seal(
+        &KRecord(cover.0),
+        &RecordNonce(nonce),
+        &declared.to_be_bytes(),
+        &body,
+    );
 
     let mut frame = Vec::with_capacity(FRAME_LEN_BYTES + AUTH_NONCE_LEN + ciphertext.len());
     frame.extend_from_slice(&declared.to_be_bytes());
@@ -149,8 +153,11 @@ pub fn encode_reality_frame(
 /// Вскрывает первый кадр Reality-канала: чужой ключ/порча → `NotAuthenticated`,
 /// битая длина → `BadLength`, неразбираемая запись при валидном теге → `BadRecord`.
 pub fn decode_reality_frame(cover: &KCover, frame: &[u8]) -> Result<Record, AuthError> {
-    let (prefix, rest) = frame.split_at_checked(FRAME_LEN_BYTES).ok_or(AuthError::BadLength)?;
-    let declared = u32::from_be_bytes(prefix.try_into().map_err(|_| AuthError::BadLength)?) as usize;
+    let (prefix, rest) = frame
+        .split_at_checked(FRAME_LEN_BYTES)
+        .ok_or(AuthError::BadLength)?;
+    let declared =
+        u32::from_be_bytes(prefix.try_into().map_err(|_| AuthError::BadLength)?) as usize;
     if declared != rest.len() {
         return Err(AuthError::BadLength);
     }
@@ -163,7 +170,12 @@ pub fn decode_reality_frame(cover: &KCover, frame: &[u8]) -> Result<Record, Auth
     // AAD — тот же префикс длины, что при seal.
     let aad = u32::from_be_bytes(prefix.try_into().map_err(|_| AuthError::BadLength)?);
     let plaintext = RecordAead
-        .open(&KRecord(cover.0), &RecordNonce(nonce_arr), &aad.to_be_bytes(), ciphertext)
+        .open(
+            &KRecord(cover.0),
+            &RecordNonce(nonce_arr),
+            &aad.to_be_bytes(),
+            ciphertext,
+        )
         .map_err(|_| AuthError::NotAuthenticated)?;
 
     Record::decode(&plaintext).map_err(|_| AuthError::BadRecord)
@@ -267,7 +279,11 @@ pub fn client_authenticator(
     client_hello_redacted: &[u8],
     slot: u64,
 ) -> [u8; PROBE_AUTHENTICATOR_LEN] {
-    crypto_core::probe_tag(k_probe, client_hello_redacted, (slot.saturating_sub(1), slot + 1))
+    crypto_core::probe_tag(
+        k_probe,
+        client_hello_redacted,
+        (slot.saturating_sub(1), slot + 1),
+    )
 }
 
 /// Решение гейта по открытому ClientHello (`peek-before-decrypt`, b132-2).
@@ -301,8 +317,9 @@ pub fn gate_decision(
             // `==` на массивах фиксированной длины для масивов к struct+PartialEq
             // компилятор разворачивает в memcmp — время зависит от данных.
             if tag.len() == PROBE_AUTHENTICATOR_LEN {
-                let tag_arr: [u8; PROBE_AUTHENTICATOR_LEN] =
-                    tag[..PROBE_AUTHENTICATOR_LEN].try_into().expect("len проверен выше");
+                let tag_arr: [u8; PROBE_AUTHENTICATOR_LEN] = tag[..PROBE_AUTHENTICATOR_LEN]
+                    .try_into()
+                    .expect("len проверен выше");
                 let expected_arr: [u8; PROBE_AUTHENTICATOR_LEN] = expected;
                 if crypto_core::tags_equal_ct(&tag_arr, &expected_arr) {
                     return GateDecision::Accept;
@@ -337,9 +354,7 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 /// Исход сплайса (диагностика для логов/метрик; наружу не наблюдается — наблюдателю
@@ -434,7 +449,12 @@ pub fn relay_to_target(
     let quota_to_site = Arc::clone(&quota);
     let max_relay_bytes = spec.max_relay_bytes;
     let to_site = std::thread::spawn(move || {
-        copy_relay_dir(&mut probe_read, &mut up_write, &quota_to_site, max_relay_bytes)
+        copy_relay_dir(
+            &mut probe_read,
+            &mut up_write,
+            &quota_to_site,
+            max_relay_bytes,
+        )
     });
     // Основной поток — «сайт → пробник».
     let to_probe = copy_relay_dir(&mut up_read, &mut probe_write, &quota, spec.max_relay_bytes);
@@ -575,10 +595,7 @@ impl RealityBinding {
 #[allow(dead_code)]
 fn deterministic_fill(counter: u64, index: u64) -> impl FnMut(&mut [u8]) {
     move |buf: &mut [u8]| {
-        let mut state = counter
-            ^ 0x9E37_79B9_7F4A_7C15
-            ^ index << 32
-            ^ (buf.len() as u64) << 3;
+        let mut state = counter ^ 0x9E37_79B9_7F4A_7C15 ^ index << 32 ^ (buf.len() as u64) << 3;
         for byte in buf.iter_mut() {
             state ^= state << 13;
             state ^= state >> 7;
@@ -607,7 +624,8 @@ impl transport_mux::CoverBinding for RealityBinding {
         // `expect` допустим: единственная ошибка `getrandom::fill` — системный RNG
         // недоступен (тот же explicit-fail контракт, что в `ticket-mint::mint_at`).
         let frame = encode_reality_frame(&self.cover, rec, &mut |buf: &mut [u8]| {
-            getrandom::fill(buf).expect("system CSPRNG unavailable: cannot encrypt a reality frame");
+            getrandom::fill(buf)
+                .expect("system CSPRNG unavailable: cannot encrypt a reality frame");
         });
         // Кадр обложки кладём напрямую в Outbox: `BindingCore::enqueue` кодирует
         // дефолтный кадр без auth-обёртки — обложка формирует кадр сама (как у ss2022).
@@ -674,7 +692,10 @@ mod tests {
         let body = rec.encode();
         let expected_ct_len = body.len() + 16; // + тег Poly1305
         assert_eq!(&frame[..4], &((24 + expected_ct_len) as u32).to_be_bytes());
-        assert!(frame[4..28].iter().all(|&b| b == 0xA5), "nonce едет в кадре");
+        assert!(
+            frame[4..28].iter().all(|&b| b == 0xA5),
+            "nonce едет в кадре"
+        );
 
         // Воспроизводимость: тот же nonce → тот же шифротекст (AAD и ключ не менялись).
         let frame2 = encode_reality_frame(&cover(), &rec, &mut fixed_fill(0xA5));
@@ -771,7 +792,10 @@ mod tests {
         assert_eq!(binding.on_failure(), Some(BindingFailure::Closed));
         assert_eq!(binding.send(&rec), Err(BindingError::TransportDown));
         assert_eq!(binding.on_failure(), None, "Closed тоже ровно один раз");
-        assert!(binding.take_pending().is_empty(), "в закрытый канал ничего не ушло");
+        assert!(
+            binding.take_pending().is_empty(),
+            "в закрытый канал ничего не ушло"
+        );
     }
 
     /// F-01 (аудит, High): prod-nonce байндинга — CSPRNG, не детерминированный счётчик.
@@ -796,7 +820,10 @@ mod tests {
         for _ in 0..8 {
             first.send(&rec).expect("очередь не переполнена");
             for (_, frame) in first.take_pending() {
-                assert!(seen.insert(extract_nonce(&frame)), "nonce повторился внутри одного байндинга");
+                assert!(
+                    seen.insert(extract_nonce(&frame)),
+                    "nonce повторился внутри одного байндинга"
+                );
             }
         }
 
@@ -853,7 +880,10 @@ mod tests {
     fn caps_stream_class_not_no_hol() {
         let binding = RealityBinding::new(cover(), TargetSite::placeholder());
         let caps = binding.supports();
-        assert!(!caps.no_hol, "у Reality/TCP HOL есть по построению (02 §2.2)");
+        assert!(
+            !caps.no_hol,
+            "у Reality/TCP HOL есть по построению (02 §2.2)"
+        );
         assert!(!caps.datagram, "датаграммной семантики на TCP нет");
         assert_eq!(caps.dpi_profile, DPI_PROFILE_REALITY_TCP);
         assert_eq!(caps, transport_mux::BindingCaps::REALITY_TCP);
@@ -899,12 +929,12 @@ mod tests {
         ch.extend_from_slice(&[0x00, 0x02, 0x13, 0x01]); // cipher suites: 1×TLS_AES_128_GCM
         ch.push(0x01);
         ch.push(0x00); // compression: null
-        // extensions: только session_ticket (type 35), данные — 24 B под тег.
+                       // extensions: только session_ticket (type 35), данные — 24 B под тег.
         ch.extend_from_slice(&[0x00, 0x1A]); // ext block len: 2+2+24 = 28
         ch.extend_from_slice(&[0x00, 0x23]); // session_ticket (35)
         ch.extend_from_slice(&[0x00, 0x18]); // ext data len: 24
         ch.extend_from_slice(&[0xEE; 24]); // место тега (байт-маркер для поиска)
-        // record length (2 B на позиции 3..5) и handshake length (3 B на 9..12):
+                                           // record length (2 B на позиции 3..5) и handshake length (3 B на 9..12):
         let hs_len = (ch.len() - 5) as u32;
         ch[9..12].copy_from_slice(&hs_len.to_be_bytes()[1..4]);
         let rec_len = (ch.len() - 5) as u16;
@@ -937,7 +967,13 @@ mod tests {
 
         // У клиента нет сессии: ни sid, ни K_session не участвуют в вычислении тега.
         assert_eq!(
-            gate_decision(&kp, &ch_tagged, Some(&tag), slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            gate_decision(
+                &kp,
+                &ch_tagged,
+                Some(&tag),
+                slot,
+                relay_spec("127.0.0.1:443".parse().unwrap())
+            ),
             GateDecision::Accept,
             "первый вход через Reality без какой-либо сессии принимается гейтом"
         );
@@ -977,24 +1013,42 @@ mod tests {
             "вне окна слотов → Relay"
         );
 
-        // Чужой fleet-корень → Relay (наблюдателю неотличимо от «просто клиент сайта»). 
+        // Чужой fleet-корень → Relay (наблюдателю неотличимо от «просто клиент сайта»).
         let other_root: [u8; 32] = core::array::from_fn(|i| (i as u8) ^ 0x5E);
         let other = crypto_core::derive_probe_fleet_key(&other_root);
         assert_eq!(
-            gate_decision(&other, &ch_tagged, Some(&tag), slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            gate_decision(
+                &other,
+                &ch_tagged,
+                Some(&tag),
+                slot,
+                relay_spec("127.0.0.1:443".parse().unwrap())
+            ),
             GateDecision::Relay(relay_spec("127.0.0.1:443".parse().unwrap()))
         );
 
         // Тега нет → Relay.
         assert_eq!(
-            gate_decision(&kp, &ch, None, slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            gate_decision(
+                &kp,
+                &ch,
+                None,
+                slot,
+                relay_spec("127.0.0.1:443".parse().unwrap())
+            ),
             GateDecision::Relay(relay_spec("127.0.0.1:443".parse().unwrap()))
         );
 
         // Не ClientHello (например, HTTP-мусор) → Reject (тихое закрытие).
         let junk = b"GET / HTTP/1.1\r\nHost: x\r\n\r\n";
         assert_eq!(
-            gate_decision(&kp, junk, None, slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            gate_decision(
+                &kp,
+                junk,
+                None,
+                slot,
+                relay_spec("127.0.0.1:443".parse().unwrap())
+            ),
             GateDecision::Reject
         );
     }
@@ -1017,7 +1071,13 @@ mod tests {
         let mut tampered = ch_tagged.clone();
         tampered[20] ^= 1;
         assert_ne!(
-            gate_decision(&kp, &tampered, Some(&tag), slot, relay_spec("127.0.0.1:443".parse().unwrap())),
+            gate_decision(
+                &kp,
+                &tampered,
+                Some(&tag),
+                slot,
+                relay_spec("127.0.0.1:443".parse().unwrap())
+            ),
             GateDecision::Accept,
             "изменённый CH с чужим тегом не принимается"
         );
@@ -1046,11 +1106,13 @@ mod tests {
         use boring::hash::MessageDigest;
         use boring::pkey::PKey;
         use boring::rsa::Rsa;
-        use boring::x509::{X509, X509Name};
+        use boring::x509::{X509Name, X509};
 
         let key = PKey::from_rsa(Rsa::generate(2048).expect("rsa")).expect("pkey");
         let mut name_builder = X509Name::builder().expect("name");
-        name_builder.append_entry_by_text("CN", "cover-reality-test").expect("CN");
+        name_builder
+            .append_entry_by_text("CN", "cover-reality-test")
+            .expect("CN");
         let name = name_builder.build();
 
         let mut builder = X509::builder().expect("builder");
@@ -1110,7 +1172,8 @@ mod tests {
             TcpStream::connect(gate.local_addr().expect("gate addr")).expect("probe connect");
         let (mut gate_sock, _) = gate.accept().expect("gate accept");
 
-        probe.set_read_timeout(Some(Duration::from_secs(5)))
+        probe
+            .set_read_timeout(Some(Duration::from_secs(5)))
             .expect("probe timeout");
         let hello: Vec<u8> = (0..64u8).collect();
         probe.write_all(&hello).expect("probe write CH");
@@ -1124,8 +1187,7 @@ mod tests {
         };
 
         let started = Instant::now();
-        let relay =
-            std::thread::spawn(move || relay_to_target(&spec, &mut gate_sock, &buffered));
+        let relay = std::thread::spawn(move || relay_to_target(&spec, &mut gate_sock, &buffered));
 
         // Обмен 1: эхо ClientHello доходит через сплайс (направление «сайт → пробник»).
         let mut echoed = vec![0u8; hello.len()];
@@ -1138,7 +1200,10 @@ mod tests {
         probe.write_all(&msg).expect("probe write 2");
         let mut echoed2 = vec![0u8; msg.len()];
         probe.read_exact(&mut echoed2).expect("probe read echo 2");
-        assert_eq!(echoed2, msg, "второй обмен прошёл за ~RTT (мультиплексирование)");
+        assert_eq!(
+            echoed2, msg,
+            "второй обмен прошёл за ~RTT (мультиплексирование)"
+        );
 
         drop(probe);
         assert_eq!(

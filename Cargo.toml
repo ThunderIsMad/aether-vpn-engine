@@ -36,6 +36,9 @@ clatter = { version = "2.3.0", default-features = false, features = [
 # `crypto-core`; без него доступны только `new_from_slice`/`decapsulate_slice`.
 ml-kem = { version = "0.3.2", features = ["getrandom"] }
 chacha20poly1305 = "0.11.0"
+# CSPRNG (F-10): прод-nonce обложек (`cover-ss2022`, `cover-reality`) и nonce тикета
+# (`ticket-mint`). Пин в workspace по правилу проекта — у крейтов только `.workspace = true`.
+getrandom = "0.3"
 # HKDF и SHA-256 для вывода `K_session`/`K_resume`/ratchet записей (`02 §1`, §3.3, §5).
 # Пара версий — из одного поколения RustCrypto (digest 0.11); смотри DEPENDENCIES.md.
 hkdf = "0.13.0"

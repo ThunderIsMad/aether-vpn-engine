@@ -1,0 +1,15 @@
+# Пин компилятора Rust (F-11, аудит 3): проект пинит зависимости в Cargo.lock и
+# [workspace.dependencies] с TTL-перепроверками; компилятор был единственным незакреплённым
+# элементом. Rustfmt/clippy — компоненты того же тулчейна: CI всегда собирает под ним.
+# Бамп = осознанная операция: обновить канал здесь, прогнать fmt/clippy/test, отметить в PR.
+#
+# Канал пинится ПОЛНОСТЬЮ (`1.98.1-x86_64-pc-windows-gnu`), а не просто `1.98.1`:
+# неполная запись заставляет rustup ставить host-default тулчейн (msvc на Windows),
+# у локальной Windows-машины прод-сборка — windows-gnu (w64devkit-линкер,
+# scripts/local-env.sh). CI (ubuntu) резолвит gnu-канал через `rustup target add` —
+# у Linux-раннера cross-таргет не нужен, поэтому там действует стандартный
+# `dtolnay/rust-toolchain`/`rustup default stable`? НЕТ: CI читает этот же файл
+# (rustup делает это автоматически при любом cargo-вызове) и поставит названный
+# канал; на Linux host-gnu совпадает с x86_64-unknown-linux-gnu — сборка идёт.
+[toolchain]
+channel = "1.98.1-x86_64-pc-windows-gnu"

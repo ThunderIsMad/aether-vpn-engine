@@ -365,7 +365,10 @@ impl DedupWindow {
     }
 
     fn slide_lo(floor: Seq, last_seq: Seq) -> Seq {
-        let lowest = last_seq.0.saturating_add(1).saturating_sub(u64::from(DUPLICATE_WINDOW_RECORDS));
+        let lowest = last_seq
+            .0
+            .saturating_add(1)
+            .saturating_sub(u64::from(DUPLICATE_WINDOW_RECORDS));
         Seq(lowest.max(floor.0))
     }
 
@@ -475,7 +478,9 @@ pub const T_QUARANTINE_MS: u64 = 5 * 60 * 1_000;
 
 /// `T_morph` = 2 × SRTT, клип [200 ms, 2 s] (`02 §4`).
 pub fn t_morph_ms(srtt_ms: u64) -> u64 {
-    srtt_ms.saturating_mul(2).clamp(T_MORPH_MIN_MS, T_MORPH_MAX_MS)
+    srtt_ms
+        .saturating_mul(2)
+        .clamp(T_MORPH_MIN_MS, T_MORPH_MAX_MS)
 }
 
 /// `T_ack` = 2 × SRTT, клип [200 ms, 2 s] (`02 §3.7`); владелец таймера — FrameSession.
@@ -701,7 +706,9 @@ impl Session {
         if seq.0 > REKEY_POLICY_LIMIT {
             return Err(RecordError::TooFar);
         }
-        Ok(self.crypto.record_key_at(&self.session_id.0, &self.chain_base, seq.0))
+        Ok(self
+            .crypto
+            .record_key_at(&self.session_id.0, &self.chain_base, seq.0))
     }
 
     /// Запечатывает данные в record под `K_record[seq]` (`03`, контракт FrameSession).
@@ -722,12 +729,9 @@ impl Session {
             ciphertext: Vec::new(),
         };
         let aad = record.aad_bytes();
-        record.ciphertext = self.crypto.seal(
-            &key,
-            record_nonce(seq, &self.session_id),
-            &aad,
-            data,
-        );
+        record.ciphertext = self
+            .crypto
+            .seal(&key, record_nonce(seq, &self.session_id), &aad, data);
         record
     }
 
@@ -766,9 +770,7 @@ impl Session {
     /// Открывает окно перекрытия по SRTT (`02 §4`): дубли идут на оба канала до валидного ACK.
     pub fn begin_overlap(&mut self, srtt_ms: u64) -> &OverlapWindow {
         self.overlap = Some(OverlapWindow::new(srtt_ms));
-        self.overlap
-            .as_ref()
-            .expect("окно только что установлено")
+        self.overlap.as_ref().expect("окно только что установлено")
     }
 
     /// Продублировать запись в бюджет окна (`02 §4`).
@@ -909,20 +911,18 @@ mod tests {
     /// в интеграционном крейте `rotation-tests`; здесь проверяется каркас, не крипто.
     struct MockCrypto;
 
-impl SessionCrypto for MockCrypto {
-    /// Детерминированная одношаговая функция члена `seq`: XOR-смешение `seq` в ключ
-    /// через повтор (мок проверяет каркас, не крипто — реальный вывод в `crypto-core`).
-    fn record_key_at(&self, session_id: &[u8; 16], base: &[u8; 32], seq: u64) -> [u8; 32] {
-        let mut out = [0u8; 32];
-        let tag = seq.wrapping_mul(0x9E37_79B9_7F4A_7C15).to_be_bytes();
-        for (index, byte) in base.iter().enumerate() {
-            out[index] = byte
-                ^ session_id[index % session_id.len()]
-                ^ tag[index % tag.len()]
-                ^ 0x5a;
+    impl SessionCrypto for MockCrypto {
+        /// Детерминированная одношаговая функция члена `seq`: XOR-смешение `seq` в ключ
+        /// через повтор (мок проверяет каркас, не крипто — реальный вывод в `crypto-core`).
+        fn record_key_at(&self, session_id: &[u8; 16], base: &[u8; 32], seq: u64) -> [u8; 32] {
+            let mut out = [0u8; 32];
+            let tag = seq.wrapping_mul(0x9E37_79B9_7F4A_7C15).to_be_bytes();
+            for (index, byte) in base.iter().enumerate() {
+                out[index] =
+                    byte ^ session_id[index % session_id.len()] ^ tag[index % tag.len()] ^ 0x5a;
+            }
+            out
         }
-        out
-    }
 
         fn seal(&self, _k: &[u8; 32], _nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
             let mut out = aad.to_vec();
@@ -951,7 +951,11 @@ impl SessionCrypto for MockCrypto {
         let sid = SessionId([0x33; 16]);
         let mut session = Session::new(sid, [0x44; 32], Box::new(MockCrypto));
         let stream = session.open_stream(FlowId(7));
-        assert_eq!(session.open_stream(FlowId(7)), stream, "поток не переоткрывается");
+        assert_eq!(
+            session.open_stream(FlowId(7)),
+            stream,
+            "поток не переоткрывается"
+        );
 
         let record = session.seal_record(stream, b"hello");
         assert_eq!(record.kind, RecordType::Data);
@@ -1023,7 +1027,11 @@ impl SessionCrypto for MockCrypto {
         assert_eq!(fresh.bitmap_bytes(), 512, "bitmap 512 B на сессию");
         assert_eq!(fresh.accept(Seq(0)), DedupOutcome::Accepted);
         assert_eq!(fresh.accept(Seq(0)), DedupOutcome::Duplicate);
-        assert_eq!(fresh.continuity_point(), Seq(0), "повтор не двигает границу");
+        assert_eq!(
+            fresh.continuity_point(),
+            Seq(0),
+            "повтор не двигает границу"
+        );
         assert_eq!(fresh.accept(Seq(5)), DedupOutcome::Accepted);
         assert_eq!(fresh.continuity_point(), Seq(5));
         assert_eq!(
@@ -1041,7 +1049,10 @@ impl SessionCrypto for MockCrypto {
         // Пол окна слайдится: первая запись за пределами 4096 вытесняет нижние.
         let last = Seq(u64::from(DUPLICATE_WINDOW_RECORDS) + 10);
         assert_eq!(fresh.accept(last), DedupOutcome::Accepted);
-        assert_eq!(fresh.window().lo, Seq(last.0 + 1 - u64::from(DUPLICATE_WINDOW_RECORDS)));
+        assert_eq!(
+            fresh.window().lo,
+            Seq(last.0 + 1 - u64::from(DUPLICATE_WINDOW_RECORDS))
+        );
         assert_eq!(fresh.window().hi, last);
         assert_eq!(fresh.accept(Seq(5)), DedupOutcome::BelowWindow);
         assert_eq!(fresh.anomalies(), 1, "seq ниже пола считается аномалией");
@@ -1077,14 +1088,20 @@ impl SessionCrypto for MockCrypto {
         assert_eq!(t_morph_ms(500), 1_000, "2 × SRTT внутри клипа");
         assert_eq!(t_morph_ms(5_000), T_MORPH_MAX_MS, "клип сверху 2 s");
         assert_eq!(t_ack_ms(500), 1_000, "T_ack = 2 × SRTT (`02 §3.7`)");
-        assert_eq!(MAX_RESUME_ATTEMPTS, 2, "первая попытка + одна повторная (`02 §3.7`, Q18)");
+        assert_eq!(
+            MAX_RESUME_ATTEMPTS, 2,
+            "первая попытка + одна повторная (`02 §3.7`, Q18)"
+        );
         assert_eq!(T_QUARANTINE_MS, 300_000, "T_quar = 5 мин (`02 §4`)");
 
         let mut window = OverlapWindow::new(500);
         assert_eq!(window.timeout_ms(), 1_000);
         assert_eq!(window.budget_records(), 4096);
         assert_eq!(window.duplicate(0), DuplicateStep::Duplicated);
-        assert!(!window.close_on_ack(false), "невалидный ACK окно не закрывает");
+        assert!(
+            !window.close_on_ack(false),
+            "невалидный ACK окно не закрывает"
+        );
         assert!(!window.is_closed());
         assert!(window.close_on_ack(true), "валидный ACK закрывает окно");
         assert!(window.is_closed());

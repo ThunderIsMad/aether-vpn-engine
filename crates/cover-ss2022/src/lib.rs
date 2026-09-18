@@ -40,7 +40,9 @@
 
 use crypto_core::{KCover, KRecord, RecordAead, RecordCrypto, RecordNonce};
 use frame_session::{Record, RecordError};
-use transport_mux::{BindingCaps, BindingError, BindingFailure, CoverBinding, DEFAULT_OUTBOX_BYTES};
+use transport_mux::{
+    BindingCaps, BindingError, BindingFailure, CoverBinding, DEFAULT_OUTBOX_BYTES,
+};
 
 /// Профиль DPI этого байндинга: stream-обложка с собственным кадрированием.
 /// (0x01 QUIC, 0x02 Reality-TCP, 0x03 MASQUE — заняты в transport-mux.)
@@ -120,9 +122,11 @@ pub fn encode_cover_frame(
 
 /// Вскрывает кадр обложки и возвращает запись; паддинг отрезается по границе записи.
 pub fn decode_cover_frame(cover: &KCover, frame: &[u8]) -> Result<Record, CoverFrameError> {
-    let (prefix, rest) = frame.split_at_checked(4).ok_or(CoverFrameError::BadLength)?;
-    let declared = u32::from_be_bytes(prefix.try_into().map_err(|_| CoverFrameError::BadLength)?)
-        as usize;
+    let (prefix, rest) = frame
+        .split_at_checked(4)
+        .ok_or(CoverFrameError::BadLength)?;
+    let declared =
+        u32::from_be_bytes(prefix.try_into().map_err(|_| CoverFrameError::BadLength)?) as usize;
     if declared != rest.len() {
         return Err(CoverFrameError::BadLength);
     }
@@ -235,10 +239,7 @@ impl SsPaddedBinding {
 #[allow(dead_code)]
 fn deterministic_fill(counter: u64, index: u64) -> impl FnMut(&mut [u8]) {
     move |buf: &mut [u8]| {
-        let mut state = counter
-            ^ 0x9E37_79B9_7F4A_7C15
-            ^ index << 32
-            ^ (buf.len() as u64) << 3;
+        let mut state = counter ^ 0x9E37_79B9_7F4A_7C15 ^ index << 32 ^ (buf.len() as u64) << 3;
         for byte in buf.iter_mut() {
             state ^= state << 13;
             state ^= state >> 7;
@@ -261,9 +262,15 @@ impl CoverBinding for SsPaddedBinding {
         // (реконнект/морф) — раскрытие keystream'ов и подделка Poly1305-тега.
         // `expect` допустим: единственная ошибка `getrandom::fill` — системный RNG
         // недоступен (тот же explicit-fail контракт, что в `ticket-mint::mint_at`).
-        let frame = encode_cover_frame(&self.cover, rec, self.padding_budget, &mut |buf: &mut [u8]| {
-            getrandom::fill(buf).expect("system CSPRNG unavailable: cannot encrypt a cover frame");
-        });
+        let frame = encode_cover_frame(
+            &self.cover,
+            rec,
+            self.padding_budget,
+            &mut |buf: &mut [u8]| {
+                getrandom::fill(buf)
+                    .expect("system CSPRNG unavailable: cannot encrypt a cover frame");
+            },
+        );
         // Кадр обложки кладём напрямую в Outbox (не через BindingCore::enqueue —
         // тот кодирует дефолтный кадр без AEAD/padding).
         self.outbox.push(rec.stream_id, frame)
@@ -401,7 +408,10 @@ mod tests {
     fn closed_channel_and_failure_paths() {
         let mut binding = SsPaddedBinding::new(cover());
         binding.mark_closed();
-        assert_eq!(binding.send(&record(1, b"x")), Err(BindingError::TransportDown));
+        assert_eq!(
+            binding.send(&record(1, b"x")),
+            Err(BindingError::TransportDown)
+        );
         assert_eq!(binding.on_failure(), Some(BindingFailure::Closed));
         assert_eq!(binding.on_failure(), None, "событие отдаётся один раз");
 
@@ -476,7 +486,10 @@ mod tests {
         for _ in 0..8 {
             first.send(&rec).expect("очередь не переполнена");
             for (_, frame) in first.take_pending() {
-                assert!(seen.insert(extract_nonce(&frame)), "nonce повторился внутри одного байндинга");
+                assert!(
+                    seen.insert(extract_nonce(&frame)),
+                    "nonce повторился внутри одного байндинга"
+                );
             }
         }
 

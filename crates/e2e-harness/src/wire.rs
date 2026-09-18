@@ -180,7 +180,10 @@ mod tests {
         malicious.extend_from_slice(&(1u32 << 30).to_be_bytes());
         w2.write_all(&malicious).await.expect("write");
         w2.flush().await.expect("flush");
-        assert!(matches!(read_frame(&mut r1).await, Err(WireError::BadFrame(_))));
+        assert!(matches!(
+            read_frame(&mut r1).await,
+            Err(WireError::BadFrame(_))
+        ));
     }
 
     /// Тегированный кадр roundtrip: тег и payload не путаются.
@@ -189,8 +192,12 @@ mod tests {
         let (client, server) = tokio::io::duplex(1024);
         let (mut r1, mut w1) = tokio::io::split(client);
         let (mut r2, mut w2) = tokio::io::split(server);
-        send_tagged(&mut w1, TAG_HANDSHAKE, b"msg1").await.expect("write");
-        send_tagged(&mut w2, TAG_RESUME, b"resume").await.expect("write");
+        send_tagged(&mut w1, TAG_HANDSHAKE, b"msg1")
+            .await
+            .expect("write");
+        send_tagged(&mut w2, TAG_RESUME, b"resume")
+            .await
+            .expect("write");
         assert_eq!(
             read_tagged(&mut r2).await.expect("read"),
             (TAG_HANDSHAKE, b"msg1".to_vec())
@@ -201,7 +208,10 @@ mod tests {
         );
         // Пустой payload: тег есть, данных нет — не Closed.
         send_tagged(&mut w1, TAG_MINT, b"").await.expect("write");
-        assert_eq!(read_tagged(&mut r2).await.expect("read"), (TAG_MINT, Vec::new()));
+        assert_eq!(
+            read_tagged(&mut r2).await.expect("read"),
+            (TAG_MINT, Vec::new())
+        );
     }
 
     /// Mint-запрос: сборка и разбор совпадают по полям; длина ровно 63 B.
@@ -209,8 +219,14 @@ mod tests {
     fn mint_request_roundtrip() {
         let request = build_mint_request(7, [1u8; 16], [2u8; 32], 41);
         assert_eq!(request.len(), MINT_REQUEST_LEN);
-        assert_eq!(MINT_REQUEST_LEN, 63, "kind(1) ‖ node_id(4) ‖ ext_len(2) ‖ 56");
-        assert_eq!(request[0], 0x01, "KIND_MINT_REQ как в Rotation::request_ticket");
+        assert_eq!(
+            MINT_REQUEST_LEN, 63,
+            "kind(1) ‖ node_id(4) ‖ ext_len(2) ‖ 56"
+        );
+        assert_eq!(
+            request[0], 0x01,
+            "KIND_MINT_REQ как в Rotation::request_ticket"
+        );
         assert_eq!(
             parse_mint_request(&request),
             Some((7, [1u8; 16], [2u8; 32], 41))

@@ -57,8 +57,8 @@
 #![deny(unsafe_code)]
 
 use crypto_core::{
-    derive_k_resume, derive_rotated_session, ed25519_sign, ed25519_verify, x25519_dh, RecordAead,
-    RecordCrypto, KRecord, RecordNonce,
+    derive_k_resume, derive_rotated_session, ed25519_sign, ed25519_verify, x25519_dh, KRecord,
+    RecordAead, RecordCrypto, RecordNonce,
 };
 
 /// Идентификатор узла флота (`node_set_id` — набор допустимых узлов).
@@ -365,8 +365,12 @@ pub fn build_resume_ack(
     node_identity_priv: &[u8; 32],
 ) -> Vec<u8> {
     let transcript = crypto_core::sha256(&resume_signing_payload(client_resume_ctx));
-    let payload =
-        ack_signing_payload(&transcript, client_resume_ctx.last_seq, node_window, &eph_node.0);
+    let payload = ack_signing_payload(
+        &transcript,
+        client_resume_ctx.last_seq,
+        node_window,
+        &eph_node.0,
+    );
     let sig_node = ed25519_sign(node_identity_priv, &payload);
 
     let mut ack_plain = Vec::with_capacity(8 + 8 + 8 + 32 + 64);
@@ -599,14 +603,24 @@ impl<C: RotationChannel> ClientRotation<C> {
         }
         let continuity_point =
             u64::from_be_bytes(plain[..8].try_into().map_err(|_| ResumeError::Malformed)?);
-        let window_lo =
-            u64::from_be_bytes(plain[8..16].try_into().map_err(|_| ResumeError::Malformed)?);
-        let window_hi =
-            u64::from_be_bytes(plain[16..24].try_into().map_err(|_| ResumeError::Malformed)?);
+        let window_lo = u64::from_be_bytes(
+            plain[8..16]
+                .try_into()
+                .map_err(|_| ResumeError::Malformed)?,
+        );
+        let window_hi = u64::from_be_bytes(
+            plain[16..24]
+                .try_into()
+                .map_err(|_| ResumeError::Malformed)?,
+        );
         let eph_node: [u8; 32] = plain[24..56]
             .try_into()
             .map_err(|_| ResumeError::Malformed)?;
-        let sig_node = Signature(plain[56..120].try_into().map_err(|_| ResumeError::Malformed)?);
+        let sig_node = Signature(
+            plain[56..120]
+                .try_into()
+                .map_err(|_| ResumeError::Malformed)?,
+        );
 
         let transcript_client_hash = crypto_core::sha256(&resume_signing_payload(ctx));
         let payload = ack_signing_payload(
@@ -827,7 +841,12 @@ mod tests {
 
     fn coordinator(
         corrupt_signature: bool,
-    ) -> (ClientRotation<MockNode>, crypto_core::Ed25519Pub, [u8; 32], crypto_core::Ed25519Pub) {
+    ) -> (
+        ClientRotation<MockNode>,
+        crypto_core::Ed25519Pub,
+        [u8; 32],
+        crypto_core::Ed25519Pub,
+    ) {
         let k_resume = derive_k_resume(&SID, &crypto_core::KSession(K_SESSION));
         let (client_pub, client_priv) = crypto_core::ed25519_genkey();
         let (node_pub, node_priv) = crypto_core::ed25519_genkey();
@@ -875,11 +894,8 @@ mod tests {
         // Украденный ticket без приватного ключа личности: та же полезная нагрузка,
         // но подпись чужим ключом — PoP не проходит.
         let (_, attacker_priv) = crypto_core::ed25519_genkey();
-        let mut thief = ClientRotation::new(
-            SID,
-            K_SESSION,
-            MockNode::new(k_resume, [0u8; 32], false),
-        );
+        let mut thief =
+            ClientRotation::new(SID, K_SESSION, MockNode::new(k_resume, [0u8; 32], false));
         thief.set_client_identity(attacker_priv);
         thief.set_eph_client([0x55; 32], X25519Pub([0x66; 32]));
         let (thief_request, thief_ctx) = thief
@@ -900,10 +916,16 @@ mod tests {
         let target = node(node_pub);
         let ticket = rotation.request_ticket(&target).expect("ticket");
         let eph = rotation.eph_public().expect("eph_client установлен");
-        let continuity = rotation.resume(&target, &ticket, eph).expect("валидный ACK");
+        let continuity = rotation
+            .resume(&target, &ticket, eph)
+            .expect("валидный ACK");
         assert_eq!(continuity.point, 42);
         assert_eq!(continuity.window_hi, 42);
-        assert_eq!(continuity.eph_node, X25519Pub(EPH_NODE), "Q17: eph_node в типе");
+        assert_eq!(
+            continuity.eph_node,
+            X25519Pub(EPH_NODE),
+            "Q17: eph_node в типе"
+        );
         assert_ne!(continuity.sig_node.0, [0u8; 64], "Q17: sig_node в типе");
         assert_eq!(rotation.attempts(), 1);
         assert_eq!(rotation.confirmed_eph_node(), Some(X25519Pub(EPH_NODE)));
@@ -1061,7 +1083,10 @@ mod tests {
             Err(ResumeError::Malformed),
             "nonce ACK обязан равняться ack_nonce(client_nonce)"
         );
-        assert!(rotation.confirmed_ack().is_none(), "отказ ничего не подтверждает");
+        assert!(
+            rotation.confirmed_ack().is_none(),
+            "отказ ничего не подтверждает"
+        );
 
         // Тот же кадр под nonce этой попытки принимается — различие ровно в nonce.
         let fresh = build_resume_ack(
@@ -1073,7 +1098,9 @@ mod tests {
             &eph,
             &node_priv,
         );
-        assert!(rotation.accept_response(&node, &request, &fresh, &ctx).is_ok());
+        assert!(rotation
+            .accept_response(&node, &request, &fresh, &ctx)
+            .is_ok());
     }
 
     /// AEAD-open failure — corruption (`Malformed`), а не доказательство подделки;
@@ -1175,7 +1202,11 @@ mod tests {
         // Mint-ответ: NAK-фрейм отклоняется, но blob, начинающийся с байта 0x02, — данные.
         struct FixedNode(Vec<u8>);
         impl RotationChannel for FixedNode {
-            fn exchange(&mut self, _node: NodeId, _request: &[u8]) -> Result<Vec<u8>, ChannelError> {
+            fn exchange(
+                &mut self,
+                _node: NodeId,
+                _request: &[u8],
+            ) -> Result<Vec<u8>, ChannelError> {
                 Ok(self.0.clone())
             }
         }
@@ -1229,7 +1260,9 @@ mod tests {
         assert_eq!(rotation.attempts(), 0, "пустой ticket не тратит попытку");
 
         // Валидная попытка после двух локальных отказов проходит: бюджет не съеден.
-        let continuity = rotation.resume(&target, &ticket, eph).expect("валидный ACK");
+        let continuity = rotation
+            .resume(&target, &ticket, eph)
+            .expect("валидный ACK");
         assert_eq!(continuity.point, 42);
         assert_eq!(rotation.attempts(), 1, "сеть увидела ровно одну попытку");
     }
@@ -1261,7 +1294,8 @@ mod tests {
         );
 
         // Без установленной эфемерной пары re-key невозможен.
-        let mut bare = ClientRotation::new(SID, K_SESSION, MockNode::new([0u8; 32], [0u8; 32], false));
+        let mut bare =
+            ClientRotation::new(SID, K_SESSION, MockNode::new([0u8; 32], [0u8; 32], false));
         assert_eq!(
             bare.post_rotation_rekey(&X25519Pub(EPH_NODE)),
             Err(RekeyError::BadEphemeral)
@@ -1276,4 +1310,3 @@ mod tests {
         assert_ne!(without_dh.0, first);
     }
 }
-

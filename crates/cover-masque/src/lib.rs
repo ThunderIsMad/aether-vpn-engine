@@ -28,7 +28,9 @@
 #![deny(unsafe_code)]
 
 use frame_session::Record;
-use transport_mux::{BindingCaps, BindingError, BindingFailure, CoverBinding, DEFAULT_OUTBOX_BYTES};
+use transport_mux::{
+    BindingCaps, BindingError, BindingFailure, CoverBinding, DEFAULT_OUTBOX_BYTES,
+};
 
 /// Профиль DPI этого байндинга: обложка «HTTP/3 прокси-трафик» (`02 §2.3`).
 /// Константа объявлена в `transport-mux` (0x03), здесь — реэкспорт имени.
@@ -154,7 +156,8 @@ pub fn decode_datagram_capsule(capsule: &[u8]) -> Result<&[u8], MasqueFrameError
     if capsule_type != DATAGRAM_CAPSULE_TYPE {
         return Err(MasqueFrameError::NotDatagram);
     }
-    let (declared_len, used2) = decode_varint(&capsule[used..]).ok_or(MasqueFrameError::BadCapsule)?;
+    let (declared_len, used2) =
+        decode_varint(&capsule[used..]).ok_or(MasqueFrameError::BadCapsule)?;
     let value = capsule
         .get(used + used2..)
         .ok_or(MasqueFrameError::BadCapsule)?;
@@ -354,7 +357,10 @@ mod tests {
             (63, &[0x3F]),
             (15293, &[0x7B, 0xBD]),
             (494878333, &[0x9D, 0x7F, 0x3E, 0x7D]),
-            (151288809941952654, &[0xC2, 0x19, 0x7C, 0x5E, 0xFF, 0x14, 0xE8, 0x8E]),
+            (
+                151288809941952654,
+                &[0xC2, 0x19, 0x7C, 0x5E, 0xFF, 0x14, 0xE8, 0x8E],
+            ),
         ];
         for (value, expected) in cases {
             let mut encoded = Vec::new();
@@ -407,7 +413,11 @@ mod tests {
         let udp = [0xAAu8; 300];
         let capsule = encode_datagram_capsule(&udp);
         assert_eq!(capsule[0], 0x00, "DATAGRAM capsule type = 0x00");
-        assert_eq!(decode_varint(&capsule[1..]), Some((301, 2)), "len(varint) = 1 + 300");
+        assert_eq!(
+            decode_varint(&capsule[1..]),
+            Some((301, 2)),
+            "len(varint) = 1 + 300"
+        );
         let (context_id, used) = decode_varint(&capsule[3..]).expect("context id");
         assert_eq!(context_id, 0, "Context ID 0 = UDP payload");
         assert_eq!(used, 1, "Context ID 0 кодируется одним байтом");
@@ -419,7 +429,10 @@ mod tests {
     /// битая вложенная запись).
     #[test]
     fn malformed_frames_are_errors() {
-        assert_eq!(decode_datagram_capsule(&[]), Err(MasqueFrameError::BadCapsule));
+        assert_eq!(
+            decode_datagram_capsule(&[]),
+            Err(MasqueFrameError::BadCapsule)
+        );
         assert_eq!(
             decode_datagram_capsule(&[0x00]),
             Err(MasqueFrameError::BadCapsule),
@@ -517,7 +530,10 @@ mod tests {
     fn closed_channel_and_failure_paths() {
         let mut binding = MasqueBinding::new();
         binding.mark_closed();
-        assert_eq!(binding.send(&record(1, b"x")), Err(BindingError::TransportDown));
+        assert_eq!(
+            binding.send(&record(1, b"x")),
+            Err(BindingError::TransportDown)
+        );
         assert_eq!(binding.on_failure(), Some(BindingFailure::Closed));
         assert_eq!(binding.on_failure(), None, "событие отдаётся один раз");
 
@@ -561,7 +577,10 @@ mod tests {
     fn send_rejects_payload_over_rfc_limit() {
         let mut binding = MasqueBinding::new();
         let oversized = vec![0u8; MAX_UDP_PAYLOAD + 1];
-        assert_eq!(binding.send(&record(1, &oversized)), Err(BindingError::Unsupported));
+        assert_eq!(
+            binding.send(&record(1, &oversized)),
+            Err(BindingError::Unsupported)
+        );
         assert!(binding.take_pending().is_empty(), "в очередь не попала");
         // Граница: размер payload подобран так, что encode() записи ровно 65527
         // (заголовок записи — type+seq+stream+flags+len(3B ULEB128) = 7 байт).

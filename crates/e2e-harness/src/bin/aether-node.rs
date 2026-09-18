@@ -23,7 +23,10 @@ use crypto_core::{
     ed25519_pubkey, x25519_keypair, Handshake, IkResponder, KSession, RecordAead, RecordCrypto,
 };
 use e2e_harness::quic_lab;
-use e2e_harness::wire::{parse_mint_request, parse_resume_request, read_tagged, send_tagged, TAG_HANDSHAKE, TAG_MINT, TAG_RESUME};
+use e2e_harness::wire::{
+    parse_mint_request, parse_resume_request, read_tagged, send_tagged, TAG_HANDSHAKE, TAG_MINT,
+    TAG_RESUME,
+};
 use e2e_harness::{
     decode_record_frame, new_session, seed_from_hex, short_hash, tfk_epoch, ClientKeys, LabConfig,
     NodeKeys,
@@ -33,7 +36,9 @@ use key_coordinator::{build_resume_nak, ResumeNak};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
-use ticket_mint::{ResumeVerdict, Signature as MintSignature, TicketError, TicketFactory, Window as MintWindow};
+use ticket_mint::{
+    ResumeVerdict, Signature as MintSignature, TicketError, TicketFactory, Window as MintWindow,
+};
 
 /// Флаги соединения: handshake — один раз (повторный handshake-стрим — ошибка).
 #[derive(Default)]
@@ -198,7 +203,10 @@ async fn serve_connection(
         .await
         .map_err(|err| format!("QUIC handshake: {err}"))?;
     let node_id = state.borrow().node_id;
-    println!("[node{node_id}] client connected from {}", connection.remote_address());
+    println!(
+        "[node{node_id}] client connected from {}",
+        connection.remote_address()
+    );
     let flags = Rc::new(RefCell::new(ConnFlags::default()));
 
     // Датаграммный цикл — один на соединение, независимо от порядка стримов: на N2
@@ -308,7 +316,10 @@ async fn datagram_loop(connection: quinn::Connection, state: Rc<RefCell<NodeStat
                                 );
                             }
                             Err(err) => {
-                                eprintln!("[node{}] record seq={seq} rejected: {err:?}", st.node_id);
+                                eprintln!(
+                                    "[node{}] record seq={seq} rejected: {err:?}",
+                                    st.node_id
+                                );
                             }
                         }
                     }
@@ -424,8 +435,9 @@ fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
             ));
             // Пост-ротационный re-key на узле (`02 §3.3`): DH(eph_node_priv, eph_client)
             // и тот же `derive_rotated_session`, что у клиента.
-            let shared = crypto_core::x25519_dh(&st.eph_node_priv, &crypto_core::X25519Pub(ctx.eph_client))
-                .expect("DH eph состоялся");
+            let shared =
+                crypto_core::x25519_dh(&st.eph_node_priv, &crypto_core::X25519Pub(ctx.eph_client))
+                    .expect("DH eph состоялся");
             let k_session_prime = crypto_core::derive_rotated_session(
                 &ticket.sid.0,
                 &KSession(ticket.k_session),

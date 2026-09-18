@@ -258,12 +258,7 @@ pub struct TicketFactory {
 
 impl TicketFactory {
     /// Новый минтер эпохи: `TFK_epoch`, `epoch_id`, `node_set_id`, TTL тикета.
-    pub fn new(
-        tfk_epoch: [u8; 32],
-        epoch_id: u32,
-        node_set_id: u32,
-        ttl_seconds: u64,
-    ) -> Self {
+    pub fn new(tfk_epoch: [u8; 32], epoch_id: u32, node_set_id: u32, ttl_seconds: u64) -> Self {
         Self {
             tfk_epoch,
             epoch_id,
@@ -345,12 +340,13 @@ impl TicketFactory {
             return Err(TicketError::BadWrap);
         }
         let (nonce, sealed) = blob.0.split_at(TICKET_NONCE_BYTES);
-        let cipher = XChaCha20Poly1305::new_from_slice(&self.tfk_epoch)
-            .map_err(|_| TicketError::BadWrap)?;
+        let cipher =
+            XChaCha20Poly1305::new_from_slice(&self.tfk_epoch).map_err(|_| TicketError::BadWrap)?;
         let plain = cipher
             .decrypt(
                 &XNonce::from(
-                    <[u8; TICKET_NONCE_BYTES]>::try_from(nonce).map_err(|_| TicketError::BadWrap)?,
+                    <[u8; TICKET_NONCE_BYTES]>::try_from(nonce)
+                        .map_err(|_| TicketError::BadWrap)?,
                 ),
                 Payload {
                     msg: sealed,
@@ -491,10 +487,7 @@ mod tests {
     fn contract_mint_binds_client_pub_and_window() {
         let factory = TicketFactory::new(TFK, 7, 3, 3_600);
         let (_, client_pub) = identity(0xaa);
-        let window = Window {
-            lo: 100,
-            hi: 4_196,
-        };
+        let window = Window { lo: 100, hi: 4_196 };
         let blob = factory.mint_at(SID, client_pub, window, &K_SESSION, 1_000);
 
         assert_eq!(
@@ -505,9 +498,14 @@ mod tests {
         assert_eq!(TICKET_BLOB_BYTES, 161);
         assert_eq!(TICKET_PLAINTEXT_BYTES, 121);
 
-        let ticket = factory.unwrap_at(&blob, 1_100).expect("свой ticket разворачивается");
+        let ticket = factory
+            .unwrap_at(&blob, 1_100)
+            .expect("свой ticket разворачивается");
         assert_eq!(ticket.sid, SID);
-        assert_eq!(ticket.client_auth, client_pub, "ticket привязан к ключу клиента");
+        assert_eq!(
+            ticket.client_auth, client_pub,
+            "ticket привязан к ключу клиента"
+        );
         assert_eq!(ticket.window, window, "пол окна — на момент минта");
         assert_eq!(ticket.epoch_id, 7);
         assert_eq!(ticket.node_set_id, 3);
@@ -534,7 +532,10 @@ mod tests {
         let mut corrupted = blob.clone();
         let last = corrupted.0.len() - 1;
         corrupted.0[last] ^= 0x01;
-        assert_eq!(factory.unwrap_at(&corrupted, 1_100), Err(TicketError::BadWrap));
+        assert_eq!(
+            factory.unwrap_at(&corrupted, 1_100),
+            Err(TicketError::BadWrap)
+        );
     }
 
     /// AEAD тикета probabilistic: повторный mint с теми же входами (в т.ч. в одну
@@ -561,11 +562,23 @@ mod tests {
 
         // Debug не печатает ни байта ключа: ни hex-пар, ни десятичных последовательностей.
         let plain_debug = format!("{:?}", ta);
-        assert!(plain_debug.contains("<redacted>"), "k_session redacted: {plain_debug}");
-        assert!(!plain_debug.contains("51, 51"), "десятичный дамп k_session отсутствует");
-        assert!(!plain_debug.contains("0x33"), "hex-дамп k_session отсутствует");
+        assert!(
+            plain_debug.contains("<redacted>"),
+            "k_session redacted: {plain_debug}"
+        );
+        assert!(
+            !plain_debug.contains("51, 51"),
+            "десятичный дамп k_session отсутствует"
+        );
+        assert!(
+            !plain_debug.contains("0x33"),
+            "hex-дамп k_session отсутствует"
+        );
         let blob_debug = format!("{:?}", a);
-        assert!(!blob_debug.contains("160"), "blob печатает только длину: {blob_debug}");
+        assert!(
+            !blob_debug.contains("160"),
+            "blob печатает только длину: {blob_debug}"
+        );
     }
 
     /// Контракт PoP: подделка или отсутствие `sig_client` → отказ, ticket не консумируется;
@@ -584,7 +597,11 @@ mod tests {
             factory.handle_resume(&blob, &bad_sig, &ctx, 1_100),
             ResumeVerdict::NakBadPop
         );
-        assert_eq!(factory.consumed_len(), 0, "bad_pop не консумирует ticket (02 §3.7)");
+        assert_eq!(
+            factory.consumed_len(),
+            0,
+            "bad_pop не консумирует ticket (02 §3.7)"
+        );
 
         // Подпись, выданная для другого билета: hash в контексте не сходится с blob.
         let (good_sig, good_ctx) = context(&blob, &client);
@@ -604,7 +621,11 @@ mod tests {
             }
             verdict => panic!("ожидался Accept, получено {verdict:?}"),
         }
-        assert_eq!(factory.consumed_len(), 1, "ticket консумирован ровно один раз");
+        assert_eq!(
+            factory.consumed_len(),
+            1,
+            "ticket консумирован ровно один раз"
+        );
 
         // Повтор того же ticket на том же узле → replay, второй сессии нет (`§3.6`).
         assert_eq!(
@@ -615,25 +636,13 @@ mod tests {
 
         // `last_seq` ниже пола из ticket — аномалия, но резюм принимается (`§3.7`).
         let (client2, pub2) = identity(0xcc);
-        let blob2 = factory.mint_at(
-            SID,
-            pub2,
-            Window {
-                lo: 500,
-                hi: 500,
-            },
-            &K_SESSION,
-            1_300,
-        );
+        let blob2 = factory.mint_at(SID, pub2, Window { lo: 500, hi: 500 }, &K_SESSION, 1_300);
         // `last_seq` ниже пола из ticket: подпись считается уже по аномальному контексту,
         // иначе узел ответил бы `bad_pop`, а не принял аномалию.
         let ctx2 = ResumeCtx {
             ticket_hash: sha256(&blob2.0),
             last_seq: 10,
-            window: Window {
-                lo: 500,
-                hi: 500,
-            },
+            window: Window { lo: 500, hi: 500 },
             eph_client: [0x44; 32],
             client_nonce: [0x55; 16],
         };

@@ -35,7 +35,10 @@ fn rotation_happy_path_three_streams_no_loss() {
         records.push(driver.emit(*stream, format!("pre-{index}").as_bytes(), 0));
     }
     let last_seq = driver.session.last_seq().0;
-    assert_eq!(last_seq, 2, "seq монотонен по сессии, а не по потоку (`02 §1`)");
+    assert_eq!(
+        last_seq, 2,
+        "seq монотонен по сессии, а не по потоку (`02 §1`)"
+    );
 
     // 2. Ticket клиент не минтит сам, а просит у узла; N2 — узел той же эпохи флота.
     let (client_identity, client_identity_priv) = ed25519_genkey();
@@ -57,13 +60,23 @@ fn rotation_happy_path_three_streams_no_loss() {
         last_seq,
         (0, 0),
     );
-    let ticket = rotation.request_ticket(&n2_manifest).expect("узел выдал ticket");
-    assert_eq!(ticket.blob.0.len(), 161, "blob = nonce(24)+plaintext(121)+tag(16)");
+    let ticket = rotation
+        .request_ticket(&n2_manifest)
+        .expect("узел выдал ticket");
+    assert_eq!(
+        ticket.blob.0.len(),
+        161,
+        "blob = nonce(24)+plaintext(121)+tag(16)"
+    );
 
     // 3. Окно перекрытия открыто до ACK: записи идут на оба канала (make-before-break, `02 §3.8`).
     let timeout = driver.start_overlap(MemBinding::new(BindingCaps::QUIC), SRTT_MS);
     assert_eq!(timeout, 300, "T_morph = 2 × SRTT = 300 мс, внутри клипа");
-    assert_eq!(t_ack_ms(SRTT_MS), timeout, "T_ack = 2 × SRTT, владелец — FrameSession (`02 §3.7`)");
+    assert_eq!(
+        t_ack_ms(SRTT_MS),
+        timeout,
+        "T_ack = 2 × SRTT, владелец — FrameSession (`02 §3.7`)"
+    );
     let during = [
         driver.emit(streams[0], b"during-0", 0),
         driver.emit(streams[1], b"during-1", 0),
@@ -81,11 +94,7 @@ fn rotation_happy_path_three_streams_no_loss() {
     assert_eq!(ctx.window, (0, 0), "RESUME несёт окно клиента (`02 §3.5`)");
     assert_eq!(ctx.eph_client, eph_public.0, "RESUME несёт `eph_client`");
     assert!(
-        ed25519_verify(
-            &client_identity,
-            &resume_signing_payload(&ctx),
-            &sig_client
-        ),
+        ed25519_verify(&client_identity, &resume_signing_payload(&ctx), &sig_client),
         "sig_client покрывает `aether-resume-v3` ‖ sha256(ticket) ‖ last_seq ‖ окно ‖ eph ‖ nonce"
     );
     assert!(
@@ -124,7 +133,10 @@ fn rotation_happy_path_three_streams_no_loss() {
     // 6. Frame-слой принимает ACK из того же типа; окно закрывается ACK.
     let client_window = apply_confirmed_ack(&mut driver.session, &parts);
     assert_eq!(client_window.hi, Seq(last_seq));
-    assert!(driver.promote_on_ack(true), "валидный ACK закрывает окно (`02 §4`)");
+    assert!(
+        driver.promote_on_ack(true),
+        "валидный ACK закрывает окно (`02 §4`)"
+    );
     assert!(
         driver.session.overlap().expect("окно открыто").is_closed(),
         "старый канал гасится только после валидного ACK (`02 §3.8`)"
@@ -166,7 +178,10 @@ fn rotation_happy_path_three_streams_no_loss() {
         driver.emit_after_rotation(streams[2], b"post-0"),
         driver.emit_after_rotation(streams[1], b"post-1"),
     ];
-    assert!(after[0].seq > during[1].seq, "нумерация продолжается, сессия — не соединение (`02 §1`)");
+    assert!(
+        after[0].seq > during[1].seq,
+        "нумерация продолжается, сессия — не соединение (`02 §1`)"
+    );
 
     // 8. Ни одна запись не потеряна на обоих каналах: старый несёт всё до ACK, новый — дубли
     //    окна и пост-ротационный трафик; ниже continuity_point доставлено старым каналом.
@@ -183,7 +198,9 @@ fn rotation_happy_path_three_streams_no_loss() {
     );
     assert_eq!(
         records_set(&records),
-        n1.union(&n2).copied().collect::<std::collections::BTreeSet<_>>(),
+        n1.union(&n2)
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>(),
         "ни одна запись не потеряна на обоих каналах"
     );
 
@@ -198,7 +215,11 @@ fn rotation_happy_path_three_streams_no_loss() {
         None,
         "дубль отсекается дедупом на узле"
     );
-    assert_eq!(driver.session.stream_table().len(), 3, "таблица потоков пережила ротацию");
+    assert_eq!(
+        driver.session.stream_table().len(),
+        3,
+        "таблица потоков пережила ротацию"
+    );
     assert_eq!(driver.session.session_id(), SessionId(SID));
 }
 
@@ -264,7 +285,10 @@ fn rotation_forward_secrecy_old_k_session_cannot_open_new_records() {
         .expect("свежий DH");
     let k_prime = rotation.k_session_prime().expect("K_session'");
     assert_ne!(k_prime, K_SESSION, "K_session' ≠ K_session");
-    assert_ne!(without_dh.0, k_prime, "re-key — именно свежий DH, а не вывод из K_session");
+    assert_ne!(
+        without_dh.0, k_prime,
+        "re-key — именно свежий DH, а не вывод из K_session"
+    );
     driver.session.ratchet_from(&k_prime);
 
     // 1/3. Пост-ротационная запись не открывается ни старой базой, ни старым `K_session`.
@@ -358,7 +382,10 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
     );
     let ticket = rotation.request_ticket(&manifest).expect("ticket");
     let timeout = driver.start_overlap(MemBinding::new(BindingCaps::QUIC), SRTT_MS);
-    assert_eq!(timeout, 300, "T_morph/T_ack = 2 × SRTT = 300 мс, внутри клипа");
+    assert_eq!(
+        timeout, 300,
+        "T_morph/T_ack = 2 × SRTT = 300 мс, внутри клипа"
+    );
 
     // 1. ACK не пришёл → `T_ack`; узел при этом уже обработал RESUME (потерян был ответ).
     network.borrow_mut().drop_next_ack = true;
@@ -426,7 +453,11 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
     let during = driver.emit(streams[1], b"during", 0);
     assert!(delivered(&driver.old).contains(&(streams[1].0, during.seq.0)));
     assert_eq!(driver.session.stream_table().len(), 2);
-    assert_eq!(driver.session.ratchet_restarts(), 0, "NAK не перезапускает ratchet");
+    assert_eq!(
+        driver.session.ratchet_restarts(),
+        0,
+        "NAK не перезапускает ratchet"
+    );
 
     // 5. `K_session'` выводится от `eph_client` успешной попытки: новая попытка — новый ticket.
     let (client2, client2_priv) = ed25519_genkey();
@@ -456,7 +487,11 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
     retry.post_rotation_rekey(&node_eph).expect("re-key");
     let k_prime = retry.k_session_prime().expect("K_session'");
     assert_eq!(
-        derive_rotated_session(&SID, &KSession(K_SESSION), &ss_rotate(&eph_c_priv, &node_eph)),
+        derive_rotated_session(
+            &SID,
+            &KSession(K_SESSION),
+            &ss_rotate(&eph_c_priv, &node_eph)
+        ),
         KSession(k_prime),
         "K_session' выведен из `eph_client` успешной попытки (`02 §3.3`)"
     );

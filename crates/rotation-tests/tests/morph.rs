@@ -25,12 +25,22 @@ fn morph_quic_to_mock_reality_keeps_frame_session_alive() {
         records.push(driver.emit(*stream, b"pre-morph", 0));
     }
     let seq_before = driver.session.last_seq();
-    assert_eq!(driver.old.supports(), BindingCaps::QUIC, "стартовая обложка — QUIC");
-    assert!(driver.old.supports().no_hol, "QUIC: no-HOL бесплатно (`01 §6`)");
+    assert_eq!(
+        driver.old.supports(),
+        BindingCaps::QUIC,
+        "стартовая обложка — QUIC"
+    );
+    assert!(
+        driver.old.supports().no_hol,
+        "QUIC: no-HOL бесплатно (`01 §6`)"
+    );
 
     // 7. Морф на length-prefixed mock-Reality: HOL есть, QUIC-over-TCP не используется.
     let timeout = driver.start_overlap(MemBinding::new(BindingCaps::REALITY_TCP), SRTT_MS);
-    assert_eq!(timeout, 300, "T_morph = 2 × SRTT, внутри клипа `[200 ms, 2 s]`");
+    assert_eq!(
+        timeout, 300,
+        "T_morph = 2 × SRTT, внутри клипа `[200 ms, 2 s]`"
+    );
     let reality = driver
         .new
         .as_ref()
@@ -50,21 +60,34 @@ fn morph_quic_to_mock_reality_keeps_frame_session_alive() {
     for stream in &streams {
         during.push(driver.emit(*stream, b"during-morph", 0));
     }
-    assert_eq!(driver.duplicated, 3, "окно дублирует записи на обе обложки (`02 §4`)");
+    assert_eq!(
+        driver.duplicated, 3,
+        "окно дублирует записи на обе обложки (`02 §4`)"
+    );
     for (record, stream) in during.iter().zip(streams.iter()) {
         assert_eq!(record.stream_id, *stream, "`stream_id` не сбрасывается");
         assert_eq!(record.kind, RecordType::Data, "тип записи не меняется");
         assert_eq!(record.flags, 0, "FIN-семантика сохраняется");
     }
-    assert!(during[2].seq > seq_before, "стримы продолжают нумерацию (`02 §1`)");
+    assert!(
+        during[2].seq > seq_before,
+        "стримы продолжают нумерацию (`02 §1`)"
+    );
 
     // 1. Морф не трогает ключи: `K_session` жив, ratchet не перезапускается, потоков столько же.
-    assert_eq!(driver.session.ratchet_restarts(), 0, "морф — не ротация узла");
+    assert_eq!(
+        driver.session.ratchet_restarts(),
+        0,
+        "морф — не ротация узла"
+    );
     assert_eq!(driver.session.stream_table().len(), 3);
     assert_eq!(driver.session.session_id(), SessionId(SID));
 
     // 3. Условие закрытия окна — **валидный** ACK по новой обложке; старый байндинг гасится после.
-    assert!(!driver.promote_on_ack(false), "невалидный ACK окно не закрывает");
+    assert!(
+        !driver.promote_on_ack(false),
+        "невалидный ACK окно не закрывает"
+    );
     assert!(!driver.session.overlap().expect("окно").is_closed());
     assert!(driver.promote_on_ack(true), "валидный ACK закрывает окно");
     assert!(driver.session.overlap().expect("окно").is_closed());
@@ -79,7 +102,10 @@ fn morph_quic_to_mock_reality_keeps_frame_session_alive() {
         "исчерпание `T_morph` — `MorphFailed`"
     );
     assert!(driver.session.overlap().expect("окно").is_exhausted());
-    assert_eq!(T_QUARANTINE_MS, 300_000, "обложка в quarantine на `T_quar` = 5 мин (`02 §4`)");
+    assert_eq!(
+        T_QUARANTINE_MS, 300_000,
+        "обложка в quarantine на `T_quar` = 5 мин (`02 §4`)"
+    );
     assert!(
         !driver.promote_on_ack(false),
         "исчерпанное окно закрывает только валидный ACK, иначе — rollback"

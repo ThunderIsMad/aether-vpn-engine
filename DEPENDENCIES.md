@@ -167,12 +167,24 @@ TTL перепроверки — вместе с Phase 0 pins (до 2026-12-15):
 
 | Крейт | Версия | Кто тянет | Зачем | TTL |
 |---|---|---|---|---|
-| `getrandom` | 0.3 | `ticket-mint` | случайный 24 B nonce тикета: AEAD обязан быть probabilistic; без RNG узел не может безопасно минтить билет (аудит: детерминированный `sha256(plain)`-nonce). API — `getrandom::fill`, системный CSPRNG | 180 дней |
+| `getrandom` | 0.3 | `ticket-mint`, `cover-ss2022`, `cover-reality` (workspace-пин, F-10) | случайный 24 B nonce тикета: AEAD обязан быть probabilistic (аудит: детерминированный `sha256(plain)`-nonce); прод-nonce/padding обложек (F-01: xorshift-счётчик был прод-дефектом). API — `getrandom::fill`, системный CSPRNG, explicit-fail | 180 дней |
 | `hmac` | 0.13 | `crypto-core` (b132-2) | `probe_tag` — HMAC-SHA256-аутентификация открытого ClientHello в гейте Reality-обложки (peek-before-decrypt, Q22): решение до TLS-ключей, поэтому тег — HMAC (детерминированный, без nonce), не AEAD. Общий корень RustCrypto-стека, digest 0.11 — поколение с hkdf/sha2 | 180 дней |
 
 Прямая зависимость осознанная: тянуть весь `crypto-core` (clatter + PQClean) в узловой
 крейт ради 32 байт случайности — неоправданная связанность; `getrandom` — общий корень
 RNG-стека RustCrypto, уже в дереве через `ed25519-dalek`/`chacha20poly1305`.
+
+**Три версии `getrandom` в Cargo.lock (F-10, аудит 3):** `0.3.4` — наш workspace-пин
+(выше); `0.2.17` — транзит `ring 0.17` (через `quinn`); `0.4.3` — транзит
+`crypto-common 0.2` (через `crypto`-поколение RustCrypto) и `jobserver 0.1`
+(build-dep `cc`/`cmake` для `boring-sys`). Обе «лишние» — чужие semver-требования,
+не задокументировать отдельно нечем: отследены `cargo tree -i getrandom@…` 2026-09-18;
+это нормальное состояние lockfile, а не дрейф пинов.
+
+**TODO (не блокирует, отдельная задача):** внедрить `cargo-audit`/`cargo-deny` для
+автоматического контроля advisory по lockfile. Сейчас уязвимости отслеживаются вручную
+при TTL-перепроверках; внедрение требует выбора полемики (deny list, лицензии) и
+отдельного прогона — не делалось в рамках фикса F-11.
 
 ---
 

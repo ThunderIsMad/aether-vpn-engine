@@ -465,11 +465,7 @@ pub fn hkdf_sha256(salt: &[u8], ikm: &[u8], info: &[u8]) -> [u8; 32] {
 /// Ключ обложки из `K_session`: соль — `session_id`, метка — `LABEL_COVER`.
 /// Отдельный слой ключей: компрометация ключа обложки не вскрывает `K_record`/`K_resume`.
 pub fn derive_cover_key(session_id: &[u8; 16], k_session: &KSession) -> KCover {
-    KCover(hkdf32(
-        Some(session_id),
-        &k_session.0,
-        LABEL_COVER,
-    ))
+    KCover(hkdf32(Some(session_id), &k_session.0, LABEL_COVER))
 }
 
 /// Ключ гейта Reality-обложки из `K_session`: соль — `session_id`, метка — `LABEL_PROBE`.
@@ -481,11 +477,7 @@ pub fn derive_cover_key(session_id: &[u8; 16], k_session: &KSession) -> KCover {
 /// `derive_probe_fleet_key`; эта функция остаётся как per-session слой (Phase 2
 /// сужение гейта), не используется прод-гейтом.
 pub fn derive_probe_key(session_id: &[u8; 16], k_session: &KSession) -> KProbe {
-    KProbe(hkdf32(
-        Some(session_id),
-        &k_session.0,
-        LABEL_PROBE,
-    ))
+    KProbe(hkdf32(Some(session_id), &k_session.0, LABEL_PROBE))
 }
 
 /// Fleet-ключ гейта Reality-обложки (Q24, аудит F-05):
@@ -498,11 +490,7 @@ pub fn derive_probe_key(session_id: &[u8; 16], k_session: &KSession) -> KProbe {
 /// (один HMAC × 3 слота окна на ClientHello). Компрометация = компрометация манифеста
 /// (существующая threat-модель, не новый класс).
 pub fn derive_probe_fleet_key(k_fleet_root: &[u8; 32]) -> KProbe {
-    KProbe(hkdf32(
-        None,
-        k_fleet_root,
-        LABEL_PROBE_FLEET,
-    ))
+    KProbe(hkdf32(None, k_fleet_root, LABEL_PROBE_FLEET))
 }
 
 /// HMAC-SHA256-тег `probe_tag`: аутентификация открытого ClientHello гейтом
@@ -540,11 +528,7 @@ pub fn tags_equal_ct(a: &[u8; 24], b: &[u8; 24]) -> bool {
 /// `mix_key`/`mix_key_and_hash` сводит все DH- и KEM-секреты; salt — `session_id`
 /// (domain separation нашего слоя).
 pub fn derive_session(session_id: &[u8; 16], handshake_hash: &[u8]) -> KSession {
-    KSession(hkdf32(
-        Some(session_id),
-        handshake_hash,
-        LABEL_SESSION,
-    ))
+    KSession(hkdf32(Some(session_id), handshake_hash, LABEL_SESSION))
 }
 
 /// `K_resume` (`02 §3.3`):
@@ -724,8 +708,8 @@ mod tests {
         let sid = [0x11u8; 16];
         let (_, node_priv) = x25519_genkey().expect("node static");
         let node_kem = mlkem768_genkey().expect("node static kem");
-        let mut responder = IkResponder::new(sid, x25519_keypair(&node_priv), node_kem)
-            .expect("responder init");
+        let mut responder =
+            IkResponder::new(sid, x25519_keypair(&node_priv), node_kem).expect("responder init");
         let node_static = responder.node_static();
         let node_static_kem = responder.node_static_kem();
 
@@ -743,7 +727,9 @@ mod tests {
         // Ровно два сообщения: K_session у инициатора появляется только после msg2.
         let msg1 = initiator.initiate().expect("msg1");
         let (msg2, ks_node) = responder.respond(&msg1).expect("msg2");
-        let ks_client = initiator.finish_initiator(&msg2).expect("k_session клиента");
+        let ks_client = initiator
+            .finish_initiator(&msg2)
+            .expect("k_session клиента");
         assert_eq!(ks_client, ks_node, "обе стороны выводят один K_session");
         assert_ne!(ks_client.0, [0u8; 32], "K_session не пустой");
 
@@ -810,8 +796,12 @@ mod tests {
     fn contract_k_session_ikm_is_chaining_key() {
         let sid = [0x33u8; 16];
         let (_, node_priv) = x25519_genkey().expect("node static");
-        let mut responder = IkResponder::new(sid, x25519_keypair(&node_priv), mlkem768_genkey().expect("node static kem"))
-            .expect("responder init");
+        let mut responder = IkResponder::new(
+            sid,
+            x25519_keypair(&node_priv),
+            mlkem768_genkey().expect("node static kem"),
+        )
+        .expect("responder init");
         let (_, client_priv) = x25519_genkey().expect("client static");
         let mut initiator = IkInitiator::new(
             sid,
@@ -823,7 +813,9 @@ mod tests {
         .expect("initiator init");
         let msg1 = initiator.initiate().expect("msg1");
         let (msg2, ks_node) = responder.respond(&msg1).expect("msg2");
-        let ks_client = initiator.finish_initiator(&msg2).expect("k_session клиента");
+        let ks_client = initiator
+            .finish_initiator(&msg2)
+            .expect("k_session клиента");
 
         assert_eq!(ks_client, ks_node, "один K_session у обеих сторон");
 
@@ -831,7 +823,10 @@ mod tests {
         // из отданного clatter секрета (chaining key) той же обвязкой.
         let ck = initiator.hs.get_state().get_chaining_key();
         let replayed = derive_session(&sid, ByteArray::as_slice(&ck));
-        assert_eq!(replayed, ks_client, "K_session воспроизводится из chaining key той же обвязкой");
+        assert_eq!(
+            replayed, ks_client,
+            "K_session воспроизводится из chaining key той же обвязкой"
+        );
         assert_ne!(
             derive_session(&[0x35u8; 16], ByteArray::as_slice(&ck)),
             ks_client,
@@ -840,8 +835,8 @@ mod tests {
     }
 
     /// Контракт гейта Reality (b132-2): `K_probe` — отдельный слой (домен ≠ `LABEL_COVER`,
-/// Debug redacted), `probe_tag` — детерминированный HMAC, чувствительный к любому байту
-/// ClientHello и к окну; верификация — сравнение тегов при тех же входах.
+    /// Debug redacted), `probe_tag` — детерминированный HMAC, чувствительный к любому байту
+    /// ClientHello и к окну; верификация — сравнение тегов при тех же входах.
     #[test]
     fn contract_probe_tag_hmac_gate() {
         let sid = [0x5au8; 16];
@@ -850,8 +845,14 @@ mod tests {
 
         // Отдельный слой: K_probe ≠ K_cover при том же входе (domain separation меток).
         let k_cover = derive_cover_key(&sid, &ks);
-        assert_ne!(k_probe.0, k_cover.0, "LABEL_PROBE ≠ LABEL_COVER → разные ключи");
-        assert!(!format!("{k_probe:?}").contains("90"), "Debug KProbe redacted");
+        assert_ne!(
+            k_probe.0, k_cover.0,
+            "LABEL_PROBE ≠ LABEL_COVER → разные ключи"
+        );
+        assert!(
+            !format!("{k_probe:?}").contains("90"),
+            "Debug KProbe redacted"
+        );
 
         let ch = [0x42u8; 512]; // открытый ClientHello (байты как есть на проводе)
         let window = (1_000u64, 2_000u64);
@@ -861,11 +862,27 @@ mod tests {
         // Чувствительность: любой байт CH, окно или ключ меняют тег целиком.
         let mut ch2 = ch;
         ch2[256] ^= 1;
-        assert_ne!(tag, probe_tag(&k_probe, &ch2, window), "байт CH входит в тег");
-        assert_ne!(tag, probe_tag(&k_probe, &ch, (1_001, 2_000)), "нижняя граница окна в теге");
-        assert_ne!(tag, probe_tag(&k_probe, &ch, (1_000, 2_001)), "верхняя граница окна в теге");
+        assert_ne!(
+            tag,
+            probe_tag(&k_probe, &ch2, window),
+            "байт CH входит в тег"
+        );
+        assert_ne!(
+            tag,
+            probe_tag(&k_probe, &ch, (1_001, 2_000)),
+            "нижняя граница окна в теге"
+        );
+        assert_ne!(
+            tag,
+            probe_tag(&k_probe, &ch, (1_000, 2_001)),
+            "верхняя граница окна в теге"
+        );
         let other = derive_probe_key(&sid, &derive_session(&sid, b"other"));
-        assert_ne!(tag, probe_tag(&other, &ch, window), "чужой ключ → другой тег");
+        assert_ne!(
+            tag,
+            probe_tag(&other, &ch, window),
+            "чужой ключ → другой тег"
+        );
 
         // Окно: границы входят в тег (см. выше), тег детерминирован — контракт сверки у гейта.
         let ok = |w: (u64, u64)| probe_tag(&k_probe, &ch, w);
@@ -885,8 +902,7 @@ mod tests {
         // Детерминированный вектор (фиксация формулы):
         let hex: String = fleet.0.iter().map(|b| format!("{b:02x}")).collect();
         assert_eq!(
-            hex,
-            "99738ba50a03b5fa98dc97c3a22591ab3f64a5cacec4eac5d49791a36ef0073b",
+            hex, "99738ba50a03b5fa98dc97c3a22591ab3f64a5cacec4eac5d49791a36ef0073b",
             "K_probe_fleet = HKDF-SHA256(ikm=fleet_root, info=LABEL_PROBE_FLEET)"
         );
 
@@ -894,7 +910,10 @@ mod tests {
         // флотского корня, который есть у клиента до первой сессии.
         let sid = [0x11u8; 16];
         let session_probe = derive_probe_key(&sid, &derive_session(&sid, b"any"));
-        assert_ne!(fleet.0, session_probe.0, "fleet-ключ — отдельный слой от сессионного");
+        assert_ne!(
+            fleet.0, session_probe.0,
+            "fleet-ключ — отдельный слой от сессионного"
+        );
 
         // Домен: тот же корень с другой меткой даёт другой ключ (LABEL_PROBE_FLEET уникален).
         let cover_from_root = hkdf_sha256(&[], &root, LABEL_COVER);
@@ -930,7 +949,10 @@ mod tests {
         let key_next = derive_record_key(&sid, &session, 1);
         assert_ne!(key.0, key_next.0, "соседние члены K_record различны");
         let key_far = derive_record_key(&sid, &session, 2_000_000);
-        assert_ne!(key_far.0, key.0, "произвольный seq — тот же один шаг HKDF (F-02)");
+        assert_ne!(
+            key_far.0, key.0,
+            "произвольный seq — тот же один шаг HKDF (F-02)"
+        );
 
         let nonce = RecordNonce::new(7, &sid);
         assert_eq!(nonce.0.len(), 24, "nonce XChaCha20-Poly1305 — 24 B");
@@ -940,11 +962,7 @@ mod tests {
         let aead = RecordAead;
         let plaintext = b"record payload";
         let sealed = aead.seal(&key, &nonce, b"aether v3 record", plaintext);
-        assert_eq!(
-            sealed.len(),
-            plaintext.len() + 16,
-            "Poly1305 tag — 16 B"
-        );
+        assert_eq!(sealed.len(), plaintext.len() + 16, "Poly1305 tag — 16 B");
         assert_eq!(
             aead.open(&key, &nonce, b"aether v3 record", &sealed)
                 .expect("свой шифротекст открывается"),
@@ -987,9 +1005,18 @@ mod tests {
                 printed.contains("<redacted>"),
                 "{name}: Debug помечает ключ как redacted: {printed}"
             );
-            assert!(!printed.contains("0xab"), "{name}: нет hex-дампа: {printed}");
-            assert!(!printed.contains("171"), "{name}: нет десятичного дампа: {printed}");
-            assert!(!printed.contains("[171"), "{name}: нет массивного дампа: {printed}");
+            assert!(
+                !printed.contains("0xab"),
+                "{name}: нет hex-дампа: {printed}"
+            );
+            assert!(
+                !printed.contains("171"),
+                "{name}: нет десятичного дампа: {printed}"
+            );
+            assert!(
+                !printed.contains("[171"),
+                "{name}: нет массивного дампа: {printed}"
+            );
             assert!(
                 !printed.contains("171, 171"),
                 "{name}: нет парного десятичного дампа: {printed}"

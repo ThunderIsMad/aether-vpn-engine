@@ -7,9 +7,9 @@ publish = false
 [dependencies]
 # Пин-версии — DEPENDENCIES.md → «Phase 0 pins».
 # Смешение бэкендов (PQClean + RustCrypto) объяснено в QUESTIONS.md Q8: набор фич clatter
-# объявлен явно, `ml-kem 0.3.2` остаётся прямой зависимостью для KAT/interop-теста.
+# объявлен явно; прод-бэкенд KEM — PQClean через clatter. RustCrypto `ml-kem` нужен только
+# KAT/interop-тесту — это dev-dependency (F-10, аудит 3), не прод-зависимость.
 clatter.workspace = true
-ml-kem.workspace = true
 chacha20poly1305.workspace = true
 x25519-dalek.workspace = true
 ed25519-dalek.workspace = true
@@ -17,3 +17,6 @@ ed25519-dalek.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+ml-kem.workspace = true
