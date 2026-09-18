@@ -1,20 +1,21 @@
 name: Toolchain probe (temporary, self-reporting)
 
-# ВРЕМЕННЫЙ workflow — удаляется отдельным коммитом после прогона (см. третий-audit F-11).
+# ВРЕМЕННЫЙ workflow — удаляется отдельным коммитом после прогона (F-11, аудит 3).
 #
-# Зачем: rust-toolchain.toml пинит версию компилятора. Нужно подтвердить на РЕАЛЬНОМ
-# Linux-раннере, а не «выглядит логично»:
+# Зачем: подтвердить на РЕАЛЬНОМ ubuntu-раннере, а не «выглядит логично»:
 #   (а) старый пин с host-триплетом там действительно ломался — и как именно;
-#   (б) текущий version-only пин даёт нативный linux-компилятор и проходит обязательные
-#       шаги rust-job из ci.yml (fmt / clippy / tests + e2e-фича + boring-sys на linux).
+#   (б) текущий version-only пин резолвится в host раннера и проходит ВСЕ обязательные
+#       шаги rust-job из ci.yml (fmt / clippy / tests + e2e-фича + сборка boring-sys).
+#
+# Первый прогон пробы (run 35308742887) уже дал ответ по (а) и по резолву (б), но шаги
+# сборки в нём не выполнились: раннер запускает `run:` как `bash -e`, поэтому падение
+# первой же команды обрывало шаг. Здесь каждый шаг начинается с `set +e` — только так
+# снимаются ВСЕ результаты, а не первый.
 #
 # Как возвращается результат: репозиторий приватный, Actions API снаружи недоступен (404),
 # gh CLI и токена в окружении нет. Поэтому лог пишется коммитом в служебную ветку
-# `ci-probe-results` встроенным GITHUB_TOKEN самого раннера — только git-операции,
-# никаких внешних токенов и никаких секретов.
-#
-# Ветка `ci-probe-results` — служебная: перезаписывается (--force) каждым прогоном пробы.
-# На third-audit-fixes этот workflow ничего не пишет.
+# `ci-probe-results` встроенным GITHUB_TOKEN раннера — только git-операции, без внешних
+# токенов и секретов. Ветка служебная: перезаписывается (--force) каждым прогоном.
 #
 # push сюда триггерит ТОЛЬКО этот файл: ci.yml в этой ветке слушает push лишь в main.
 
@@ -23,7 +24,7 @@ on:
     branches: [third-audit-fixes]
 
 permissions:
-  contents: write # исключительно для возврата лога в служебную ветку
+  contents: write # исключительно для возврата логов в служебную ветку
 
 jobs:
   toolchain-probe:
@@ -34,7 +35,7 @@ jobs:
       LOG: ci-probe/probe-log.txt
     steps:
       # persist-credentials: true — единственное отличие от остальных job'ов ci.yml
-      # (там false): здесь нужен push лога обратно в репозиторий.
+      # (там false): здесь нужен push логов обратно в репозиторий.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: true
@@ -51,12 +52,13 @@ jobs:
           : > "$LOG"
 
       # Маркер «прогон стартовал»: отличает «workflow не триггернулся / нет прав на push
-      # в служебную ветку» от «прогон ещё идёт». continue-on-error — чтобы сбой маркера
-      # не отменял сбор основного лога.
+      # в служебную ветку» от «прогон идёт». continue-on-error — чтобы сбой маркера не
+      # отменял сбор основного лога.
       - name: Evidence marker (started)
         continue-on-error: true
         run: |
-          set -euxo pipefail
+          set +e
+          set -uo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B "$EVIDENCE_BRANCH"
@@ -65,19 +67,20 @@ jobs:
             echo "run: $GITHUB_RUN_ID attempt $GITHUB_RUN_ATTEMPT"
             echo "sha: $GITHUB_SHA"
             echo "ref: $GITHUB_REF"
+            rustup --version 2>&1 | head -1
             date -u
           } > ci-probe/STARTED.txt
           git add ci-probe/STARTED.txt
           git commit -m "probe: run started ($GITHUB_SHA)"
           git push --force origin "HEAD:refs/heads/$EVIDENCE_BRANCH"
 
-      # (а) Эксперимент: что Linux-раннер делает со СТАРЫМ пином (полный триплет).
-      # Каталог вне репозитория, чтобы файл из репо не подмешивался (rustup ищет
-      # rust-toolchain.toml вверх по дереву). Авто-установка здесь — это и есть предмет
-      # проверки: скачает ли раннер компилятор для Windows и что будет при запуске.
+      # (а) Что Linux-раннер делает со СТАРЫМ пином (полный триплет). Каталог вне
+      # репозитория, чтобы файл из репо не подмешивался (rustup ищет rust-toolchain.toml
+      # вверх по дереву).
       - name: "Experiment (a): old pin - host triple - on linux"
         continue-on-error: true
         run: |
+          set +e
           set -uo pipefail
           mkdir -p /tmp/old-pin && cd /tmp/old-pin
           printf '[toolchain]\nchannel = "1.98.1-x86_64-pc-windows-gnu"\n' > rust-toolchain.toml
@@ -85,26 +88,32 @@ jobs:
             echo
             echo "================ (а) СТАРЫЙ пин: channel = \"1.98.1-x86_64-pc-windows-gnu\" ================"
             echo "cwd: $(pwd)  файл: rust-toolchain.toml (вне репозитория)"
+            echo "--- rustup --version ---"
+            rustup --version 2>&1 | head -1
             echo "--- rustup show ---"
             rustup show 2>&1; echo "exit=$?"
             echo "--- rustc -vV ---"
             rustc -vV 2>&1; echo "exit=$?"
+            echo "--- cargo --version ---"
+            cargo --version 2>&1; echo "exit=$?"
             echo "--- rustup toolchain list -v ---"
             rustup toolchain list -v 2>&1
+            echo "--- ожидание: error 'target tuple in channel name …' и никакой установки"
           } >> "$GITHUB_WORKSPACE/$LOG" 2>&1
           cd "$GITHUB_WORKSPACE"
 
-      # (б) Предмет: текущий (исправленный) пин из репозитория + те же проверки, что
-      # делает новый шаг «Verify toolchain pin (linux)» в ci.yml.
+      # (б) Предмет: текущий пин из репозитория + ровно те проверки, что делает новый
+      # шаг «Verify toolchain pin (linux)» в ci.yml.
       - name: "Repo pin (b): resolve + guard"
         continue-on-error: true
         run: |
+          set +e
           set -uo pipefail
           {
             echo
             echo "================ (б) ТЕКУЩИЙ пин из репозитория (version-only) ================"
-            echo "--- rust-toolchain.toml ---"
-            cat rust-toolchain.toml
+            echo "--- rust-toolchain.toml (последние строки) ---"
+            tail -n 3 rust-toolchain.toml
             echo "--- rustup show ---"
             rustup show 2>&1; echo "exit=$?"
           } >> "$LOG" 2>&1
@@ -114,7 +123,7 @@ jobs:
           {
             echo "resolved: channel=$want host=$host release=$release"
             case "$want" in
-              *-windows-*|*-apple-*|*-linux-*|*-unknown-*) echo "GUARD-toolchain-file: FAIL";;
+              *-windows-*|*-apple-*|*-linux-*|*-unknown-*) echo "GUARD-toolchain-file: FAIL (триплет вернулся)";;
               *) echo "GUARD-toolchain-file: ok";;
             esac
             case "$host" in
@@ -128,48 +137,54 @@ jobs:
             fi
           } >> "$LOG" 2>&1
 
+      # Ровно тот же шаг, что в ci.yml: компоненты из профиля раннера (minimal) не приходят,
+      # их надо добавить в ПИНОВАННЫЙ тулчейн — иначе fmt/clippy падают «not installed».
+      - name: Ensure clippy and rustfmt (same as ci.yml)
+        continue-on-error: true
+        run: |
+          set +e
+          set -uo pipefail
+          {
+            echo
+            echo "================ rustup component add clippy rustfmt ================"
+            rustup component add clippy rustfmt 2>&1; echo "exit=$?"
+            echo "--- rustup component list --installed ---"
+            rustup component list --installed 2>&1
+            echo "--- rustc -vV ---"
+            rustc -vV 2>&1
+          } >> "$LOG" 2>&1
+
       # Те самые шаги обязательного rust-job (плюс best-effort e2e из ci.yml).
       - name: "Mandatory rust job steps (fmt / clippy / tests)"
         continue-on-error: true
         run: |
+          set +e
           set -uo pipefail
+          run_step() {
+            local n="$1"; shift
+            echo >> "$LOG"
+            echo "================ $n ================" >> "$LOG"
+            echo "\$ $*" >> "$LOG"
+            "$@" > "ci-probe/raw-$n.log" 2>&1
+            echo "exit=$?" >> "$LOG"
+            grep -E "^(test result:|error)" "ci-probe/raw-$n.log" >> "$LOG"
+            tail -n 5 "ci-probe/raw-$n.log" >> "$LOG"
+          }
+          run_step fmt cargo fmt --all --check
+          run_step test-workspace cargo test --locked --workspace --all-targets
+          run_step clippy-workspace cargo clippy --locked --workspace --all-targets -- -D warnings
+          run_step clippy-e2e cargo clippy --locked -p e2e-harness --all-targets --all-features -- -D warnings
+          run_step test-e2e cargo test --locked -p e2e-harness --all-features
           {
             echo
-            echo "================ ОБЯЗАТЕЛЬНЫЕ ШАГИ rust-job на ubuntu ================"
-            echo "\$ cargo fmt --all --check"
-            cargo fmt --all --check 2>&1 | tail -n 20
-            echo "exit=${PIPESTATUS[0]}"
-          } >> "$LOG" 2>&1
-          {
-            echo
-            echo "\$ cargo test --locked --workspace --all-targets"
-            out="$(cargo test --locked --workspace --all-targets 2>&1)"; rc=$?
-            echo "$out" | grep -E "^test result:" | awk '{p+=$4; f+=$6; i+=$8} END {print "итог: passed="p" failed="f" ignored="i}'
-            echo "exit=$rc"
-          } >> "$LOG" 2>&1
-          {
-            echo
-            echo "\$ cargo clippy --locked --workspace --all-targets -- -D warnings"
-            cargo clippy --locked --workspace --all-targets -- -D warnings 2>&1 | tail -n 20
-            echo "exit=${PIPESTATUS[0]}"
-          } >> "$LOG" 2>&1
-          {
-            echo
-            echo "\$ cargo clippy --locked -p e2e-harness --all-targets --all-features -- -D warnings"
-            cargo clippy --locked -p e2e-harness --all-targets --all-features -- -D warnings 2>&1 | tail -n 20
-            echo "exit=${PIPESTATUS[0]}"
-          } >> "$LOG" 2>&1
-          {
-            echo
-            echo "\$ cargo test --locked -p e2e-harness --all-features"
-            out="$(cargo test --locked -p e2e-harness --all-features 2>&1)"; rc=$?
-            echo "$out" | grep -E "^test result:" | awk '{p+=$4; f+=$6} END {print "итог: passed="p" failed="f}'
-            echo "exit=$rc"
+            echo "================ итоговые числа (из raw-логов) ================"
+            printf 'test-workspace: %s\n' "$(grep -E '^test result:' ci-probe/raw-test-workspace.log | awk '{p+=$4; f+=$6; i+=$8} END {print p" passed / "f" failed / "i" ignored}')"
+            printf 'test-e2e:       %s\n' "$(grep -E '^test result:' ci-probe/raw-test-e2e.log | awk '{p+=$4; f+=$6} END {print p" passed / "f" failed}')"
           } >> "$LOG" 2>&1
 
-      # Возврат лога. if: always() — лог нужен и когда что-то из шагов выше упало
-      # (все они continue-on-error, так что до сюда доходим всегда).
-      - name: Return evidence (commit log to the scratch branch)
+      # Возврат логов. if: always() — логи нужны и когда что-то упало (все шаги выше
+      # continue-on-error, так что до сюда доходим всегда).
+      - name: Return evidence (commit logs to the scratch branch)
         if: always()
         run: |
           set -euxo pipefail
