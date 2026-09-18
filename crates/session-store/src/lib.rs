@@ -51,7 +51,9 @@ pub struct SubscriptionId(pub String);
 ///
 /// Поля приватные, конструктор один: собрать `ClientSecrets` мимо `session-store` нельзя,
 /// а значит нельзя и завести вторую копию `client_identity`, которой подписывается `RESUME`.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Без `PartialEq` (аудит F-12): `==` на секретах — branch-on-secret; без `Copy` —
+/// неявное размножение секретных копий (клонирование — осознанный вызов).
+#[derive(Clone)]
 pub struct ClientSecrets {
     client_identity: [u8; 32],
     client_static: [u8; 32],
@@ -91,8 +93,9 @@ impl fmt::Debug for ClientSecrets {
 ///
 /// Debug — ручной redacted, не derive: `k_session` и `secrets` печатаются как `<redacted>`,
 /// не байтами. Дамп `SessionState` целиком (панель отладчика, лог упавшего теста,
-/// `debug!`) обязан быть безопасным (аудит F-SEC).
-#[derive(Clone, PartialEq, Eq)]
+/// `debug!`) обязан быть безопасным (аудит F-SEC). Без `PartialEq` — содержит секреты
+/// (аудит F-12).
+#[derive(Clone)]
 pub struct SessionState {
     /// Подписка, в рамках которой живёт сессия.
     pub subscription_id: SubscriptionId,
@@ -163,8 +166,9 @@ pub trait SecureStore {
 ///
 /// Debug — ручной redacted, не derive: значения backend'а — это сами секреты
 /// (`client_identity`, `client_static`, `K_session`), и `{:?}` над хранилищем не имеет
-/// права их печатать (аудит F-SEC).
-#[derive(Clone, Default, PartialEq, Eq)]
+/// права их печатать (аудит F-SEC). Без `PartialEq` — содержит секреты (аудит F-12);
+/// `Default` остаётся: пустое хранилище — валидное начальное состояние.
+#[derive(Clone, Default)]
 pub struct InMemorySecureStore {
     map: HashMap<String, Vec<u8>>,
 }
@@ -426,7 +430,10 @@ mod tests {
     #[test]
     fn contract_secrets_at_rest_and_wipe() {
         let mut store = ClientSessionStore::new(InMemorySecureStore::new());
-        assert_eq!(store.load(), Ok(None), "пустое хранилище — сессии нет");
+        assert!(
+            matches!(store.load(), Ok(None)),
+            "пустое хранилище — сессии нет"
+        );
 
         store.store_ticket(vec![0xd4; 161]);
         store.save(&state()).expect("сохранение");
@@ -482,18 +489,18 @@ mod tests {
         // Секреты, вынутые из backend'а по одному, — `Corrupt`, а не сессия без PoP.
         let mut broken = ClientSessionStore::new(store.backend().clone());
         broken.backend.delete(KEY_CLIENT_IDENTITY).expect("delete");
-        assert_eq!(broken.load(), Err(StoreError::Corrupt));
+        assert!(matches!(broken.load(), Err(StoreError::Corrupt)));
         let mut half = ClientSessionStore::new(store.backend().clone());
         half.backend.delete(KEY_DESCRIPTOR).expect("delete");
-        assert_eq!(half.load(), Err(StoreError::Corrupt));
+        assert!(matches!(half.load(), Err(StoreError::Corrupt)));
 
         // `wipe` не оставляет ни секретов, ни дескриптора, ни tickets.
         store.wipe().expect("wipe");
         assert!(store.backend().keys().is_empty());
         assert!(store.tickets().is_empty());
-        assert_eq!(store.state(), None);
-        assert_eq!(store.load(), Ok(None), "после wipe сессии нет");
-        assert_eq!(store.secrets(), None, "и ключей личности тоже");
+        assert!(store.state().is_none());
+        assert!(matches!(store.load(), Ok(None)), "после wipe сессии нет");
+        assert!(store.secrets().is_none(), "и ключей личности тоже");
     }
 
     /// Контракт владельца: `client_identity` priv доступен только этому модулю —
@@ -501,7 +508,7 @@ mod tests {
     #[test]
     fn contract_client_identity_is_owned_here() {
         let mut store = ClientSessionStore::new(InMemorySecureStore::new());
-        assert_eq!(store.secrets(), None, "до сохранения ключей нет");
+        assert!(store.secrets().is_none(), "до сохранения ключей нет");
         store.save(&state()).expect("сохранение");
 
         // Доступ к ключам — только через владельца; поля `ClientSecrets` приватны,
@@ -549,7 +556,7 @@ mod tests {
 
         // Стирание забирает и ключи: после `wipe` владельца ключей просто нет.
         store.wipe().expect("wipe");
-        assert_eq!(store.secrets(), None);
+        assert!(store.secrets().is_none());
     }
 
     /// Контракт восстановления: новая сессия процесса над тем же backend'ом поднимает
@@ -576,7 +583,7 @@ mod tests {
 
         // Испорченный дескриптор — `Corrupt`, не «сессия с чужим sid».
         let mut corrupt = ClientSessionStore::new(store_with_bad_descriptor());
-        assert_eq!(corrupt.load(), Err(StoreError::Corrupt));
+        assert!(matches!(corrupt.load(), Err(StoreError::Corrupt)));
         corrupt.save(&state()).expect("перезапись чинит хранилище");
         assert!(corrupt.load().is_ok());
     }

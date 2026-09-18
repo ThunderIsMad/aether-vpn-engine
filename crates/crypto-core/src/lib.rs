@@ -88,7 +88,10 @@ pub struct Signature(pub [u8; 64]);
 /// Debug — ручной redacted, не derive: ключ, который можно напечатать, — утечший ключ.
 /// Любой `debug!`/`println!("{:?}")`/паника с этим типом обязана писать `<redacted>`,
 /// не байты (аудит F-SEC: derive(Debug) дампил 32 B ключа в любом формате).
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Без `PartialEq`/`Copy` (аудит F-12): `==` на секрете — branch-on-secret, а неявное
+/// копирование размножает секретные копии; нужные сравнения — по `.0` в тестах, где
+/// ветвление по секрету допустимо по определению теста.
+#[derive(Clone)]
 pub struct KSession(pub [u8; 32]);
 
 impl fmt::Debug for KSession {
@@ -99,8 +102,9 @@ impl fmt::Debug for KSession {
 
 /// Ключ записи на шаге ratchet `K_record[n] = HKDF(K_record[n-1])`.
 ///
-/// Debug — ручной redacted, не derive (см. `KSession`).
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Debug — ручной redacted, не derive (см. `KSession`). Без `PartialEq`/`Copy` — по
+/// тем же причинам (аудит F-12).
+#[derive(Clone)]
 pub struct KRecord(pub [u8; 32]);
 
 impl fmt::Debug for KRecord {
@@ -111,8 +115,9 @@ impl fmt::Debug for KRecord {
 
 /// Ключ обложки (`03` §4): выводится из `K_session` с меткой `LABEL_COVER`.
 ///
-/// Debug — ручной redacted, не derive (см. `KSession`).
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Debug — ручной redacted, не derive (см. `KSession`). Без `PartialEq`/`Copy` — по
+/// тем же причинам (аудит F-12).
+#[derive(Clone)]
 pub struct KCover(pub [u8; 32]);
 
 /// Ключ гейта Reality-обложки (`b132-2`, peek-before-decrypt): HMAC-ключ для
@@ -730,7 +735,7 @@ mod tests {
         let ks_client = initiator
             .finish_initiator(&msg2)
             .expect("k_session клиента");
-        assert_eq!(ks_client, ks_node, "обе стороны выводят один K_session");
+        assert_eq!(ks_client.0, ks_node.0, "обе стороны выводят один K_session");
         assert_ne!(ks_client.0, [0u8; 32], "K_session не пустой");
 
         let msg1_len = msg1.len();
@@ -777,9 +782,11 @@ mod tests {
         let (mut msg2_2, _) = responder2.respond(&msg1_2).expect("msg2");
         let last = msg2_2.len() - 1;
         msg2_2[last] ^= 0x01;
-        assert_eq!(
-            initiator2.finish_initiator(&msg2_2),
-            Err(CryptoError::HandshakeFailed),
+        assert!(
+            matches!(
+                initiator2.finish_initiator(&msg2_2),
+                Err(CryptoError::HandshakeFailed)
+            ),
             "испорченный msg2 обязан отвергаться"
         );
     }
@@ -817,19 +824,19 @@ mod tests {
             .finish_initiator(&msg2)
             .expect("k_session клиента");
 
-        assert_eq!(ks_client, ks_node, "один K_session у обеих сторон");
+        assert_eq!(ks_client.0, ks_node.0, "один K_session у обеих сторон");
 
         // Вывод детерминирован относительно входа KDF: воспроизводим derivation напрямую
         // из отданного clatter секрета (chaining key) той же обвязкой.
         let ck = initiator.hs.get_state().get_chaining_key();
         let replayed = derive_session(&sid, ByteArray::as_slice(&ck));
         assert_eq!(
-            replayed, ks_client,
+            replayed.0, ks_client.0,
             "K_session воспроизводится из chaining key той же обвязкой"
         );
         assert_ne!(
-            derive_session(&[0x35u8; 16], ByteArray::as_slice(&ck)),
-            ks_client,
+            derive_session(&[0x35u8; 16], ByteArray::as_slice(&ck)).0,
+            ks_client.0,
             "salt = session_id входит в вывод (domain separation)"
         );
     }

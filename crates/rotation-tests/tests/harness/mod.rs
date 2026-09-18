@@ -159,7 +159,7 @@ impl NodeSim {
             identity_priv,
             eph_node: KcX25519Pub(x25519_keypair(&eph_node_priv).public),
             eph_node_priv,
-            factory: TicketFactory::new(TFK_EPOCH, epoch_id, NODE_SET_ID, 3_600),
+            factory: TicketFactory::new(TFK_EPOCH, epoch_id, NODE_SET_ID, 3_600, T0),
             accepted: 0,
             nacked: 0,
             corrupt_sig_node: false,
@@ -243,7 +243,10 @@ impl NodeSim {
             Ok(ticket) => ticket,
             Err(TicketError::EpochMismatch) => return self.nak(NAK_EPOCH),
             Err(TicketError::Expired) => return self.nak(NAK_EXPIRED),
-            Err(TicketError::BadWrap | TicketError::BadLayout) => return vec![WIRE_UNKNOWN],
+            // Чужой набор узлов — класс «не наш тикет», как битый blob.
+            Err(TicketError::NodeSetMismatch | TicketError::BadWrap | TicketError::BadLayout) => {
+                return vec![WIRE_UNKNOWN]
+            }
         };
         // `K_resume` выводится из `K_session` внутри ticket: снаружи его не знает никто,
         // кроме того, кто уже прочитал ticket флотским ключом (`02 §3.3`).

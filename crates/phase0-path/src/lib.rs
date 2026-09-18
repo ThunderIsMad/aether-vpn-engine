@@ -401,7 +401,7 @@ mod tests {
         );
         let k = test_key();
         let mut sender = session(k);
-        let mut binding = SsPaddedBinding::with_padding(cover, 256);
+        let mut binding = SsPaddedBinding::with_padding(cover.clone(), 256);
         let mut flows = std::collections::HashMap::new();
         let packet = ipv4_packet(
             match fake {
@@ -507,7 +507,8 @@ mod tests {
         );
         let k = test_key();
         let mut sender = session(k);
-        let mut binding = RealityBinding::new(cover, cover_reality::TargetSite::placeholder());
+        let mut binding =
+            RealityBinding::new(cover.clone(), cover_reality::TargetSite::placeholder());
         let mut flows = std::collections::HashMap::new();
 
         let packet = ipv4_packet(

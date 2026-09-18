@@ -816,7 +816,7 @@ mod tests {
         let rec = record(0, b"nonce uniqueness probe");
 
         // Первое время жизни байндинга: N записей.
-        let mut first = RealityBinding::new(cov, TargetSite::placeholder());
+        let mut first = RealityBinding::new(cov.clone(), TargetSite::placeholder());
         for _ in 0..8 {
             first.send(&rec).expect("очередь не переполнена");
             for (_, frame) in first.take_pending() {

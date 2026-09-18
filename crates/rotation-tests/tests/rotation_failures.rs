@@ -114,7 +114,7 @@ fn rotation_epoch_mismatch_naks_and_falls_back_to_full_handshake() {
     );
     let (msg2, ks_node) = responder.respond(&msg1).expect("msg2");
     let ks_client = initiator.finish_initiator(&msg2).expect("K_session");
-    assert_eq!(ks_client, ks_node, "фолбэк даёт общий `K_session`");
+    assert_eq!(ks_client.0, ks_node.0, "фолбэк даёт общий `K_session`");
     assert!(
         msg2.len() >= crypto_core::MLKEM768_CT_BYTES,
         "msg2 несёт `kem_ct`"
@@ -454,8 +454,9 @@ fn rotation_two_acks_race_first_valid_wins_second_quarantined() {
             &SID,
             &KSession(K_SESSION),
             &ss_rotate(&eph_a_priv, &KcX25519Pub(parts_n2.eph_node))
-        ),
-        KSession(k_prime),
+        )
+        .0,
+        k_prime,
         "ключ победителя выведен из `eph_client` и `eph_node` одной попытки (`02 §3.3`)"
     );
     driver.session.ratchet_from(&k_prime);
@@ -500,8 +501,9 @@ fn rotation_two_acks_race_first_valid_wins_second_quarantined() {
             &SID,
             &KSession(K_SESSION),
             &ss_rotate(&eph_b_priv, &KcX25519Pub(parts_n3.eph_node))
-        ),
-        KSession(k_prime),
+        )
+        .0,
+        k_prime,
         "ключ проигравшего в сессию не попал"
     );
 

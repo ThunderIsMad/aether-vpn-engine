@@ -66,8 +66,8 @@ struct NodeState {
 
 impl NodeState {
     fn new(config: &LabConfig, node_id: u32, keys: NodeKeys, eph_node_priv: [u8; 32]) -> Self {
-        let mut factory = TicketFactory::new(tfk_epoch(), 0, 0, config.ticket_ttl_seconds);
-        factory.set_now(config.now);
+        let mut factory =
+            TicketFactory::new(tfk_epoch(), 0, 0, config.ticket_ttl_seconds, config.now);
         let client = ClientKeys::from_seed([0xCD; 32]);
         Self {
             node_id,

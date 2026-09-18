@@ -491,8 +491,9 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
             &SID,
             &KSession(K_SESSION),
             &ss_rotate(&eph_c_priv, &node_eph)
-        ),
-        KSession(k_prime),
+        )
+        .0,
+        k_prime,
         "K_session' выведен из `eph_client` успешной попытки (`02 §3.3`)"
     );
     assert_eq!(network2.borrow().nodes[&2].accepted, 1);

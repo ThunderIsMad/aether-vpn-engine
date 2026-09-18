@@ -232,7 +232,10 @@ fn write_varint(out: &mut Vec<u8>, mut value: u64) {
     }
 }
 
-/// Чтение ULEB128-varint; неполный вход — `BadLayout`.
+/// Чтение ULEB128-varint; неполный вход — `BadLayout`. Неканонические (overlong)
+/// кодировки отклоняются (аудит F-12): одно значение обязано иметь ровно один проводной
+/// вид, иначе AAD-сборка по «отрезанному len» даёт неоднозначность и нестандартные
+/// кодировки становятся скрытым каналом расхождений между отправителем и приёмником.
 fn read_varint(bytes: &[u8], pos: &mut usize) -> Result<u64, RecordError> {
     let mut value = 0u64;
     let mut shift = 0u32;
@@ -242,8 +245,17 @@ fn read_varint(bytes: &[u8], pos: &mut usize) -> Result<u64, RecordError> {
         if shift >= 64 {
             return Err(RecordError::BadLayout);
         }
+        let is_last = byte & 0x80 == 0;
         value |= u64::from(byte & 0x7f) << shift;
-        if byte & 0x80 == 0 {
+        if is_last {
+            // Каноничность (аудит F-12): кодировка n байтов допускается только для значений,
+            // не помещающихся в n−1 байтов, т.е. значащая часть последнего байта обязана
+            // иметь биты выше (n−1)·7. Пример: [0x85, 0x00] → 5 в двухбайтовой форме —
+            // overlong, отвергаем. `shift` здесь — число бит предыдущих групп: значащие
+            // биты последнего байта — (byte & 0x7f) != 0, и они обязаны выходить за shift.
+            if shift > 0 && byte & 0x7f == 0 {
+                return Err(RecordError::BadLayout);
+            }
             return Ok(value);
         }
         shift += 7;
@@ -1000,6 +1012,20 @@ mod tests {
             Err(RecordError::BadLayout)
         );
         assert_eq!(Record::decode(&[0xff]), Err(RecordError::BadLayout));
+
+        // Каноничность varint (аудит F-12): overlong-кодировка отклоняется. Поле `len`
+        // со значением 5, закодированное двумя байтами (0x85, 0x00) вместо одного (0x05),
+        // обязано быть BadLayout — иначе у одного значения два проводных вида. Для forging
+        // строим кадр вручную: type | seq | stream_id | flags | len(overlong) | ciphertext.
+        let mut forged = Vec::with_capacity(bytes.len() + 1);
+        forged.extend_from_slice(&bytes[..4]); // type | seq(0) | stream_id | flags
+        forged.extend_from_slice(&[0x85, 0x00]); // overlong-форма 5 вместо [0x05]
+        forged.extend_from_slice(&record.ciphertext);
+        assert_eq!(
+            Record::decode(&forged),
+            Err(RecordError::BadLayout),
+            "overlong varint отвергается"
+        );
 
         // Приём собственной записи: один и тот же seq открывается, но второй раз — дедуп.
         let mut receiver = Session::new(sid, [0x44; 32], Box::new(MockCrypto));

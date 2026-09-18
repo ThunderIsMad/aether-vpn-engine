@@ -438,7 +438,7 @@ mod tests {
     #[test]
     fn queue_roundtrip_and_backpressure() {
         let cov = cover();
-        let mut binding = SsPaddedBinding::with_padding(cov, 128);
+        let mut binding = SsPaddedBinding::with_padding(cov.clone(), 128);
 
         for seq in 0..3u64 {
             binding
@@ -456,7 +456,7 @@ mod tests {
         assert!(binding.take_pending().is_empty(), "очередь вычерпана");
 
         // WouldBlock: переполнение ограниченной очереди — backpressure, не OOM.
-        let mut small = SsPaddedBinding::with_padding(cov, 0);
+        let mut small = SsPaddedBinding::with_padding(cov.clone(), 0);
         small.outbox = transport_mux::Outbox::new(64);
         let big_payload = vec![0u8; 200];
         assert_eq!(
@@ -482,7 +482,7 @@ mod tests {
         let rec = record(0, b"nonce uniqueness probe");
 
         // Первое время жизни байндинга: N записей.
-        let mut first = SsPaddedBinding::new(cov);
+        let mut first = SsPaddedBinding::new(cov.clone());
         for _ in 0..8 {
             first.send(&rec).expect("очередь не переполнена");
             for (_, frame) in first.take_pending() {
@@ -494,7 +494,7 @@ mod tests {
         }
 
         // Пересоздание байндинга на ТОМ ЖЕ ключе (реконнект/морф): ещё N записей.
-        let mut second = SsPaddedBinding::new(cov);
+        let mut second = SsPaddedBinding::new(cov.clone());
         for _ in 0..8 {
             second.send(&rec).expect("очередь не переполнена");
             for (_, frame) in second.take_pending() {

@@ -191,6 +191,9 @@ pub enum TicketError {
     BadWrap,
     /// `epoch_id` не совпал с текущей эпохой.
     EpochMismatch,
+    /// `node_set_id` тикета не совпадает с набором этого узла (аудит F-12: поле раньше
+    /// не сверялось — тикет, выпанный другим набором узлов, принимался бы этим).
+    NodeSetMismatch,
     /// `exp` истёк.
     Expired,
     /// Поля открытого текста не сходятся по длине или версии.
@@ -245,8 +248,9 @@ pub trait TicketMint {
 
 /// Узел-минтер: флотский ключ эпохи, набор узлов, TTL тикета и consumed-set эпохи.
 ///
-/// Часы инжектируются (`now`), потому что в контракте скаффолда их не было, а спека требует
-/// и `minted_at`, и проверку `exp`; детерминированный `now` делает тесты воспроизводимыми.
+/// Часы — обязательный параметр конструктора (`now`), не дефолт: стартовое `now: 0` без
+/// явной установки — источник «тикетов из 1970-го» при забытой `set_now` (аудит F-12).
+/// Прод-код обязан передать реальные часы; `set_now` остаётся для сдвига времени в тестах.
 pub struct TicketFactory {
     tfk_epoch: [u8; 32],
     epoch_id: u32,
@@ -257,14 +261,20 @@ pub struct TicketFactory {
 }
 
 impl TicketFactory {
-    /// Новый минтер эпохи: `TFK_epoch`, `epoch_id`, `node_set_id`, TTL тикета.
-    pub fn new(tfk_epoch: [u8; 32], epoch_id: u32, node_set_id: u32, ttl_seconds: u64) -> Self {
+    /// Новый минтер эпохи: `TFK_epoch`, `epoch_id`, `node_set_id`, TTL тикета, часы `now`.
+    pub fn new(
+        tfk_epoch: [u8; 32],
+        epoch_id: u32,
+        node_set_id: u32,
+        ttl_seconds: u64,
+        now: u64,
+    ) -> Self {
         Self {
             tfk_epoch,
             epoch_id,
             node_set_id,
             ttl_seconds,
-            now: 0,
+            now,
             consumed: HashSet::new(),
         }
     }
@@ -274,7 +284,8 @@ impl TicketFactory {
         self.epoch_id
     }
 
-    /// Устанавливает «текущее время» для трейтовых вызовов без явного `now`.
+    /// Сдвигает «текущее время» трейтовых вызовов без явного `now` (тесты, узел при старте
+    /// читает часы один раз — см. `e2e-harness` aether-node).
     pub fn set_now(&mut self, now: u64) {
         self.now = now;
     }
@@ -371,6 +382,9 @@ impl TicketFactory {
         if epoch_id != self.epoch_id {
             return Err(TicketError::EpochMismatch);
         }
+        if node_set_id != self.node_set_id {
+            return Err(TicketError::NodeSetMismatch);
+        }
         if now >= exp {
             return Err(TicketError::Expired);
         }
@@ -401,6 +415,8 @@ impl TicketFactory {
             Ok(ticket) => ticket,
             Err(TicketError::EpochMismatch) => return ResumeVerdict::NakEpoch,
             Err(TicketError::Expired) => return ResumeVerdict::NakExpired,
+            // Чужой набор узлов — тот же класс «не наш тикет», что и битый blob: Drop.
+            Err(TicketError::NodeSetMismatch) => return ResumeVerdict::Drop,
             Err(TicketError::BadWrap | TicketError::BadLayout) => return ResumeVerdict::Drop,
         };
         let key = consumed_key(self.epoch_id, blob);
@@ -485,7 +501,7 @@ mod tests {
     /// и содержит пол окна на момент минта (`02 §3.1`, §3.3).
     #[test]
     fn contract_mint_binds_client_pub_and_window() {
-        let factory = TicketFactory::new(TFK, 7, 3, 3_600);
+        let factory = TicketFactory::new(TFK, 7, 3, 3_600, 1_000);
         let (_, client_pub) = identity(0xaa);
         let window = Window { lo: 100, hi: 4_196 };
         let blob = factory.mint_at(SID, client_pub, window, &K_SESSION, 1_000);
@@ -514,12 +530,12 @@ mod tests {
         assert_eq!(&ticket.k_session, &K_SESSION);
 
         // Чужая эпоха и чужой флотский ключ не разворачивают ticket: mint требует `TFK_epoch`.
-        let other_epoch = TicketFactory::new(TFK, 8, 3, 3_600);
+        let other_epoch = TicketFactory::new(TFK, 8, 3, 3_600, 1_000);
         assert_eq!(
             other_epoch.unwrap_at(&blob, 1_100),
             Err(TicketError::EpochMismatch)
         );
-        let other_fleet = TicketFactory::new([0x99; 32], 7, 3, 3_600);
+        let other_fleet = TicketFactory::new([0x99; 32], 7, 3, 3_600, 1_000);
         assert_eq!(
             other_fleet.unwrap_at(&blob, 1_100),
             Err(TicketError::BadWrap)
@@ -527,6 +543,12 @@ mod tests {
 
         // `exp` истёк (`§3.7`) и обрезанный blob — отказ, не паника.
         assert_eq!(factory.unwrap_at(&blob, 4_600), Err(TicketError::Expired));
+        // Тикет чужого набора узлов не принимается (аудит F-12: сверка `node_set_id`).
+        let other_set = TicketFactory::new(TFK, 7, 4, 3_600, 1_000);
+        assert_eq!(
+            other_set.unwrap_at(&blob, 1_100),
+            Err(TicketError::NodeSetMismatch)
+        );
         let short = TicketBlob(blob.0[..20].to_vec());
         assert_eq!(factory.unwrap_at(&short, 1_100), Err(TicketError::BadWrap));
         let mut corrupted = blob.clone();
@@ -544,7 +566,7 @@ mod tests {
     /// (аудит: детерминированный nonce). Debug-редакция: `k_session` не печатается.
     #[test]
     fn contract_mint_is_probabilistic_and_debug_redacted() {
-        let factory = TicketFactory::new(TFK, 7, 3, 3_600);
+        let factory = TicketFactory::new(TFK, 7, 3, 3_600, 1_000);
         let (_, client_pub) = identity(0xaa);
         let window = Window { lo: 0, hi: 0 };
 
@@ -585,7 +607,7 @@ mod tests {
     /// повтор того же ticket на том же узле → `RESUME_NAK replay` (consumed-set эпохи).
     #[test]
     fn contract_pop_and_replay_rejection() {
-        let mut factory = TicketFactory::new(TFK, 7, 3, 3_600);
+        let mut factory = TicketFactory::new(TFK, 7, 3, 3_600, 1_000);
         let (client, client_pub) = identity(0xaa);
         let (attacker, _) = identity(0xbb);
         let window = Window { lo: 0, hi: 0 };
@@ -653,7 +675,7 @@ mod tests {
         }
 
         // Ветки epoch/expired и «не наш blob» (`§3.7`).
-        let mut foreign = TicketFactory::new(TFK, 9, 3, 3_600);
+        let mut foreign = TicketFactory::new(TFK, 9, 3, 3_600, 1_000);
         let (sig3, ctx3) = context(&blob2, &client2);
         assert_eq!(
             foreign.handle_resume(&blob2, &sig3, &ctx3, 1_400),
@@ -675,8 +697,7 @@ mod tests {
     #[test]
     fn contract_trait_path_uses_injected_clock() {
         let (_, client_pub) = identity(0xdd);
-        let mut factory = TicketFactory::new(TFK, 1, 1, 60);
-        factory.set_now(500);
+        let mut factory = TicketFactory::new(TFK, 1, 1, 60, 500);
         let blob = TicketMint::mint(
             &factory,
             SID,
