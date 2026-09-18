@@ -1,0 +1,181 @@
+﻿2026-09-18T12:43:34.9411752Z Current runner version: '2.337.0'
+2026-09-18T12:43:34.9437102Z ##[group]Runner Image Provisioner
+2026-09-18T12:43:34.9438166Z Hosted Compute Agent
+2026-09-18T12:43:34.9438794Z Version: 20260828.587
+2026-09-18T12:43:34.9439451Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-18T12:43:34.9440293Z Build Date: 2026-08-28T16:44:25Z
+2026-09-18T12:43:34.9441221Z Worker ID: {c0b3cbb0-f525-4b86-bd67-71668de3021b}
+2026-09-18T12:43:34.9442031Z Azure Region: northcentralus
+2026-09-18T12:43:34.9442745Z ##[endgroup]
+2026-09-18T12:43:34.9444127Z ##[group]Operating System
+2026-09-18T12:43:34.9444852Z Ubuntu
+2026-09-18T12:43:34.9445413Z 24.04.5
+2026-09-18T12:43:34.9446030Z LTS
+2026-09-18T12:43:34.9446635Z ##[endgroup]
+2026-09-18T12:43:34.9447223Z ##[group]Runner Image
+2026-09-18T12:43:34.9447912Z Image: ubuntu-24.04
+2026-09-18T12:43:34.9448547Z Version: 20260907.300.1
+2026-09-18T12:43:34.9449940Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260907.300/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-18T12:43:34.9451847Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260907.300
+2026-09-18T12:43:34.9452931Z ##[endgroup]
+2026-09-18T12:43:34.9454216Z ##[group]GITHUB_TOKEN Permissions
+2026-09-18T12:43:34.9456655Z Contents: read
+2026-09-18T12:43:34.9457296Z Metadata: read
+2026-09-18T12:43:34.9458280Z ##[endgroup]
+2026-09-18T12:43:34.9460413Z Secret source: Actions
+2026-09-18T12:43:34.9462024Z Cache mode: write
+2026-09-18T12:43:34.9463123Z Prepare workflow directory
+2026-09-18T12:43:34.9839005Z Prepare all required actions
+2026-09-18T12:43:34.9906088Z Getting action download info
+2026-09-18T12:43:35.2135021Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-09-18T12:43:35.3997358Z Complete job name: Validate skills
+2026-09-18T12:43:35.4908003Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-09-18T12:43:35.4909022Z with:
+2026-09-18T12:43:35.4909490Z   persist-credentials: false
+2026-09-18T12:43:35.4910106Z   repository: ThunderIsMad/aether-vpn-engine
+2026-09-18T12:43:35.4914504Z   token: ***
+2026-09-18T12:43:35.4915073Z   ssh-strict: true
+2026-09-18T12:43:35.4915526Z   ssh-user: git
+2026-09-18T12:43:35.4915960Z   clean: true
+2026-09-18T12:43:35.4916417Z   sparse-checkout-cone-mode: true
+2026-09-18T12:43:35.4916940Z   fetch-depth: 1
+2026-09-18T12:43:35.4917394Z   fetch-tags: false
+2026-09-18T12:43:35.4917852Z   show-progress: true
+2026-09-18T12:43:35.4918314Z   lfs: false
+2026-09-18T12:43:35.4918742Z   submodules: false
+2026-09-18T12:43:35.4919209Z   set-safe-directory: true
+2026-09-18T12:43:35.4919724Z   allow-unsafe-pr-checkout: false
+2026-09-18T12:43:35.4920504Z ##[endgroup]
+2026-09-18T12:43:35.5933305Z Syncing repository: ThunderIsMad/aether-vpn-engine
+2026-09-18T12:43:35.5936037Z ##[group]Getting Git version info
+2026-09-18T12:43:35.5937325Z Working directory is '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+2026-09-18T12:43:35.5939141Z [command]/usr/bin/git version
+2026-09-18T12:43:35.6020349Z git version 2.55.0
+2026-09-18T12:43:35.6040293Z ##[endgroup]
+2026-09-18T12:43:35.6054957Z Temporarily overriding HOME='/home/runner/work/_temp/1cd12ab7-612c-404c-bb57-26226547ef69' before making global git config changes
+2026-09-18T12:43:35.6057297Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-18T12:43:35.6068627Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T12:43:35.6119860Z Deleting the contents of '/home/runner/work/aether-vpn-engine/aether-vpn-engine'
+2026-09-18T12:43:35.6122287Z ##[group]Determining repository object format
+2026-09-18T12:43:35.6123789Z ##[endgroup]
+2026-09-18T12:43:35.6124975Z ##[group]Initializing the repository
+2026-09-18T12:43:35.6128105Z [command]/usr/bin/git init /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T12:43:35.6245349Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-18T12:43:35.6247067Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-18T12:43:35.6248422Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-18T12:43:35.6249298Z hint: call:
+2026-09-18T12:43:35.6249816Z hint:
+2026-09-18T12:43:35.6250432Z hint: 	git config --global init.defaultBranch <name>
+2026-09-18T12:43:35.6251306Z hint:
+2026-09-18T12:43:35.6251964Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-18T12:43:35.6253074Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-18T12:43:35.6253924Z hint:
+2026-09-18T12:43:35.6254429Z hint: 	git branch -m <name>
+2026-09-18T12:43:35.6255008Z hint:
+2026-09-18T12:43:35.6255786Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-18T12:43:35.6262082Z Initialized empty Git repository in /home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/
+2026-09-18T12:43:35.6271329Z [command]/usr/bin/git remote add origin https://github.com/ThunderIsMad/aether-vpn-engine
+2026-09-18T12:43:35.6327461Z ##[endgroup]
+2026-09-18T12:43:35.6332523Z ##[group]Disabling automatic garbage collection
+2026-09-18T12:43:35.6333241Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-18T12:43:35.6365054Z ##[endgroup]
+2026-09-18T12:43:35.6366141Z ##[group]Setting up auth
+2026-09-18T12:43:35.6366976Z Removing SSH command configuration
+2026-09-18T12:43:35.6378917Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-18T12:43:35.6417884Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-18T12:43:35.6783988Z Removing HTTP extra header
+2026-09-18T12:43:35.6790966Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-18T12:43:35.6831770Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-18T12:43:35.7072884Z Removing includeIf entries pointing to credentials config files
+2026-09-18T12:43:35.7078179Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-18T12:43:35.7115373Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-18T12:43:35.7359871Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-18T12:43:35.7401731Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git.path /home/runner/work/_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config
+2026-09-18T12:43:35.7436096Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config
+2026-09-18T12:43:35.7475711Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config
+2026-09-18T12:43:35.7511864Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config
+2026-09-18T12:43:35.7544246Z ##[endgroup]
+2026-09-18T12:43:35.7545317Z ##[group]Fetching the repository
+2026-09-18T12:43:35.7550744Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +1dc6139c34bbeb50e5d4a454f6b62b5033cac13a:refs/remotes/origin/main
+2026-09-18T12:43:36.4089618Z From https://github.com/ThunderIsMad/aether-vpn-engine
+2026-09-18T12:43:36.4091450Z  * [new ref]         1dc6139c34bbeb50e5d4a454f6b62b5033cac13a -> origin/main
+2026-09-18T12:43:36.4101772Z [command]/usr/bin/git branch --list --remote origin/main
+2026-09-18T12:43:36.4129023Z   origin/main
+2026-09-18T12:43:36.4136894Z [command]/usr/bin/git rev-parse refs/remotes/origin/main
+2026-09-18T12:43:36.4165900Z 1dc6139c34bbeb50e5d4a454f6b62b5033cac13a
+2026-09-18T12:43:36.4170739Z ##[endgroup]
+2026-09-18T12:43:36.4172345Z ##[group]Determining the checkout info
+2026-09-18T12:43:36.4174314Z ##[endgroup]
+2026-09-18T12:43:36.4175632Z [command]/usr/bin/git sparse-checkout disable
+2026-09-18T12:43:36.4232762Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-18T12:43:36.4268554Z ##[group]Checking out the ref
+2026-09-18T12:43:36.4271775Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2026-09-18T12:43:36.4427423Z Switched to a new branch 'main'
+2026-09-18T12:43:36.4434605Z branch 'main' set up to track 'origin/main'.
+2026-09-18T12:43:36.4443130Z ##[endgroup]
+2026-09-18T12:43:36.4488410Z [command]/usr/bin/git log -1 --format=%H
+2026-09-18T12:43:36.4519412Z 1dc6139c34bbeb50e5d4a454f6b62b5033cac13a
+2026-09-18T12:43:36.4529918Z ##[group]Removing auth
+2026-09-18T12:43:36.4531938Z Removing SSH command configuration
+2026-09-18T12:43:36.4534191Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-18T12:43:36.4577311Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-18T12:43:36.4821855Z Removing HTTP extra header
+2026-09-18T12:43:36.4825289Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-18T12:43:36.4867363Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-18T12:43:36.5106423Z Removing includeIf entries pointing to credentials config files
+2026-09-18T12:43:36.5110069Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-18T12:43:36.5142208Z includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git.path
+2026-09-18T12:43:36.5145756Z includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/worktrees/*.path
+2026-09-18T12:43:36.5148752Z includeif.gitdir:/github/workspace/.git.path
+2026-09-18T12:43:36.5150705Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-18T12:43:36.5155225Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git.path
+2026-09-18T12:43:36.5181131Z /home/runner/work/_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config
+2026-09-18T12:43:36.5192411Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-99ba3e6e\-a85a\-486b\-a2ea\-8683e96a5d67\.config
+2026-09-18T12:43:36.5233196Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/worktrees/*.path
+2026-09-18T12:43:36.5261685Z /home/runner/work/_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config
+2026-09-18T12:43:36.5272217Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/aether-vpn-engine/aether-vpn-engine/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-99ba3e6e\-a85a\-486b\-a2ea\-8683e96a5d67\.config
+2026-09-18T12:43:36.5310811Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-09-18T12:43:36.5343025Z /github/runner_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config
+2026-09-18T12:43:36.5378571Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-99ba3e6e\-a85a\-486b\-a2ea\-8683e96a5d67\.config
+2026-09-18T12:43:36.5433277Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-18T12:43:36.5460288Z /github/runner_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config
+2026-09-18T12:43:36.5468746Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-99ba3e6e\-a85a\-486b\-a2ea\-8683e96a5d67\.config
+2026-09-18T12:43:36.5507696Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-18T12:43:36.5746237Z Removing credentials config '/home/runner/work/_temp/git-credentials-99ba3e6e-a85a-486b-a2ea-8683e96a5d67.config'
+2026-09-18T12:43:36.5753628Z ##[endgroup]
+2026-09-18T12:43:36.5990789Z ##[group]Run python3 -m venv "$RUNNER_TEMP/skill-venv"
+2026-09-18T12:43:36.5992554Z [36;1mpython3 -m venv "$RUNNER_TEMP/skill-venv"[0m
+2026-09-18T12:43:36.5994388Z [36;1m"$RUNNER_TEMP/skill-venv/bin/pip" install --quiet pyyaml==6.0.3[0m
+2026-09-18T12:43:36.6041387Z shell: /usr/bin/bash -e {0}
+2026-09-18T12:43:36.6042497Z ##[endgroup]
+2026-09-18T12:43:40.7040294Z ##[group]Run "$RUNNER_TEMP/skill-venv/bin/python" scripts/validate_skills.py
+2026-09-18T12:43:40.7041223Z [36;1m"$RUNNER_TEMP/skill-venv/bin/python" scripts/validate_skills.py[0m
+2026-09-18T12:43:40.7083360Z shell: /usr/bin/bash -e {0}
+2026-09-18T12:43:40.7083706Z ##[endgroup]
+2026-09-18T12:43:40.7539132Z path                                              name                    name valid  status
+2026-09-18T12:43:40.7539947Z ------------------------------------------------------------------------------------------------
+2026-09-18T12:43:40.7540857Z .agents/skills/anti-air-audit                     anti-air-audit          True        OK
+2026-09-18T12:43:40.7541481Z .agents/skills/claim-traceability                 claim-traceability      True        OK
+2026-09-18T12:43:40.7542128Z .agents/skills/crate-feasibility                  crate-feasibility       True        OK
+2026-09-18T12:43:40.7542756Z .agents/skills/impl-phase-driver                  impl-phase-driver       True        OK
+2026-09-18T12:43:40.7543344Z .agents/skills/mechanism-drilldown                mechanism-drilldown     True        OK
+2026-09-18T12:43:40.7543921Z .agents/skills/phase0-scaffold                    phase0-scaffold         True        OK
+2026-09-18T12:43:40.7544521Z .agents/skills/rotation-test-writer               rotation-test-writer    True        OK
+2026-09-18T12:43:40.7544867Z 
+2026-09-18T12:43:40.7545006Z 7 skill(s), 0 error(s), 0 warning(s)
+2026-09-18T12:43:40.7779871Z Post job cleanup.
+2026-09-18T12:43:40.8657132Z [command]/usr/bin/git version
+2026-09-18T12:43:40.8710905Z git version 2.55.0
+2026-09-18T12:43:40.8749607Z Temporarily overriding HOME='/home/runner/work/_temp/18e15b0d-205d-4222-a6e2-ebff7b7b1550' before making global git config changes
+2026-09-18T12:43:40.8751403Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-18T12:43:40.8753631Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/aether-vpn-engine/aether-vpn-engine
+2026-09-18T12:43:40.8787014Z Removing SSH command configuration
+2026-09-18T12:43:40.8793627Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-18T12:43:40.8830352Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-18T12:43:40.9112277Z Removing HTTP extra header
+2026-09-18T12:43:40.9113019Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-18T12:43:40.9199885Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-18T12:43:40.9444585Z Removing includeIf entries pointing to credentials config files
+2026-09-18T12:43:40.9452175Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-18T12:43:40.9498740Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-18T12:43:40.9966247Z Cleaning up orphan processes
