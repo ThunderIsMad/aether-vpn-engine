@@ -39,10 +39,12 @@
 //!    приём O(1), прежняя O(seq)-цепочка (~50 мс/запись при seq = 1e5) и её лимит
 //!    итераций убраны. Forward-изоляция членов даже сильнее цепочки: утечка
 //!    `K_record[n]` не даёт ни прошлых, ни будущих членов; компрометация `K_session`
-//!    раскрывает всё поколение — средство сужения окна остаются re-key (Q25) и ротация.
+//!    раскрывает всё поколение — средство сужения окна: внутри-сессионный re-key
+//!    (`RecordType::Rekey`; реализован в Q25: пороги поколений, seq-сплит базы) и ротация.
 //!
 //! Открытые остатки (в `QUESTIONS.md`): слайд окна при выпадении битов проверен юнит-тестом;
-//! периодический re-key/`RecordType::Rekey` — Q25 (политика, а не лимит итераций); политика
+//! периодический re-key реализован (`RecordType::Rekey`, Q25 — политика `REKEY_TRIGGER_BYTES`);
+//! политика
 //! удержания `K_session` в at-rest — Phase 1 hardening (`03` §7).
 
 #![deny(unsafe_code)]
@@ -124,6 +126,12 @@ impl RecordType {
 
 /// Флаг FIN прикладного потока (`02 §1`, FIN-семантика через flags).
 pub const FLAG_FIN: u8 = 0x01;
+
+/// Политика триггера re-key (Q25): смена поколения `K_record` назревает за четверть
+/// потолка до него (`REKEY_POLICY_LIMIT / 4 * 3`) и повторяется раз в это окно —
+/// смена поколения происходит до лимита по решению владельца сессии
+/// (`needs_rekey()`/`begin_rekey`), а не аварийным обрывом на самом лимите.
+pub const REKEY_TRIGGER_BYTES: u64 = REKEY_POLICY_LIMIT / 4 * 3;
 
 /// Зашифрованная запись: `type | seq | stream_id | flags | len | ciphertext`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,6 +305,17 @@ pub trait SessionCrypto {
         aad: &[u8],
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, RecordError>;
+
+    /// Поколение внутри-сессионного re-key (Q25): обе стороны выводят ОДИНАКОВЫЙ ключ
+    /// поколения из старой базы и `rekey_nonce`, вскрываемого из rekey-записи. Домен
+    /// отделён от `record_key_at` (в прод-адаптере — `LABEL_REKEY`) и от
+    /// пост-ротационного вывода: одинаковый вход в разных механизмах даёт разные ключи.
+    fn derive_rekey_generation(
+        &self,
+        session_id: &[u8; 16],
+        base: &[u8; 32],
+        rekey_nonce: &[u8; 32],
+    ) -> [u8; 32];
 }
 
 /// Окно дедупликации узла: 4096 записей, bitmap 512 B на сессию (`02 §3.5`).
@@ -320,9 +339,9 @@ pub const DUPLICATE_WINDOW_BYTES: usize = (DUPLICATE_WINDOW_RECORDS as usize) / 
 
 /// Политический потолок `seq` одной сессии (F-02/Q25): вычисление члена теперь O(1),
 /// поэтому потолок — не защита от само-DoS (её больше не нужно), а политика re-key:
-/// к этому количеству записей сессия обязана сменить поколение `K_record`
-/// (`RecordType::Rekey`; реализация — Q25, зафиксировано в QUESTIONS.md). Спека
-/// потолка не задаёт — наша политика.
+/// к этому количеству записей сессия обязана сменить поколение `K_record` —
+/// реализовано (`begin_rekey`/`needs_rekey`, Q25): `REKEY_TRIGGER_BYTES` назревает
+/// смену заранее, потолок — жёсткая граница seq (в т.ч. для самой rekey-записи).
 pub const REKEY_POLICY_LIMIT: u64 = 1 << 20;
 
 /// Итог приёма `seq` окном дедупа (`02 §3.5`).
@@ -633,6 +652,10 @@ pub struct Session {
     /// продолжение живого sid возможно только через `resume_as_sender` с явным счётчиком
     /// (персистится клиентом рядом с `K_session`; sync-запись на каждый seal).
     next_seq: u64,
+    /// История порогов поколений `K_record` (Q25): `(seq rekey-записи, поколение)`,
+    /// от новейшего к старейшему. Seq-сплит базы держит in-flight окно старый/новый
+    /// ключ без перебора ключей; ротация (`ratchet_from`) чистит историю.
+    gen_bases: Vec<(u64, [u8; 32])>,
     streams: Vec<(FlowId, StreamId)>,
     crypto: Box<dyn SessionCrypto>,
     dedup: DedupWindow,
@@ -655,6 +678,7 @@ impl Session {
             session_id,
             chain_base: k_session,
             next_seq: 0,
+            gen_bases: Vec::new(),
             streams: Vec::new(),
             crypto,
             dedup: DedupWindow::new(Seq(0), Seq(0)),
@@ -673,6 +697,12 @@ impl Session {
     /// Последний выданный `seq` (0 — ни одной записи).
     pub fn last_seq(&self) -> Seq {
         Seq(self.next_seq.saturating_sub(1))
+    }
+
+    /// Сколько раз база `K_record` уже менялась внутри живой сессии (Q25): число
+    /// обработанных rekey-поколений (0 — начальная база).
+    pub fn rekey_generations(&self) -> usize {
+        self.gen_bases.len()
     }
 
     /// Таблица потоков сессии — то, что ротация обязана сохранить (`02 §1`).
@@ -717,28 +747,32 @@ impl Session {
         id
     }
 
-    /// Член цепочки `K_record[seq]` — итерацией от базы (`02 §1`).
-    /// Член `K_record[seq]` — один шаг HKDF для любого `seq` (`RecordCrypto::record_key_at`,
-    /// F-02). Политический потолок осмысленности `seq` переезжен в `REKEY_POLICY_LIMIT`
-    /// (Q25): это политика re-key, а не «защита от краха CPU».
-    fn record_key_at(&self, seq: Seq) -> Result<[u8; 32], RecordError> {
+    /// Член `K_record[seq]` от указанной базы (Q25: база выбирается seq-сплитом
+    /// поколения, `base_for`). Член — один шаг HKDF для любого `seq`
+    /// (`RecordCrypto::record_key_at`, F-02). Политический потолок осмысленности `seq`
+    /// — `REKEY_POLICY_LIMIT` (Q25): это политика re-key, а не «защита от краха CPU».
+    fn record_key_for(&self, base: [u8; 32], seq: Seq) -> Result<[u8; 32], RecordError> {
         if seq.0 > REKEY_POLICY_LIMIT {
             return Err(RecordError::TooFar);
         }
-        Ok(self
-            .crypto
-            .record_key_at(&self.session_id.0, &self.chain_base, seq.0))
+        Ok(self.crypto.record_key_at(&self.session_id.0, &base, seq.0))
     }
 
     /// Запечатывает данные в record под `K_record[seq]` (`03`, контракт FrameSession).
     ///
     /// `seq` выдаётся монотонно по сессии (не по потоку), nonce = `seq || sid`, AAD — заголовок.
     /// Отправка всегда O(1): ключ выводится на месте, курсоров и предвычислений больше нет.
+    ///
+    /// Q25: база членов — по seq-сплиту поколения (`base_for`): записи после rekey-записи
+    /// шифруются уже новым поколением. Сам выпуск rekey — явный (`begin_rekey` при
+    /// `needs_rekey()`): авто-магия в data-пути потребовала бы RNG в этом крейте
+    /// (`Deps: нет`) и скрыла бы смену ключевого материала от владельца сессии.
     pub fn seal_record(&mut self, stream: StreamId, data: &[u8]) -> Record {
         let seq = Seq(self.next_seq);
         self.next_seq = self.next_seq.saturating_add(1);
+        let base = self.base_for(seq);
         let key = self
-            .record_key_at(seq)
+            .record_key_for(base, seq)
             .expect("seq выдаётся сессией монотонно и внутри политического потолка");
         let mut record = Record {
             kind: RecordType::Data,
@@ -756,15 +790,13 @@ impl Session {
 
     /// Принимает запись: дедуп по `(sid, seq)` (`02 §3.5`) и вскрытие.
     ///
-    /// `Ok(None)` — запись отброшена дедупом (повтор или `seq` ниже пола окна);
-    /// `Ok(Some(plaintext))` — доставить приложению.
-    /// Принимает запись: дедуп по `(sid, seq)` (`02 §3.5`) и вскрытие.
+    /// Порядок проверок — F-02: дедуп-ОКНО и база поколения не двигаются до тех пор,
+    /// пока запись реально не вскрылась (вычисление ключа — O(1), но AEAD-open может
+    /// отказаться): поддельный поток кадров не сдвигает пол окна, не расходует больше
+    /// одного HKDF+open на кадр и НЕ переключает поколение ключей (Q25).
     ///
-    /// Порядок проверок — F-02: дедуп-ОКНО не двигается до тех пор, пока запись реально
-    /// не вскрылась (вычисление ключа — O(1), но AEAD-open может отказаться): поддельный
-    /// поток кадров не сдвигает пол окна и не расходует больше одного HKDF+open на кадр.
-    /// `Ok(None)` — запись отброшена дедупом (повтор или `seq` ниже пола окна);
-    /// `Ok(Some(plaintext))` — доставить приложению.
+    /// `Ok(None)` — запись отброшена дедупом или это rekey-запись (управление ключами,
+    /// приложению не доставляется); `Ok(Some(plaintext))` — доставить приложению.
     pub fn recv_record(&mut self, record: &Record) -> Result<Option<Vec<u8>>, RecordError> {
         if record.kind == RecordType::Data
             && !self.streams.iter().any(|(_, id)| *id == record.stream_id)
@@ -774,8 +806,10 @@ impl Session {
         if !self.dedup.is_new(record.seq) {
             return Ok(None);
         }
-        // Ключ и вскрытие ДО двигания окна: отказ/open-failed неconsume слот дедупа.
-        let key = self.record_key_at(record.seq)?;
+        // Ключ и вскрытие ДО двигания окна и ДО переключения базы: отказ/open-failed
+        // не consume слот дедупа и не меняет поколение ключей (Q25).
+        let base = self.base_for(record.seq);
+        let key = self.record_key_for(base, record.seq)?;
         let plaintext = self.crypto.open(
             &key,
             record_nonce(record.seq, &self.session_id),
@@ -783,7 +817,76 @@ impl Session {
             &record.ciphertext,
         )?;
         self.dedup.accept(record.seq);
+        // Реальная rekey-запись (Q25): plaintext — `rekey_nonce`; обе стороны выводят
+        // из него одинаковое поколение и переключают базу на записи СТРОГО старше seq
+        // этой записи (in-flight окно — seq-сплит, см. `base_for`).
+        if record.kind == RecordType::Rekey {
+            let nonce: [u8; 32] = plaintext
+                .as_slice()
+                .try_into()
+                .map_err(|_| RecordError::BadLayout)?;
+            let generation = self
+                .crypto
+                .derive_rekey_generation(&self.session_id.0, &base, &nonce);
+            self.gen_bases.push((record.seq.0, generation));
+            return Ok(None);
+        }
         Ok(Some(plaintext))
+    }
+
+    /// Строит rekey-запись (Q25): шифруется ключом СТАРОГО поколения (`base_for(seq)`
+    /// до записи нового порога), plaintext — `rekey_nonce`; база переключается только
+    /// после построения записи — отказ вывода ключа не оставляет сессию наполовину
+    /// переключённой.
+    fn seal_rekey(
+        &mut self,
+        stream: StreamId,
+        rekey_nonce: &[u8; 32],
+    ) -> Result<Record, RecordError> {
+        let seq = Seq(self.next_seq);
+        self.next_seq = self.next_seq.saturating_add(1);
+        let base = self.base_for(seq);
+        let key = self.record_key_for(base, seq)?;
+        let mut record = Record {
+            kind: RecordType::Rekey,
+            stream_id: stream,
+            flags: 0,
+            seq,
+            ciphertext: Vec::new(),
+        };
+        let aad = record.aad_bytes();
+        record.ciphertext =
+            self.crypto
+                .seal(&key, record_nonce(seq, &self.session_id), &aad, rekey_nonce);
+        let generation =
+            self.crypto
+                .derive_rekey_generation(&self.session_id.0, &base, rekey_nonce);
+        self.gen_bases.push((seq.0, generation));
+        Ok(record)
+    }
+
+    /// База членов `K_record` для seq (Q25): seq-сплит поколения — все записи
+    /// `seq ≤ N` (N — seq rekey-записи) шифруются/вскрываются старой базой,
+    /// `seq > N` — поколением из этой rekey-записи. Стек порогов читается от
+    /// новейшего: цепочка rekey даёт несколько порогов, in-flight окно —
+    /// только между соседними; ветер короткий (одна запись на re-key).
+    ///
+    /// Ограничение Phase 0 (доступность, НЕ конфиденциальность/целостность):
+    /// `gen_bases` живёт в памяти сессии и не персистится — после рестарта владельца
+    /// сессии (`resume_as_sender` восстанавливает только `(sid, K_session, next_seq)`)
+    /// стек порогов пуст, и записи предыдущего поколения, дошедшие в узком окне после
+    /// рестарта, отбрасываются как недешифруемые (AEAD-отказ, слот дедупа не consumed —
+    /// F-02). Это тот же класс принятых потерь, что зазор `§3.5`/`§3.7` («выдано, но
+    /// не доставлено»): переиспользования ключей и nonce нет — пустой стек не откатывает
+    /// базу вывода, а счётчик отправителя персистен. Персистентность порогов rekey (лог
+    /// seq'ов + nonce'ов с cadence/crash-семантикой как у `next_seq`) — отдельное
+    /// архитектурное решение, естественное место — Phase 1 персистентный store (тот же
+    /// трек, что Q20/consumed-set); в рамках Q25 сознательно НЕ решается.
+    fn base_for(&self, seq: Seq) -> [u8; 32] {
+        if let Some((_, generation)) = self.gen_bases.iter().rev().find(|(n, _)| seq.0 > *n) {
+            return *generation;
+        }
+        self.chain_base
     }
 
     /// Открывает окно перекрытия по SRTT (`02 §4`): дубли идут на оба канала до валидного ACK.
@@ -856,18 +959,54 @@ impl Session {
         self.dedup = DedupWindow::restore_from_signed_last_seq(floor, last_seq);
     }
 
-    /// Перезапускает цепочку `K_record` от пост-ротационного `K_session'` (`02 §3.3`).
+    /// Назрел ли rekey по политике (Q25): раз в `REKEY_TRIGGER_BYTES` (¾ потолка) на
+    /// поколение; после rekey окно политики начинается заново. Консультативный признак
+    /// для владельца сессии: механический запрет в `begin_rekey` один — политический
+    /// потолок `REKEY_POLICY_LIMIT` на seq самой rekey-записи.
+    pub fn needs_rekey(&self) -> bool {
+        let last_rekey = self.gen_bases.last().map(|(seq, _)| *seq).unwrap_or(0);
+        self.next_seq.saturating_sub(last_rekey) > REKEY_TRIGGER_BYTES
+    }
+
+    /// Выпускает rekey-запись и переключает базу членов `K_record` на новое поколение
+    /// (Q25, `02 §1`: `RecordType::Rekey` — это record, а не управление сеансом).
     ///
-    /// `seq` при этом **не** сбрасывается: сессия не соединение (`§1`), новый узел получает
-    /// продолжение нумерации через `continuity_point`.
-    /// Перезапускает поколение `K_record` от пост-ротационного `K_session'` (`02 §3.3`).
+    /// Rekey-запись занимает очередной seq (тот же счётчик, что и данные — дедуп по
+    /// `(sid, seq)` единого пространства) и шифруется ключом СТАРОГО поколения; её
+    /// plaintext — `rekey_nonce` (свежая случайность вызывающего, `crypto_core::random_32`
+    /// в прод-адаптере). ОБЕ стороны выводят из него одинаковое поколение:
+    /// `K_session_gen = HKDF(sid, старая база ‖ rekey_nonce, LABEL_REKEY)` — ключи
+    /// поколений по проводу не передаются, в открытом виде ходит только тип записи.
+    /// Приёмник (`recv_record`) переключает базу ТОЛЬКО после аутентификации rekey-записи
+    /// и коммита слота дедупа — подделанный REKEY поколение не меняет.
+    ///
+    /// In-flight окно (старый ключ жив для записей, уже выданных до rekey) решается
+    /// детерминированным seq-сплитом (`base_for`) — без перебора ключей.
+    pub fn begin_rekey(
+        &mut self,
+        stream: StreamId,
+        rekey_nonce: &[u8; 32],
+    ) -> Result<Record, RecordError> {
+        if self.next_seq >= REKEY_POLICY_LIMIT {
+            return Err(RecordError::TooFar);
+        }
+        self.seal_rekey(stream, rekey_nonce)
+    }
+
+    /// Перезапускает цепочку `K_record` от пост-ротационного `K_session'` (`02 §3.3`).
     ///
     /// `seq` при этом **не** сбрасывается: сессия не соединение (`§1`), новый узел получает
     /// продолжение нумерации через `continuity_point`. С F-02 «перезапуск» — просто смена
     /// базы вывода на `K_session'` (без шага-ноль HKDF: член с `info ‖ be64(seq)` уникален
     /// для каждой базы).
+    ///
+    /// Q25: ротация пере-keyивает ОБА направления (отправителя — сменой `chain_base`,
+    /// приёмника — чисткой `gen_bases`): история порогов старого поколения после
+    /// переключения базы вывода не имеет смысла, обе стороны симметрично начинают
+    /// нумерацию поколений заново.
     pub fn ratchet_from(&mut self, k_session_prime: &[u8; 32]) {
         self.chain_base = *k_session_prime;
+        self.gen_bases.clear();
         self.ratchet_restarts = self.ratchet_restarts.saturating_add(1);
     }
 
@@ -888,6 +1027,10 @@ impl Session {
     /// `DedupWindow::restore_from_signed_last_seq`). Свежий узел, принявший RESUME из
     /// клиентского claim, остаётся валидным приёмником — консервативное правило касается
     /// только отправителя и его собственного счётчика (ротация и морф не ломаются).
+    ///
+    /// Поколения rekey при этом НЕ восстанавливаются (`gen_bases` пуст — ограничение
+    /// Phase 0, см. `base_for`): in-flight записи старых поколений после рестарта
+    /// дропаются; целостность и конфиденциальность не страдают.
     pub fn resume_as_sender(
         session_id: SessionId,
         k_session: [u8; 32],
@@ -904,6 +1047,7 @@ impl Session {
             session_id,
             chain_base: k_session,
             next_seq,
+            gen_bases: Vec::new(),
             streams: Vec::new(),
             crypto,
             dedup: DedupWindow::restore_from_signed_last_seq(dedup_floor, resume_from),
@@ -990,23 +1134,81 @@ mod tests {
             out
         }
 
-        fn seal(&self, _k: &[u8; 32], _nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
+        /// Ключ-чувствительный мок AEAD: 16-байтовый тег — свёртка ключа, nonce и AAD.
+        /// Чувствительность к ключу нужна негативным тестам rekey (Q25): wrong-key
+        /// открытие обязано отказывать, прежний префиксный мок ключ игнорировал.
+        fn seal(&self, k: &[u8; 32], nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
             let mut out = aad.to_vec();
             out.extend_from_slice(plaintext);
+            let tag = Self::mock_tag(k, nonce, aad, plaintext.len());
+            out.extend_from_slice(&tag);
             out
         }
 
         fn open(
             &self,
-            _k: &[u8; 32],
-            _nonce: [u8; 24],
+            k: &[u8; 32],
+            nonce: [u8; 24],
             aad: &[u8],
             ciphertext: &[u8],
         ) -> Result<Vec<u8>, RecordError> {
-            match ciphertext.strip_prefix(aad) {
-                Some(plaintext) => Ok(plaintext.to_vec()),
-                None => Err(RecordError::OpenFailed),
+            if ciphertext.len() < aad.len() + MOCK_TAG_LEN {
+                return Err(RecordError::OpenFailed);
             }
+            let (head, tag) = ciphertext.split_at(ciphertext.len() - MOCK_TAG_LEN);
+            if !head.starts_with(aad) {
+                return Err(RecordError::OpenFailed);
+            }
+            let plaintext = &head[aad.len()..];
+            let expected = Self::mock_tag(k, nonce, aad, plaintext.len());
+            let mut diff = 0u8;
+            for (a, b) in tag.iter().zip(expected.iter()) {
+                diff |= a ^ b;
+            }
+            if diff != 0 {
+                return Err(RecordError::OpenFailed);
+            }
+            Ok(plaintext.to_vec())
+        }
+
+        /// Мок-вывод поколения rekey (Q25): отличим от `record_key_at` константой и
+        /// отсутствием seq-тега — доменное разделение мока важно для негативных тестов.
+        fn derive_rekey_generation(
+            &self,
+            session_id: &[u8; 16],
+            base: &[u8; 32],
+            rekey_nonce: &[u8; 32],
+        ) -> [u8; 32] {
+            let mut out = [0u8; 32];
+            for (index, byte) in base.iter().enumerate() {
+                out[index] = byte
+                    ^ session_id[index % session_id.len()]
+                    ^ rekey_nonce[index % rekey_nonce.len()]
+                    ^ 0xa7;
+            }
+            out
+        }
+    }
+
+    /// Длина тега мок-AEAD (16 B — как у Poly1305, чтобы размеры записи были правдоподобны).
+    const MOCK_TAG_LEN: usize = 16;
+
+    impl MockCrypto {
+        /// Свёртка ключа/nonce/AAD/длины в тег: достаточна для каркасных тестов,
+        /// реальная аутентификация — Poly1305 в `crypto-core`.
+        fn mock_tag(k: &[u8; 32], nonce: [u8; 24], aad: &[u8], pt_len: usize) -> [u8; 16] {
+            let mut tag = [0u8; 16];
+            for (index, cell) in tag.iter_mut().enumerate() {
+                let mut acc = k[index % k.len()]
+                    ^ nonce[index % nonce.len()]
+                    ^ pt_len.to_le_bytes()[index % 8]
+                    ^ (index as u8);
+                if let Some(a) = aad.get(index) {
+                    acc ^= a;
+                }
+                *cell = acc;
+            }
+            tag
         }
     }
 
@@ -1423,5 +1625,166 @@ mod tests {
         assert_eq!(dedup.accept(Seq(999)), DedupOutcome::BelowWindow);
         assert_eq!(dedup.accept(Seq(2_000)), DedupOutcome::Duplicate);
         assert_eq!(dedup.accept(Seq(5_001)), DedupOutcome::Accepted);
+    }
+
+    /// Q25: политика триггера — раз в `REKEY_TRIGGER_BYTES` (¾ потолка) на поколение;
+    /// выпуск rekey — явный (`begin_rekey`), авто-магии в data-пути нет; счётчик,
+    /// потоки и непрерывность `seq` не сбрасываются; ротация (`ratchet_from`)
+    /// пере-keyивает оба направления и чистит историю порогов приёма.
+    #[test]
+    fn contract_rekey_trigger_policy_and_explicit_begin() {
+        assert_eq!(
+            REKEY_TRIGGER_BYTES,
+            REKEY_POLICY_LIMIT / 4 * 3,
+            "порог = ¾ потолка: смена поколения происходит до лимита, не на нём",
+        );
+        // Счётчик восстановлен (Q26) на значение порога: до порога смена не назрела.
+        let mut sender = Session::resume_as_sender(
+            SessionId([0x5b; 16]),
+            [0x5c; 32],
+            REKEY_TRIGGER_BYTES,
+            Seq(0),
+            Seq(REKEY_TRIGGER_BYTES - 1),
+            Box::new(MockCrypto),
+        );
+        assert!(
+            !sender.needs_rekey(),
+            "ровно на пороге смена ещё не назрела"
+        );
+        let stream = sender.open_stream(FlowId(1));
+        let data = sender.seal_record(stream, b"at the threshold");
+        assert_eq!(data.seq, Seq(REKEY_TRIGGER_BYTES), "seq не сбрасывается");
+        assert!(
+            sender.needs_rekey(),
+            "первая запись за порогом назревает rekey",
+        );
+
+        // Явный выпуск: rekey-запись занимает очередной seq (тот же счётчик, что данные).
+        let rekey = sender
+            .begin_rekey(stream, &[0x9e; 32])
+            .expect("rekey внутри потолка разрешён");
+        assert_eq!(rekey.kind, RecordType::Rekey);
+        assert_eq!(rekey.seq, Seq(REKEY_TRIGGER_BYTES + 1));
+        assert_eq!(sender.rekey_generations(), 1);
+
+        // После rekey окно политики начинается заново; цепочка rekey разрешена:
+        // вторая rekey-запись шифруется уже базой первого поколения.
+        assert!(
+            !sender.needs_rekey(),
+            "после rekey окно политики начинается заново",
+        );
+        let rekey2 = sender
+            .begin_rekey(stream, &[0x11; 32])
+            .expect("цепочка rekey разрешена");
+        assert_eq!(rekey2.seq, Seq(REKEY_TRIGGER_BYTES + 2));
+        assert_eq!(sender.rekey_generations(), 2);
+
+        // Потоки и непрерывность нумерации переживают смену поколения.
+        let after = sender.seal_record(stream, b"generation two");
+        assert_eq!(after.seq, Seq(REKEY_TRIGGER_BYTES + 3));
+        assert_eq!(sender.stream_table(), &[(FlowId(1), stream)]);
+
+        // Ротация: база меняется на K_session', история порогов приёма чистится —
+        // пост-ротационная сторона получает непрерывный seq на новой базе.
+        sender.ratchet_from(&[0xdd; 32]);
+        assert_eq!(sender.rekey_generations(), 0);
+        let post_rotation = sender.seal_record(stream, b"post rotation");
+        assert_eq!(post_rotation.seq, Seq(REKEY_TRIGGER_BYTES + 4));
+    }
+
+    /// Q25: живой roundtrip смены поколения — in-flight записи старого поколения
+    /// вскрываются и после rekey (окно по seq-сплиту), новые — новым ключом;
+    /// приёмник БЕЗ обработки rekey вскрывать новое поколение не может (старый
+    /// `K_record` не переиспользуется); подделанный REKEY не переключает базу и
+    /// не consume слот дедупа.
+    #[test]
+    fn contract_rekey_roundtrip_in_flight_and_old_key_rejected() {
+        let sid = SessionId([0x6b; 16]);
+        let k = [0x6c; 32];
+        let mut sender = Session::new(sid, k, Box::new(MockCrypto));
+        let stream = sender.open_stream(FlowId(1));
+
+        let mut pre = Vec::new();
+        for i in 0..3 {
+            pre.push(sender.seal_record(stream, format!("pre-{i}").as_bytes()));
+        }
+        let rekey = sender
+            .begin_rekey(stream, &[0x9e; 32])
+            .expect("rekey внутри потолка");
+        let mut post = Vec::new();
+        for i in 0..3 {
+            post.push(sender.seal_record(stream, format!("post-{i}").as_bytes()));
+        }
+        assert_eq!(rekey.seq, Seq(3));
+        assert_eq!(post[0].seq, Seq(4));
+
+        // Приёмник: rekey приходит ПЕРВЫМ, потом — in-flight старого поколения,
+        // вперемешку с новым; всё вскрывается (интерливинг — реальный порядок сети).
+        let mut receiver = Session::new(sid, k, Box::new(MockCrypto));
+        receiver.open_stream(FlowId(1));
+        assert_eq!(
+            receiver.recv_record(&rekey).expect("rekey вскрывается"),
+            None,
+            "rekey — управление ключами, приложению не доставляется",
+        );
+        assert_eq!(receiver.rekey_generations(), 1);
+        for (index, record) in pre.iter().enumerate() {
+            assert_eq!(
+                receiver
+                    .recv_record(record)
+                    .expect("in-flight старое поколение"),
+                Some(format!("pre-{index}").into_bytes()),
+                "запись за rekey-порогом вскрывается СТАРОЙ базой (seq-сплит)",
+            );
+        }
+        for (index, record) in post.iter().enumerate() {
+            assert_eq!(
+                receiver.recv_record(record).expect("новое поколение"),
+                Some(format!("post-{index}").into_bytes()),
+                "запись за rekey-порогом вскрывается НОВОЙ базой",
+            );
+        }
+
+        // Повтор rekey-записи — дедуп: второе переключение поколения не происходит.
+        assert_eq!(receiver.recv_record(&rekey), Ok(None), "повтор — дубль");
+        assert_eq!(receiver.rekey_generations(), 1);
+
+        // Негатив: приёмник без rekey не вскрывает новое поколение — старый
+        // K_record для тех же (sid, seq) не подходит.
+        let mut stale = Session::new(sid, k, Box::new(MockCrypto));
+        stale.open_stream(FlowId(1));
+        assert_eq!(
+            stale.recv_record(&post[0]),
+            Err(RecordError::OpenFailed),
+            "старый K_record не переиспользуется: пост-rekey запись не вскрывается",
+        );
+
+        // Подделанный REKEY: вскрытие отказывает, база не переключается, слот дедупа
+        // не consumed (настоящая запись того же seq принимается заново — F-02).
+        let mut forged = rekey.clone();
+        forged.ciphertext[0] ^= 1;
+        let mut target = Session::new(sid, k, Box::new(MockCrypto));
+        target.open_stream(FlowId(1));
+        assert_eq!(
+            target.recv_record(&forged),
+            Err(RecordError::OpenFailed),
+            "подделанный REKEY отброшен AEAD",
+        );
+        assert_eq!(
+            target.rekey_generations(),
+            0,
+            "неаутентифицированный rekey не переключает базу",
+        );
+        assert_eq!(
+            target.dedup().continuity_point(),
+            Seq(0),
+            "слот не consumed"
+        );
+        assert_eq!(
+            target.recv_record(&rekey).expect("настоящий rekey"),
+            None,
+            "после отказа тот же seq принимается заново (F-02)",
+        );
+        assert_eq!(target.rekey_generations(), 1);
     }
 }

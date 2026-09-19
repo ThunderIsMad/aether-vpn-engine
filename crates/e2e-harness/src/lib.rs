@@ -43,6 +43,18 @@ impl frame_session::SessionCrypto for CoreCrypto {
         crypto_core::derive_record_key(session_id, &crypto_core::KSession(*base), seq).0
     }
 
+    /// Поколение re-key (Q25): прямой вызов `crypto_core::derive_rekey_generation`
+    /// (`LABEL_REKEY`, домен отделён от `LABEL_RECORD`/`LABEL_ROTATE`).
+    fn derive_rekey_generation(
+        &self,
+        session_id: &[u8; 16],
+        base: &[u8; 32],
+        rekey_nonce: &[u8; 32],
+    ) -> [u8; 32] {
+        crypto_core::derive_rekey_generation(session_id, &crypto_core::KSession(*base), rekey_nonce)
+            .0
+    }
+
     fn seal(&self, k_record: &[u8; 32], nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
         crypto_core::RecordAead.seal(
             &crypto_core::KRecord(*k_record),

@@ -179,6 +179,10 @@ pub const LABEL_RESUME: &[u8] = b"aether v3 resume";
 pub const LABEL_ROTATE: &[u8] = b"aether v3 rotate";
 /// Метка KDF ratchet записей (`02 §1`).
 pub const LABEL_RECORD: &[u8] = b"aether v3 record";
+/// Метка KDF внутри-сессионного re-key (`02 §1`, Q25): отдельный домен от `LABEL_RECORD`
+/// (члены `K_record`), `LABEL_ROTATE` (ротация узла) и `LABEL_RESUME`: компрометация
+/// одного поколения не даёт ни ключей других механизмов, ни ключей соседних поколений.
+pub const LABEL_REKEY: &[u8] = b"aether v3 rekey";
 /// Метка KDF ключа обложки (Phase 1, `03` §4): отдельный слой — компрометация обложки
 /// не вскрывает session/record ключи.
 pub const LABEL_COVER: &[u8] = b"aether v3 cover";
@@ -649,6 +653,26 @@ pub fn derive_record_key(session_id: &[u8; 16], k_session: &KSession, seq: u64) 
     info.extend_from_slice(LABEL_RECORD);
     info.extend_from_slice(&seq.to_be_bytes());
     KRecord(hkdf32(Some(session_id), &k_session.0, &info))
+}
+
+/// Поколение re-key (`02 §1`, Q25):
+/// `K_session_gen = HKDF(salt = sid, ikm = K_session ‖ rekey_nonce, info = LABEL_REKEY)`.
+///
+/// Вызывается **отправителем** при выпуске `RecordType::Rekey` и **приёмником** при
+/// вскрытии rekey-записи — обе стороны выводят одинаковое поколение из одного
+/// `rekey_nonce`. Сам `rekey_nonce` никогда не покидает зашифрованную rekey-запись:
+/// ключи поколений по проводу не передаются, в открытом виде ходит только тип записи.
+/// Домен отделён от `LABEL_ROTATE` (пост-ротационный re-key, `§3.3`) и `LABEL_RECORD`:
+/// одинаковый вход в разных механизмах обязан давать разные ключи.
+pub fn derive_rekey_generation(
+    session_id: &[u8; 16],
+    k_session: &KSession,
+    rekey_nonce: &[u8; 32],
+) -> KSession {
+    let mut ikm = [0u8; 64];
+    ikm[..32].copy_from_slice(&k_session.0);
+    ikm[32..].copy_from_slice(rekey_nonce);
+    KSession(hkdf32(Some(session_id), &ikm, LABEL_REKEY))
 }
 
 /// Генерирует пару X25519 (`client_static` / `node_static`) через системный RNG clatter.
@@ -1241,6 +1265,33 @@ mod tests {
         c[63] ^= 1;
         assert!(!sig_equal_ct(&a, &c));
         assert!(sig_equal_ct(&[0u8; 64], &[0u8; 64]));
+    }
+
+    /// Q25: внутри-сессионный re-key — детерминированный вывод поколения, свежий nonce
+    /// меняет ключ, домен отделён от ротации (`LABEL_REKEY` ≠ `LABEL_ROTATE`).
+    #[test]
+    fn contract_rekey_generation_is_deterministic_and_domain_separated() {
+        let sid = [0x33u8; 16];
+        let session = derive_session(&sid, b"ikm-q25");
+        let nonce = random_32();
+        let gen = derive_rekey_generation(&sid, &session, &nonce);
+        let gen_again = derive_rekey_generation(&sid, &session, &nonce);
+        assert_eq!(
+            gen.0, gen_again.0,
+            "вывод детерминирован: обе стороны получают одно поколение из одного nonce",
+        );
+        let fresh = derive_rekey_generation(&sid, &session, &random_32());
+        assert_ne!(gen.0, fresh.0, "свежий nonce — другое поколение");
+        assert_ne!(
+            gen.0,
+            derive_rotated_session(&sid, &session, &nonce).0,
+            "домен re-key отделён от пост-ротационного re-key",
+        );
+        assert_ne!(
+            derive_record_key(&sid, &session, 0).0,
+            derive_record_key(&sid, &gen, 0).0,
+            "члены K_record разных поколений различны при том же seq",
+        );
     }
 
     /// Контракт seal/open: nonce ровно 24 B (`seq || sid`), неверный tag → `OpenFailed`.

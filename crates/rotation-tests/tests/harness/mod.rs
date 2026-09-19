@@ -18,11 +18,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 pub use crypto_core::{
-    derive_k_resume, derive_record_key, derive_rotated_session, ed25519_genkey, ed25519_pubkey,
-    ed25519_sign, ed25519_verify, mlkem768_genkey, sha256, x25519_dh, x25519_genkey,
-    x25519_keypair, Ed25519Pub, Handshake, IkInitiator, IkResponder, KRecord, KSession,
-    MlKem768Pub, RecordAead, RecordCrypto, RecordNonce, Signature, X25519Pub as CoreX25519Pub,
-    MLKEM768_EK_BYTES,
+    derive_k_resume, derive_record_key, derive_rekey_generation, derive_rotated_session,
+    ed25519_genkey, ed25519_pubkey, ed25519_sign, ed25519_verify, mlkem768_genkey, sha256,
+    x25519_dh, x25519_genkey, x25519_keypair, Ed25519Pub, Handshake, IkInitiator, IkResponder,
+    KRecord, KSession, MlKem768Pub, RecordAead, RecordCrypto, RecordNonce, Signature,
+    X25519Pub as CoreX25519Pub, MLKEM768_EK_BYTES,
 };
 pub use frame_session::{
     record_nonce, t_ack_ms, t_morph_ms, DedupOutcome, DedupWindow, DuplicateStep, DuplicateWindow,
@@ -85,6 +85,18 @@ pub struct CoreCrypto;
 impl SessionCrypto for CoreCrypto {
     fn record_key_at(&self, session_id: &[u8; 16], base: &[u8; 32], seq: u64) -> [u8; 32] {
         derive_record_key(session_id, &KSession(*base), seq).0
+    }
+
+    /// Поколение re-key (Q25): прямой вызов `crypto_core::derive_rekey_generation`
+    /// (`LABEL_REKEY`; для морф-тестов carrousel без внутри-сессионного rekey метод
+    /// не задействован, контракт — тот же, что в прод-адаптере).
+    fn derive_rekey_generation(
+        &self,
+        session_id: &[u8; 16],
+        base: &[u8; 32],
+        rekey_nonce: &[u8; 32],
+    ) -> [u8; 32] {
+        derive_rekey_generation(session_id, &KSession(*base), rekey_nonce).0
     }
 
     fn seal(&self, k_record: &[u8; 32], nonce: [u8; 24], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
