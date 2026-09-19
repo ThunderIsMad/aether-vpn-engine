@@ -333,6 +333,39 @@ RUSTSEC-advisories по lockfile. cargo-deny даёт те же advisories пл�
 `Cargo.lock` этой задачей не менялся (пины не трогались) — правило «lock в одном
 коммите с пинами» не задействовалось.
 
+### Informational-срез: что именно скрывает `unmaintained = "none"` (2026-09-19)
+
+Одноразовый прогон с временным конфигом (`unmaintained = "all"`, `unsound = "all"`)
+поверх того же графа (`--locked`, без `--all-features`): превращает «мы решили не
+видеть Х» в «мы посмотрели на Х». Конфиг среза не коммитится, `deny.toml` не менялся.
+
+Итог: **3 unmaintained-адизориз, 0 unsound**. Среди прямых зависимостей проекта хитов
+нет — все три транзитивные через `clatter 2.3.0`. Но это не «глубокий транзитив без
+риска»: `pqcrypto-mlkem` — продовый KEM-бэкенд (PQ-половина каждого handshake),
+поэтому разбор по существу:
+
+| ID | Крейт | Путь в дерево |
+|---|---|---|
+| RUSTSEC-2026-0161 | `pqcrypto-mlkem 0.1.1` | `clatter` → `crypto-core` |
+| RUSTSEC-2026-0162 | `pqcrypto-traits 0.3.5` | `clatter` (и `pqcrypto-mlkem`) |
+| RUSTSEC-2026-0163 | `pqcrypto-internals 0.2.11` | build-dep `pqcrypto-*` |
+
+Причина одна на все три: **архивация upstream PQClean** (июль 2026+, PQClean/PQClean#604,
+rustpq/pqcrypto#97) — C-код перестаёт получать security-патчи. Advisory не указывает
+на уязвимость, а на прекращение сопровождения.
+
+**Позиция:** бэкенд выбран осознанно (Q8: `use-rust-crypto-ml-kem` не собирается с
+транзитивным `ml-kem 0.2.1`, rust-crypto-бэкенд clatter недоступен); интероп против
+RustCrypto `ml-kem 0.3.2` закреплён двунаправленным тестом (Q13,
+`contract_ml_kem_768_kat_and_interop`). Миграция = апгрейд clatter (когда появится
+рабочий альтернативный KEM-бэкенд) или замена clatter; привязана к TTL-перепроверке
+пинов (до 2026-12-15) — отдельное ревью не назначается.
+
+**Поведение конфига — fail-closed:** политика `none` скрывает эти advisory глобально;
+если Scope когда-нибудь флипнется (workspace/transitive/all), эти три ID станут
+немедленными ошибками CI и потребуют либо migrate, либо явных ignore-строк с этим
+разбором — тихо они не пройдут.
+
 ---
 
 ## Local Rust toolchain (Windows/GNU) (2026-09-17)
