@@ -162,63 +162,6 @@ jobs:
         continue-on-error: true
         run: cargo test --locked -p e2e-harness --all-features
 
-  # ВРЕМЕННЫЙ отчётный job (подтверждение MASQUE receiver, ветка masque-receiver):
-  # публикует результат rust-job в git-ветку ci-report-tmp — читается git-based без
-  # токена (пуш не в main, триггер PR/push-main/dispatch не задет; job удаляется
-  # после подтверждения). Если rust упал — job всё равно выполняется (always()).
-  ci-report:
-    name: CI report (temporary)
-    runs-on: ubuntu-latest
-    needs: [skills, rust]
-    if: always()
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Set up push auth
-        run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE}"
-          # Токен не сохраняем в git-config репозитория checkout'а: отдельный remote
-          # с URL-встроенным токеном живёт только в этом шаге (env GITHUB_TOKEN).
-          git remote add pushy "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git config user.email "ci@example.invalid"
-          git config user.name "ci-report"
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Publish report
-        run: |
-          set -euo pipefail
-          cd "${GITHUB_WORKSPACE}"
-          ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          sha="${GITHUB_SHA}"
-          ref="${GITHUB_REF_NAME}"
-          # Статус зависимостей берём из needs-контекста (job'ы завершились: if: always()).
-          skills_result="${{ needs.skills.result }}"
-          rust_result="${{ needs.rust.result }}"
-          report="ci-report: ${ts} | ref=${ref} sha=${sha:0:7} | skills=${skills_result} rust=${rust_result}"
-          echo "${report}"
-          # Атомарная публикация в служебную ветку: fetch + push-with-lease на удалённый.
-          if git fetch pushy ci-report-tmp 2>/dev/null; then
-            git branch -f ci-report-tmp FETCH_HEAD
-          else
-            git branch ci-report-tmp "$(git rev-list --max-parents=0 HEAD)"
-          fi
-          git checkout ci-report-tmp
-          # Держим в ветке ровно один файл-отчёт: история коммитов не нужна, читаем последний.
-          rm -f ci-report.txt
-          echo "${report}" > ci-report.txt
-          git add ci-report.txt
-          git commit -m "ci-report: ${ref} ${sha:0:7} rust=${rust_result}"
-          git push pushy ci-report-tmp:ci-report-tmp --force
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
   # Разведка platform parity для Reality-обложки (DEPENDENCIES.md F11): линкуется ли
   # boring 4.x на Linux-раннере так же чисто, как на локальной Windows/GNU машине
   # (docs/phase-reports/reality-boring-probe.md, шаги 1–3).
