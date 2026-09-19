@@ -547,6 +547,36 @@ pub fn reality_cert_signature(auth_key: &[u8; 32], cert_pub: &[u8]) -> [u8; 64] 
     mac.finalize().into_bytes().into()
 }
 
+/// T1 (клиентская сторона Q23): AuthKey' из **приватного** keyshare клиента.
+/// `ss = X25519(client_keyshare_priv, node_reality_pub)` — зеркальная формула
+/// `derive_reality_auth_key`: та же ECDH-степень (симметрия X25519), тот же salt
+/// (`ch_random[..20]`) и info (`LABEL_REALITY_CERT`). Клиент знает node_reality_pub
+/// из манифеста подписки, свой keyshare — по построению (кастомный kx-групп TLS-стека).
+///
+/// Ошибка `HandshakeFailed` — нулевой ECDH-выход (та же отбраковка, что серверная).
+pub fn derive_reality_auth_key_client(
+    client_keyshare_priv: &[u8; 32],
+    node_reality_pub: &X25519Pub,
+    ch_random: &[u8; 32],
+) -> Result<[u8; 32], CryptoError> {
+    let ss = x25519_dh(client_keyshare_priv, node_reality_pub)?;
+    if ss.iter().all(|&b| b == 0) {
+        return Err(CryptoError::HandshakeFailed);
+    }
+    Ok(hkdf_sha256(&ch_random[..20], &ss, LABEL_REALITY_CERT))
+}
+
+/// T1: constant-time сверка поля подписи сертификата (64 B HMAC-SHA512) с ожидаемым.
+/// Вход — секретный HMAC: сравнение обязано быть постоянным по времени; тот же
+/// XOR-аккумулятор, что `tags_equal_ct` (24 B гейта Q24), но на полной длине подписи.
+pub fn sig_equal_ct(a: &[u8; 64], b: &[u8; 64]) -> bool {
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// HMAC-SHA256-тег `probe_tag`: аутентификация открытого ClientHello гейтом
 /// Reality-обложки. Решение peek-before-decrypt принимается **до** ключей TLS,
 /// поэтому тег — HMAC (не AEAD): короткий, детерминированный, не требует nonce.
@@ -1112,6 +1142,105 @@ mod tests {
         c[23] ^= 1; // различие в последнем байте — та же ложь, что и в первом
         assert!(!tags_equal_ct(&a, &c));
         assert!(tags_equal_ct(&[0u8; 24], &[0u8; 24]));
+    }
+
+    // ---------- T1: клиентская верификация Reality-сертификата ----------
+
+    /// T1-симметрия ECDH — ПРОВЕРКА, не предположение: AuthKey с серверной стороны
+    /// (`X25519(node_priv, client_pub)`) обязан побайтно совпасть с AuthKey'
+    /// с клиентской (`X25519(client_priv, node_pub)`) — оба зеркалят одну X25519-степень.
+    #[test]
+    fn contract_reality_auth_key_client_server_symmetry() {
+        let node_priv: [u8; 32] = core::array::from_fn(|i| (i * 7 + 2) as u8);
+        let client_priv: [u8; 32] = core::array::from_fn(|i| (i * 11 + 5) as u8);
+        let random: [u8; 32] = core::array::from_fn(|i| (i * 3 + 1) as u8);
+        let node_pub = X25519Pub(x25519_keypair(&node_priv).public);
+        let client_pub = X25519Pub(x25519_keypair(&client_priv).public);
+
+        let server_side = derive_reality_auth_key(&NodeRealityKey(node_priv), &client_pub, &random)
+            .expect("валидный ECDH");
+        let client_side = derive_reality_auth_key_client(&client_priv, &node_pub, &random)
+            .expect("валидный ECDH");
+        assert_eq!(
+            server_side, client_side,
+            "симметрия X25519: обе стороны выводят один AuthKey"
+        );
+
+        // Итоговое использование: подпись сервера верифицируется клиентом.
+        let cert_pub = [0xABu8; 32];
+        assert!(sig_equal_ct(
+            &reality_cert_signature(&server_side, &cert_pub),
+            &reality_cert_signature(&client_side, &cert_pub),
+        ));
+    }
+
+    /// KAT клиентского AuthKey + байт-чувствительность: инверсия любого приватного
+    /// байта вне clamp-маски RFC 7748 меняет степень (см. clamp-тест Q23 для битов
+    /// 0..2/254..255 — там инверсия байта 0 бессмысленна).
+    #[test]
+    fn contract_reality_auth_key_client_kat_and_sensitivity() {
+        let node_priv: [u8; 32] = core::array::from_fn(|i| (i * 13 + 9) as u8);
+        let client_priv: [u8; 32] = core::array::from_fn(|i| (i * 5 + 3) as u8);
+        let random: [u8; 32] = core::array::from_fn(|i| (i * 7 + 4) as u8);
+        let node_pub = X25519Pub(x25519_keypair(&node_priv).public);
+
+        let auth_key = derive_reality_auth_key_client(&client_priv, &node_pub, &random)
+            .expect("валидный ECDH");
+        let kat_hex: String = auth_key.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            kat_hex,
+            "47043f45701fcc447d8b63080222f8cafc5ad65196f11c4401fa1a97a322d10e",
+            "AuthKey' = HKDF-SHA256(salt=ch_random[..20], ikm=X25519(client_priv, node_pub), info=LABEL_REALITY_CERT)"
+        );
+
+        // Ключ node: эффективный бит вне clamp-маски RFC 7748 (байт 31, бит 0 = бит 248;
+        // clamp: k[0] &= 248, k[31] &= 127, k[31] |= 64 — свободны биты 3..7 байта 0 и
+        // 0..5 байта 31).
+        let mut node_priv2 = node_priv;
+        node_priv2[31] ^= 1;
+        assert_ne!(
+            derive_reality_auth_key_client(
+                &client_priv,
+                &X25519Pub(x25519_keypair(&node_priv2).public),
+                &random
+            )
+            .expect("валидный ECDH"),
+            auth_key,
+            "байт node_reality_pub в AuthKey'"
+        );
+        // Приватный keyshare клиента: тот же свободный бит 248.
+        let mut client_priv2 = client_priv;
+        client_priv2[31] ^= 1;
+        assert_ne!(
+            derive_reality_auth_key_client(&client_priv2, &node_pub, &random)
+                .expect("валидный ECDH"),
+            auth_key,
+            "байт client_keyshare_priv в AuthKey'"
+        );
+        // Salt: байт 19 — внутри ch_random[..20].
+        let mut random2 = random;
+        random2[19] ^= 1;
+        assert_ne!(
+            derive_reality_auth_key_client(&client_priv, &node_pub, &random2)
+                .expect("валидный ECDH"),
+            auth_key,
+            "байт salt в AuthKey'"
+        );
+    }
+
+    /// T1: семантика sig_equal_ct — обычное == без memcmp-раннего выхода
+    /// (порог/различие; различие в последнем байте эквивалентно первому).
+    #[test]
+    fn contract_sig_equal_ct_semantics() {
+        let a: [u8; 64] = core::array::from_fn(|i| i as u8);
+        assert!(sig_equal_ct(&a, &a));
+        let mut b = a;
+        b[0] ^= 1;
+        assert!(!sig_equal_ct(&a, &b));
+        let mut c = a;
+        c[63] ^= 1;
+        assert!(!sig_equal_ct(&a, &c));
+        assert!(sig_equal_ct(&[0u8; 64], &[0u8; 64]));
     }
 
     /// Контракт seal/open: nonce ровно 24 B (`seq || sid`), неверный tag → `OpenFailed`.

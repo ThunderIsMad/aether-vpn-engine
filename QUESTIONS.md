@@ -746,7 +746,7 @@ Phase 0/1 — НЕ забыты, но сознательно не решаютс
   потребуется честная обработка закрытия (анти-дедуп по закрытым потокам, окно дедупа
   против переоткрытия seq).
 
-### T1. Клиентский доступ к своему эфемерному TLS-keyshare — открыт, блокирует e2e Accept-путь, НЕ блокирует серверный код
+### T1. Клиентский доступ к своему эфемерному TLS-keyshare — ЗАКРЫТ (2026-09-19)
 
 - **Суть:** клиент Accept-пути Reality (Q23) для верификации сертификата должен знать
   свой **эфемерный X25519-private keyshare**, который TLS-стек сгенерировал при сборке
@@ -761,8 +761,27 @@ Phase 0/1 — НЕ забыты, но сознательно не решаютс
   проверено детерминированными векторами + roundtrip-тестом, где тест сам генерирует
   клиентскую пару (обе стороны известны по построению) + live loopback handshake с
   boring-клиентом (verify-заглушка).
-- **Что остаётся за T1:** живой клиент с Aether-верификацией сертификата
-  (`HMAC-SHA512(AuthKey', cert_pub) == cert.Signature`) на реальном handshake —
-  один механизм сборки CH обслуживает и инъекцию тега Q22, и keyshare-верификацию Q23.
-- **Статус: открыт** (блокирует полный e2e Accept-путь с настоящей клиентской
-  верификацией; не блокирует серверный код — он завершён и проверен изолированно).
+- **Решение (2026-09-19, ветка t1-reality-verify):** rustls-клиент с **кастомным
+  kx-группом** `RealityKeyShareGroup` (единственный X25519-групп: `SupportedKxGroup::
+  start()` генерирует пару сам через crypto-core и кладёт приватник в shared-ячейку
+  `T1Shared` — клиент владеет своим keyshare без ручной сборки CH), **записывающий
+  CSPRNG** `RecordingSecureRandom` (провайдер-level `SecureRandom`: все 32-байтовые
+  дробления копятся в `T1Shared`, последний перед verify_server_cert = CH random),
+  и **кастомный верификатор** `RealityCertVerifier` (`dangerous()`-путь, но НЕ
+  verify-none): `verify_server_cert` — Reality-HMAC `HMAC-SHA512(AuthKey', cert_pub)
+  == cert.Signature` (constant-time `sig_equal_ct`), `verify_tls13_signature` —
+  настоящая Ed25519-верификация CertificateVerify (scheme только ED25519).
+  Crypto-core дополнен `derive_reality_auth_key_client` (зеркальная формула с ролями
+  «client keyshare priv / node reality pub») и `sig_equal_ct` (64 B);
+  ECDH-симметрия сервер/клиент проверена direct-тестом, не предположена.
+- **Тесты:** live-тест `live_t1_client_verifies_reality_cert` — полный TLS 1.3
+  handshake rustls-клиента (настоящая верификация) ↔ AcceptServer (boring), данные
+  в обе стороны; НО негатив — verifier с чужим node_pub обязан провалить handshake.
+  Юнит `t1_verifier_accepts_real_cert_and_rejects_tampering` — порт подписи,
+  чужой node_pub, проверка CertificateVerify (Ed25519, ring ↔ crypto-core pub
+  согласованы для одного seed). Старый ignored `live_accept_handshake_terminates_tls`
+  снят с ignore (кросс-стек boring-клиент ↔ AcceptServer).
+- **Статус: ЗАКРЫТ.** Полный e2e Accept-путь с настоящей клиентской верификацией
+  работает на loopback. Инъекция аутентификатора гейта в CH (Q22-тег, uTLS-класс
+  сборки) остаётся отдельной клиентской задачей — но класс проблемы «клиент не
+  контролирует свой ClientHello» для верификации сертификата снят.

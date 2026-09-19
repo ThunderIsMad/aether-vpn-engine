@@ -19,3 +19,8 @@ boring.workspace = true
 # Скелет сертификата Accept-пути (Q23): self-signed Ed25519-заготовка, поле подписи
 # которой перезаписывается per-handshake (см. workspace-комментарий и QUESTIONS.md Q23).
 rcgen.workspace = true
+# T1 (клиентская верификация сертификата Accept-пути): rustls-клиент с кастомным
+# kx-группом (собственный keyshare), SecureRandom-обёрткой (захват ch_random) и
+# ServerCertVerifier (HMAC сверка + Ed25519 CertificateVerify). Профиль — workspace
+# (ring/std, без tls12); boring остаётся серверной/Relay-стороной и носителем CH-механики.
+rustls.workspace = true

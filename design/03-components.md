@@ -112,14 +112,22 @@ Rust-клиента RFC 9298 поверх quinn+h3.
   clamp-чувствительность), `cover_reality::RealityCertSkeleton` (per-process, rcgen 0.13
   Ed25519, CN обязателен/SAN нет), `build_reality_cert` (перезапись подписи в DER,
   форма BIT STRING 65B `03 41 00 ‖ 64B` подтверждена по факту кодирования rcgen),
-  `accept_terminator` (per-handshake подмена сертификата на живом acceptor'е).
+  `  accept_terminator` (per-handshake подмена сертификата на живом acceptor'е).
   Серверная сторона проверена изолированно: юнит roundtrip на синтетическом ClientHello
-  (обе стороны keyshare известны по построению — без T1) + ignored live-loopback тест
-  с реальным boring-клиентом (x25519 keyshare + ed25519 sigalgs): полный TLS 1.3
-  handshake, CertificateVerify настоящим Ed25519-ключом, данные ходят. **Полный
-  клиент-сервер handshake с Aether-верификацией HMAC ждёт T1** (клиентский доступ к
-  своему эфемерному keyshare — отдельная запись в `QUESTIONS.md`, блокирует e2e,
-  не блокирует серверный код). Чекбокс interop в `05-roadmap` остаётся `[ ]`.
+  (обе стороны keyshare известны по построению) + live-loopback тест с реальным
+  boring-клиентом (x25519 keyshare + ed25519 sigalgs): полный TLS 1.3 handshake,
+  CertificateVerify настоящим Ed25519-ключом, данные ходят.
+  ⇐ T1 (закрыт, 2026-09-19, ветка t1-reality-verify): **клиентская Aether-верификация
+  работает** — rustls-клиент с кастомным kx-группом `RealityKeyShareGroup` (клиент
+  владеет своим keyshare: пара генерируется crypto-core, приватник в shared-ячейке),
+  записывающий CSPRNG (захват ch_random), верификатор `RealityCertVerifier` — HMAC
+  сертификата (constant-time) + настоящая Ed25519-верификация CertificateVerify.
+  crypto-core: `derive_reality_auth_key_client` (зеркальная формула), `sig_equal_ct`.
+  Live-тест: полный handshake rustls-клиент (настоящая верификация) ↔ AcceptServer
+  (boring), данные в обе стороны; негатив — чужой node_pub проваливает handshake.
+  Инъекция аутентификатора гейта в CH (Q22-тег) — отдельная клиентская задача,
+  класс «клиент не контролирует свой ClientHello» для верификации снят.
+  Чекбокс interop в `05-roadmap` остаётся `[ ]` до инъекции Q22-тега.
 - SS-2022/padded байндинг (fallback, чистый Rust).
   ⇐ Phase 1, кусок 1: реализован в `cover-ss2022` как **`SsPaddedBinding` — Aether padded
   cover, НЕ SS-2022 interop** (внешних тест-векторов SS-2022 нет; клейм появится только

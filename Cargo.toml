@@ -95,6 +95,13 @@ http = "1"
 # Владелец — cover-reality.
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
 
+# T1 (клиентская верификация Reality-сертификата, Q23): rustls уже в дереве через quinn —
+# пин здесь, чтобы у cover-reality было явное имя версии. Профиль тот же, что в e2e-harness
+# (ring-провайдер, std; tls12 не нужен — Accept-путь только TLS 1.3). Кастомный
+# SupportedKxGroup даёт клиенту собственный X25519-keyshare (суть T1), кастомный
+# SecureRandom — захват ch_random, кастомный ServerCertVerifier — Aether-верификацию.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+
 # Объявлены для dev-dependencies интеграционного крейта `rotation-tests` (спеки ротации Phase 0),
 # рабочего крейта `phase0-path` (склейка однохопового пути) и `cover-ss2022` (Phase 1, кусок 1:
 # обложка поверх уже sealed records).

@@ -608,14 +608,20 @@ impl RealityCertState {
         // из seed (последние 32 B ring-документа — privateKey OCTET STRING):
         //   SEQUENCE(46){ INTEGER 0, SEQ{OID 1.3.101.112}, OCTET STRING(34){seed 32B} }.
         let ring_doc = cert_key.serialize_der();
-        // Seed ищем по маркеру OCTET STRING(32) — `04 20`; берём ПОСЛЕДНЕЕ вхождение
-        // (в ring-документе это privateKey, publicKey раньше уже лежит в [1] как BIT STRING).
-        let seed_pos = ring_doc
+        // Seed: структурный якорь `04 22` (OCTET STRING(34) приватного ключа) —
+        // ПЕРВОЕ вхождение (перед ним только version+OID, там `04 22` не встречается).
+        // Внутри — `04 20` + seed(32 B), т.е. seed = anchor + 4; якорь самопроверяется.
+        // (Поиск последнего `04 20` ловил ложный маркер внутри случайных байтов seed —
+        // ~1/65536 на ключ.)
+        let anchor = ring_doc
             .windows(2)
-            .rposition(|w| w == [0x04, 0x20])
+            .position(|w| w == [0x04, 0x22])
             .ok_or(AcceptError::BadSkeleton)?;
+        if ring_doc.get(anchor + 2..anchor + 4) != Some(&[0x04, 0x20][..]) {
+            return Err(AcceptError::BadSkeleton);
+        }
         let seed: [u8; 32] = ring_doc
-            .get(seed_pos + 2..seed_pos + 34)
+            .get(anchor + 4..anchor + 36)
             .and_then(|s| <[u8; 32]>::try_from(s).ok())
             .ok_or(AcceptError::BadSkeleton)?;
         let mut pkcs8_v1 = Vec::with_capacity(48);
@@ -751,8 +757,6 @@ impl AcceptServer {
         builder.set_select_certificate_callback(move |mut ch: boring::ssl::ClientHello<'_>| {
             let res = (|| {
                 let random: [u8; 32] = ch.random().try_into().ok()?;
-                #[cfg(test)]
-                eprintln!("Q23-DBG: random ok");
                 let ks_ext_opt = ch.get_extension(boring::ssl::ExtensionType::KEY_SHARE);
                 let ks = parse_key_share_ext_x25519(ks_ext_opt?)?;
                 let der = build_reality_cert(&state, &crypto_core::X25519Pub(ks), &random).ok()?;
@@ -948,6 +952,381 @@ impl transport_mux::CoverBinding for RealityBinding {
     }
 }
 
+// ======================== T1: клиентская верификация Reality-сертификата ========================
+
+/// Ошибка клиентской стороны T1.
+#[derive(Debug)]
+pub enum T1Error {
+    /// ECDH с node_reality_pub не сошёлся (нулевой выход) — ключ из манифеста испорчен.
+    Crypto(crypto_core::CryptoError),
+    /// rustls-конфигурация отклонена (версии/наборы провайдера несовместимы).
+    Config(rustls::Error),
+    /// Сертификат не прошёл Aether-верификацию (HMAC подписи / Ed25519 CertificateVerify).
+    Verification(String),
+}
+
+impl std::fmt::Display for T1Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Crypto(e) => write!(f, "reality client crypto: {e:?}"),
+            Self::Config(e) => write!(f, "reality client config: {e}"),
+            Self::Verification(e) => write!(f, "reality cert verification failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for T1Error {}
+
+/// Общий внутренний слой T1-машины: приватный keyshare последнего сгенерированного CH
+/// и последнее 32 B-дробление CSPRNG (ch_random). Реализация — `RwLock<Option<…>>`:
+/// внутренняя изменяемость в `&'static dyn`-трейтах rustls; write-локали только при
+/// генерации keyshare и заполнении буферов (микросекунды), read — при верификации.
+///
+/// Обёртки вокруг `T1Shared` (kx-группа, CSPRNG, верификатор) живут как `&'static`,
+/// потому что rustls требует статические провайдеры; наружу ячейка отдаётся как
+/// `Arc` внутри `RealityClientState`.
+#[derive(Debug, Default)]
+pub struct T1Shared {
+    keyshare_priv: std::sync::RwLock<Option<[u8; 32]>>,
+    last_random: std::sync::RwLock<Option<[u8; 32]>>,
+    /// Сид для тестового режима (test-only, см. `client_config`); `None` — системный CSPRNG.
+    test_seed: std::sync::RwLock<Option<u64>>,
+}
+
+impl T1Shared {
+    fn set_keyshare(&self, priv_key: [u8; 32]) {
+        *self.keyshare_priv.write().expect("T1 keyshare lock") = Some(priv_key);
+    }
+
+    fn take_keyshare(&self) -> Option<[u8; 32]> {
+        *self.keyshare_priv.read().expect("T1 keyshare lock")
+    }
+
+    fn record_random(&self, buf: &[u8]) {
+        if buf.len() == 32 {
+            if let Ok(mut slot) = self.last_random.write() {
+                if let Ok(arr) = <[u8; 32]>::try_from(buf) {
+                    *slot = Some(arr);
+                }
+            }
+        }
+    }
+
+    fn last_random(&self) -> Option<[u8; 32]> {
+        *self.last_random.read().expect("T1 random lock")
+    }
+}
+
+/// Кастомный X25519 kx-групп (суть T1): `start()` генерирует пару через crypto-core и
+/// кладёт приватный ключ в `T1Shared` — клиент владеет своим keyshare, чего не даёт
+/// ни boring, ни дефолтный ring-групп. Имя группы — IANA x25519 (0x001D), как у ring.
+#[derive(Debug)]
+struct RealityKeyShareGroup {
+    shared: std::sync::Arc<T1Shared>,
+}
+
+impl rustls::crypto::SupportedKxGroup for RealityKeyShareGroup {
+    fn start(&self) -> Result<Box<dyn rustls::crypto::ActiveKeyExchange>, rustls::Error> {
+        let (pub_key, priv_key) = self.rng_keypair()?;
+        self.shared.set_keyshare(priv_key);
+        Ok(Box::new(RealityActiveKeyExchange {
+            shared: self.shared.clone(),
+            priv_key,
+            pub_key,
+        }))
+    }
+
+    fn name(&self) -> rustls::NamedGroup {
+        rustls::NamedGroup::X25519
+    }
+}
+
+impl RealityKeyShareGroup {
+    /// Пара ключей: сид-детерминированная в тестах (`client_config` с test_seed),
+    /// системный CSPRNG (getrandom, F-01-паттерн explicit-fail) — в проде.
+    fn rng_keypair(&self) -> Result<(crypto_core::X25519Pub, [u8; 32]), rustls::Error> {
+        let seed = *self.shared.test_seed.read().expect("T1 seed lock");
+        let priv_key = match seed {
+            Some(s) => {
+                // Детерминированный тестовый приватник: xorshift-расширение сида до 32 B.
+                let mut state = s ^ 0x9E37_79B9_7F4A_7C15;
+                let mut priv_key = [0u8; 32];
+                for b in priv_key.iter_mut() {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    *b = state as u8;
+                }
+                // Байт 0: вне clamp-маски обязаны остаться биты 3..7 — ставим их явно,
+                // чтобы сид не «схлопнулся» клампом в одно и то же значение на разных сидах.
+                priv_key[0] = (priv_key[0] & 0x07) | 0x08;
+                priv_key[31] = (priv_key[31] & 0x3F) | 0x40;
+                priv_key
+            }
+            None => {
+                let mut priv_key = [0u8; 32];
+                getrandom::fill(&mut priv_key)
+                    .map_err(|_| rustls::Error::FailedToGetRandomBytes)?;
+                priv_key
+            }
+        };
+        Ok((
+            crypto_core::X25519Pub(crypto_core::x25519_keypair(&priv_key).public),
+            priv_key,
+        ))
+    }
+}
+
+/// Активный обмен кастомной группы: `complete()` = X25519 из crypto-core.
+struct RealityActiveKeyExchange {
+    shared: std::sync::Arc<T1Shared>,
+    priv_key: [u8; 32],
+    pub_key: crypto_core::X25519Pub,
+}
+
+impl std::fmt::Debug for RealityActiveKeyExchange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RealityActiveKeyExchange")
+            .field("pub_key", &self.pub_key.0)
+            .finish_non_exhaustive()
+    }
+}
+
+impl rustls::crypto::ActiveKeyExchange for RealityActiveKeyExchange {
+    fn complete(
+        self: Box<Self>,
+        peer_pub_key: &[u8],
+    ) -> Result<rustls::crypto::SharedSecret, rustls::Error> {
+        let peer: [u8; 32] = peer_pub_key
+            .try_into()
+            .map_err(|_| rustls::Error::PeerMisbehaved(rustls::PeerMisbehaved::InvalidKeyShare))?;
+        // Оставляем приватник в T1Shared до конца handshake: верификатору он нужен
+        // ПОСЛЕ получения ServerHello/Certificate (порядок rustls: kx complete →
+        // ServerHello → EncryptedExtensions → Certificate → verify).
+        self.shared.set_keyshare(self.priv_key);
+        let ss = crypto_core::x25519_dh(&self.priv_key, &crypto_core::X25519Pub(peer))
+            .map_err(|_| rustls::Error::PeerMisbehaved(rustls::PeerMisbehaved::InvalidKeyShare))?;
+        Ok(rustls::crypto::SharedSecret::from(&ss[..]))
+    }
+
+    fn group(&self) -> rustls::NamedGroup {
+        rustls::NamedGroup::X25519
+    }
+
+    fn pub_key(&self) -> &[u8] {
+        &self.pub_key.0
+    }
+}
+
+/// CSPRNG-обёртка: дробления длиной 32 B записываются в `T1Shared` — последний такое
+/// дробление на момент верификации сертификата есть ch_random (сам CH рождается из
+/// 32 B-дробления; между ними 16 B session_id/2B-мелочь, а boring-сервер на нашей
+/// стороне ничего не генерирует в промежутке). Негативный контроль — live-тест:
+/// «не тот random → HMAC-verify обязан упасть».
+#[derive(Debug)]
+struct RecordingSecureRandom {
+    shared: std::sync::Arc<T1Shared>,
+}
+
+impl rustls::crypto::SecureRandom for RecordingSecureRandom {
+    fn fill(&self, buf: &mut [u8]) -> Result<(), rustls::crypto::GetRandomFailed> {
+        let seed = *self
+            .shared
+            .test_seed
+            .read()
+            .map_err(|_| rustls::crypto::GetRandomFailed)?;
+        match seed {
+            Some(s) => {
+                let mut state = s.rotate_left(32) ^ 0xA5A5_5A5A_3C3C_C3C3 ^ (buf.len() as u64) << 8;
+                for b in buf.iter_mut() {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    *b = state as u8;
+                }
+            }
+            None => getrandom::fill(buf).map_err(|_| rustls::crypto::GetRandomFailed)?,
+        }
+        self.shared.record_random(buf);
+        Ok(())
+    }
+}
+
+/// Aether-верификатор сертификата Accept-пути (T1): заменяет проверку цепочки CA на
+/// `HMAC-SHA512(AuthKey', cert_pub) == cert.Signature` (симметрия серверной
+/// `build_reality_cert`); CertificateVerify проверяется НАСТОЯЩИМ Ed25519 — handshake
+/// криптографически честен целиком. Чужой node_pub → другая ECDH-степень → другой
+/// AuthKey' → подпись не сойдётся (негативный live-контроль).
+#[derive(Debug)]
+pub struct RealityCertVerifier {
+    node_reality_pub: crypto_core::X25519Pub,
+    shared: std::sync::Arc<T1Shared>,
+}
+
+impl RealityCertVerifier {
+    /// Верификатор под публичным ключом node из манифеста подписки.
+    pub fn new(node_reality_pub: crypto_core::X25519Pub, shared: std::sync::Arc<T1Shared>) -> Self {
+        Self {
+            node_reality_pub,
+            shared,
+        }
+    }
+
+    /// Разбор сертификата Accept-пути: cert_pub (SPKI raw 32 B) и signatureValue
+    /// (последние 64 B DER, форма BIT STRING `03 41 00` — rcgen 0.13).
+    fn parse_cert(der: &[u8]) -> Result<(crypto_core::Ed25519Pub, [u8; 64]), T1Error> {
+        let cert = boring::x509::X509::from_der(der)
+            .map_err(|e| T1Error::Verification(format!("DER: {e}")))?;
+        let key = cert
+            .public_key()
+            .map_err(|e| T1Error::Verification(format!("SPKI: {e}")))?;
+        let mut buf = [0u8; 64];
+        let raw = key
+            .raw_public_key(&mut buf)
+            .map_err(|e| T1Error::Verification(format!("raw pubkey: {e}")))?;
+        let cert_pub: [u8; 32] = raw
+            .try_into()
+            .map_err(|_| T1Error::Verification("pubkey не Ed25519 (не 32 B)".into()))?;
+        let tail = der
+            .len()
+            .checked_sub(64)
+            .ok_or_else(|| T1Error::Verification("DER короче 64 B".into()))?;
+        if der.get(tail - 3..tail) != Some(&[0x03, 0x41, 0x00][..]) {
+            return Err(T1Error::Verification(
+                "signatureValue не Ed25519 BIT STRING (03 41 00)".into(),
+            ));
+        }
+        let sig: [u8; 64] = der[tail..]
+            .try_into()
+            .map_err(|_| T1Error::Verification("хвост DER не 64 B".into()))?;
+        Ok((crypto_core::Ed25519Pub(cert_pub), sig))
+    }
+}
+
+impl rustls::client::danger::ServerCertVerifier for RealityCertVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        let (cert_pub, sig) = Self::parse_cert(end_entity.as_ref())
+            .map_err(|e| rustls::Error::General(e.to_string()))?;
+        let ks_priv = self.shared.take_keyshare().ok_or_else(|| {
+            rustls::Error::General("T1: keyshare не сгенерирован (kx.start не вызван?)".into())
+        })?;
+        let random = self
+            .shared
+            .last_random()
+            .ok_or_else(|| rustls::Error::General("T1: ch_random не захвачен".into()))?;
+        let auth_key =
+            crypto_core::derive_reality_auth_key_client(&ks_priv, &self.node_reality_pub, &random)
+                .map_err(|e| rustls::Error::General(format!("T1: AuthKey': {e:?}")))?;
+        let expected = crypto_core::reality_cert_signature(&auth_key, &cert_pub.0);
+        if crypto_core::sig_equal_ct(&expected, &sig) {
+            Ok(rustls::client::danger::ServerCertVerified::assertion())
+        } else {
+            Err(rustls::Error::InvalidCertificate(
+                rustls::CertificateError::ApplicationVerificationFailure,
+            ))
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        // Accept-путь — только TLS 1.3 (гейт аутентифицирует наш CH по key_share).
+        Err(rustls::Error::General(
+            "T1: TLS 1.2 не поддерживается".into(),
+        ))
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &rustls::pki_types::CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        // Настоящая верификация CertificateVerify (Q23 п. 5): ключ — Ed25519-ключ
+        // сертификата, схема — только ED25519.
+        if dss.scheme != rustls::SignatureScheme::ED25519 {
+            return Err(rustls::Error::General(format!(
+                "T1: схема подписи не ED25519: {:?}",
+                dss.scheme
+            )));
+        }
+        let (cert_pub, _) =
+            Self::parse_cert(cert.as_ref()).map_err(|e| rustls::Error::General(e.to_string()))?;
+        let sig: [u8; 64] = dss
+            .signature()
+            .try_into()
+            .map_err(|_| rustls::Error::General("CertificateVerify не 64 B".into()))?;
+        if crypto_core::ed25519_verify(&cert_pub, message, &crypto_core::Signature(sig)) {
+            Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+        } else {
+            Err(rustls::Error::General(
+                "T1: CertificateVerify не сошёлся".into(),
+            ))
+        }
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        vec![rustls::SignatureScheme::ED25519]
+    }
+}
+
+/// Клиентский rustls-конфиг Reality-верификации (T1): единственный kx-групп —
+/// наш X25519 (keyshare принадлежит клиенту), CSPRNG — записывающая обёртка,
+/// верификатор — `RealityCertVerifier`. TLS 1.3-only.
+///
+/// `test_seed: Some(s)` — детерминированные keyshare/дробления для тестов; `None` —
+/// системный CSPRNG (прод). Оба пути не подменяют верификацию: позитивный тест
+/// проходит на настоящей HMAC-сверке, негативный — обязан упасть на чужом node_pub.
+///
+/// Готовый клиентский state: конфиг + shared-ячейка (тесты вытаскивают keyshare/ch_random).
+#[derive(Debug)]
+pub struct RealityClientState {
+    pub config: std::sync::Arc<rustls::ClientConfig>,
+    pub shared: std::sync::Arc<T1Shared>,
+}
+
+/// Собирает клиентский state Reality-верификации (T1) под node_reality_pub.
+pub fn reality_client_state(
+    node_reality_pub: crypto_core::X25519Pub,
+    test_seed: Option<u64>,
+) -> Result<RealityClientState, T1Error> {
+    // Конфиг собирается той же функцией, но shared теряется внутри builder-цепочки —
+    // пересобираем явно: провайдер должен ссылаться на ТУ ЖЕ ячейку, что отдаём наружу.
+    let shared = std::sync::Arc::new(T1Shared::default());
+    *shared.test_seed.write().expect("T1 seed lock") = test_seed;
+    let base = rustls::crypto::ring::default_provider();
+    let provider = rustls::crypto::CryptoProvider {
+        kx_groups: vec![Box::leak(Box::new(RealityKeyShareGroup {
+            shared: shared.clone(),
+        })) as &'static dyn rustls::crypto::SupportedKxGroup],
+        secure_random: Box::leak(Box::new(RecordingSecureRandom {
+            shared: shared.clone(),
+        })) as &'static dyn rustls::crypto::SecureRandom,
+        ..base
+    };
+    let verifier = RealityCertVerifier::new(node_reality_pub, shared.clone());
+    let config = rustls::ClientConfig::builder_with_provider(provider.into())
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .map_err(T1Error::Config)?
+        .dangerous()
+        .with_custom_certificate_verifier(std::sync::Arc::new(verifier))
+        .with_no_client_auth();
+    Ok(RealityClientState {
+        config: std::sync::Arc::new(config),
+        shared,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1089,13 +1468,11 @@ mod tests {
         assert_eq!(ch_client_random(&ch[..20]), None);
     }
 
-    /// ИГНОР до решения T1 (клиентский доступ к своему keyshare): живой loopback-
-    /// handshake boring-клиента (verify-none заглушка — проверяет ТОЛЬКО, что TLS-машина
-    /// принимает наш перезаписанный DER) с AcceptServer. Полный клиент-сервер handshake
-    /// с Aether-верификацией сертификата — T1; серверная сторона проверена изолированно
-    /// (см. q23_reality_cert_roundtrip_without_t1 и design/03-components.md).
+    /// Живой loopback-handshake boring-клиента с AcceptServer: проверяет, что
+    /// TLS-машина boring принимает наш перезаписанный DER и терминирует TLS 1.3.
+    /// Клиентская сторона — verify-none заглушка (кросс-стек-контроль); Aether-
+    /// верификация сертификата клиентом — live_t1_client_verifies_reality_cert.
     #[test]
-    #[ignore = "T1: серверная сторона изолирована; живой peer с Aether-верификацией — T1"]
     fn live_accept_handshake_terminates_tls() {
         use std::io::{Read, Write};
         let node_priv: [u8; 32] = core::array::from_fn(|i| (i * 7 + 2) as u8);
@@ -1688,5 +2065,266 @@ mod tests {
     fn live_authenticated_client_reaches_aether() {
         let _ = (cover(), TargetSite::placeholder());
         unimplemented!("живой peer-тест: authenticated → Aether-протокол");
+    }
+
+    // ---------- T1: клиентская верификация Reality-сертификата ----------
+
+    /// DigitallySignedStruct для тестов верификатора: конструктор rustls приватен,
+    /// поэтому подписываем через публичный SigningKey-путь rustls/ring —
+    /// `any_eddsa_type(PKCS#8)` → `choose_scheme([ED25519])` → `sign(message)` —
+    /// и декодируем DSS из проводного формата (scheme ‖ u16-длина ‖ sig) через
+    /// публичный `Codec::read_bytes` — ровно то, что rustls делает с CertificateVerify
+    /// из реального handshake (handshake.rs: `DigitallySignedStruct::read`).
+    /// xor_offset — негативный кейс (испорченная подпись).
+    fn test_dss(
+        cert_seed: &[u8; 32],
+        message: &[u8],
+        corrupt_at: Option<usize>,
+    ) -> rustls::DigitallySignedStruct {
+        // PKCS#8 v1 той же формы, что и ключ сертификата (RealityCertState::new).
+        let mut pkcs8 = Vec::with_capacity(48);
+        pkcs8.extend_from_slice(&[
+            0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22,
+            0x04, 0x20,
+        ]);
+        pkcs8.extend_from_slice(cert_seed);
+        let key = rustls::crypto::ring::sign::any_eddsa_type(
+            &rustls::pki_types::PrivatePkcs8KeyDer::from(pkcs8),
+        )
+        .expect("ed25519 signing key");
+        let signer = key
+            .choose_scheme(&[rustls::SignatureScheme::ED25519])
+            .expect("ED25519 scheme");
+        let mut sig = signer.sign(message).expect("sign");
+        if let Some(off) = corrupt_at {
+            sig[off] ^= 1;
+        }
+        // Проводной формат DSS: scheme(u16 BE) ‖ len(u16 BE) ‖ sig.
+        let mut wire = Vec::with_capacity(2 + 2 + sig.len());
+        rustls::internal::msgs::codec::Codec::encode(&rustls::SignatureScheme::ED25519, &mut wire);
+        wire.extend_from_slice(&(sig.len() as u16).to_be_bytes());
+        wire.extend_from_slice(&sig);
+        rustls::internal::msgs::codec::Codec::read_bytes(&wire).expect("DSS из проводного формата")
+    }
+
+    /// Юнит (без сети): verifier принимает настоящий сертификат Accept-пути и
+    /// отклоняет подмену подписи и чужой node_pub. Сертификат — из серверной
+    /// `build_reality_cert` (тот же, что реальный сервер положит на провод).
+    #[test]
+    fn t1_verifier_accepts_real_cert_and_rejects_tampering() {
+        let node_priv: [u8; 32] = core::array::from_fn(|i| (i * 7 + 2) as u8);
+        let client_priv: [u8; 32] = core::array::from_fn(|i| (i * 9 + 7) as u8);
+        let random: [u8; 32] = core::array::from_fn(|i| (i * 3 + 1) as u8);
+        let node_pub = crypto_core::X25519Pub(crypto_core::x25519_keypair(&node_priv).public);
+
+        let state = RealityCertState::new(crypto_core::NodeRealityKey(node_priv)).expect("state");
+        let der = build_reality_cert(
+            &state,
+            &crypto_core::X25519Pub(crypto_core::x25519_keypair(&client_priv).public),
+            &random,
+        )
+        .expect("cert");
+
+        let shared = std::sync::Arc::new(T1Shared::default());
+        shared.set_keyshare(client_priv);
+        shared.record_random(&random);
+        let verifier = RealityCertVerifier::new(node_pub, shared);
+
+        let cert = rustls::pki_types::CertificateDer::from(der.clone());
+        let now = rustls::pki_types::UnixTime::since_unix_epoch(std::time::Duration::from_secs(
+            1_700_000_000,
+        ));
+        let name =
+            rustls::pki_types::ServerName::try_from("aether".to_string()).expect("server name");
+        let verdict = rustls::client::danger::ServerCertVerifier::verify_server_cert(
+            &verifier,
+            &cert,
+            &[],
+            &name,
+            &[],
+            now,
+        );
+        assert!(
+            verdict.is_ok(),
+            "настоящий сертификат обязан пройти Aether-верификацию: {verdict:?}"
+        );
+
+        // Подмена подписи (тот же cert_pub, чужой HMAC) — ApplicationVerificationFailure.
+        let mut tampered = der.clone();
+        let n = tampered.len();
+        tampered[n - 1] ^= 1;
+        let verdict = rustls::client::danger::ServerCertVerifier::verify_server_cert(
+            &verifier,
+            &rustls::pki_types::CertificateDer::from(tampered),
+            &[],
+            &name,
+            &[],
+            now,
+        );
+        assert!(
+            matches!(
+                verdict,
+                Err(rustls::Error::InvalidCertificate(
+                    rustls::CertificateError::ApplicationVerificationFailure
+                ))
+            ),
+            "подменённая подпись обязана быть отклонена: {verdict:?}"
+        );
+
+        // Чужой node_pub: другая ECDH-степень → другой AuthKey' → подпись не сходится.
+        let other_priv: [u8; 32] = core::array::from_fn(|i| (i * 13 + 5) as u8);
+        let other_pub = crypto_core::X25519Pub(crypto_core::x25519_keypair(&other_priv).public);
+        let shared2 = std::sync::Arc::new(T1Shared::default());
+        shared2.set_keyshare(client_priv);
+        shared2.record_random(&random);
+        let stranger = RealityCertVerifier::new(other_pub, shared2);
+        let verdict = rustls::client::danger::ServerCertVerifier::verify_server_cert(
+            &stranger,
+            &cert,
+            &[],
+            &name,
+            &[],
+            now,
+        );
+        assert!(
+            verdict.is_err(),
+            "чужой node_pub обязан провалить верификацию"
+        );
+
+        // Ed25519 CertificateVerify-проверка: настоящий ключ сертификата подписывает.
+        // PKCS#8 v1 ключа (не скелет!): якорь `04 22` (OCTET STRING(34)), внутри —
+        // `04 20` + seed(32 B): seed = anchor + 4; поиск последнего `04 20` ловил
+        // ложный маркер внутри самих байтов seed.
+        let anchor = state
+            .cert_key_pkcs8
+            .windows(2)
+            .position(|w| w == [0x04, 0x22])
+            .expect("anchor 04 22");
+        assert_eq!(
+            &state.cert_key_pkcs8[anchor + 2..anchor + 4],
+            &[0x04, 0x20],
+            "структура PKCS#8 v1"
+        );
+        let seed: [u8; 32] = state.cert_key_pkcs8[anchor + 4..anchor + 36]
+            .try_into()
+            .expect("seed");
+        // Контроль согласованности крейтов: pub, который rustls/ring положит в
+        // CertificateVerify-проверку, обязан совпадать с pub из crypto-core для
+        // того же seed (Ed25519 == Ed25519, но сверяем явно).
+        let ring_kp = rustls::crypto::ring::sign::any_eddsa_type(
+            &rustls::pki_types::PrivatePkcs8KeyDer::from(state.cert_key_pkcs8.clone()),
+        )
+        .expect("ring key");
+        let ring_spki = ring_kp.public_key().expect("ring pub");
+        // public_key() — полный SPKI-DER (44 B для Ed25519: заголовок + 32 B ключ).
+        let ring_pub: [u8; 32] = ring_spki.as_ref()[ring_spki.as_ref().len() - 32..]
+            .try_into()
+            .expect("32 B tail of SPKI");
+        assert_eq!(
+            crypto_core::ed25519_pubkey(&seed).0,
+            ring_pub,
+            "seed→pub согласован между ring и crypto-core"
+        );
+        let dss = test_dss(&seed, b"transcript-hash", None);
+        let v = rustls::client::danger::ServerCertVerifier::verify_tls13_signature(
+            &verifier,
+            b"transcript-hash",
+            &cert,
+            &dss,
+        );
+        assert!(v.is_ok(), "настоящий CertificateVerify проходит: {v:?}");
+        let dss_bad = test_dss(&seed, b"transcript-hash", Some(1));
+        assert!(
+            rustls::client::danger::ServerCertVerifier::verify_tls13_signature(
+                &verifier,
+                b"transcript-hash",
+                &cert,
+                &dss_bad,
+            )
+            .is_err(),
+            "испорченный CertificateVerify отклонён"
+        );
+    }
+
+    /// ЖИВОЙ тест T1 (снятие ignore): rustls-клиент с НАСТОЯЩЕЙ Aether-верификацией
+    /// проходит полный TLS 1.3 handshake против AcceptServer (boring). Позитив:
+    /// handshake + данные в обе стороны. Негатив: verifier с чужим node_pub обязан
+    /// упасть (не «тихо пройти») — контроль честности captured random/keyshare.
+    #[test]
+    fn live_t1_client_verifies_reality_cert() {
+        use std::io::{Read, Write};
+        let node_priv: [u8; 32] = core::array::from_fn(|i| (i * 7 + 2) as u8);
+        let node_pub = crypto_core::X25519Pub(crypto_core::x25519_keypair(&node_priv).public);
+        let state = RealityCertState::new(crypto_core::NodeRealityKey(node_priv)).expect("state");
+        let server = AcceptServer::new(state).expect("acceptor");
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        // Сервер обрабатывает ОБА соединения: позитивный (полный обмен) и негативный
+        // (клиент отвергнет сертификат → accept вернёт Err → это норма, дропаем).
+        let handle = std::thread::spawn(move || {
+            for expected_payload in [true, false] {
+                let (mut sock, _) = listener.accept().expect("accept tcp");
+                let accepted = server.accept(&mut sock);
+                match accepted {
+                    Ok(mut tls) if expected_payload => {
+                        tls.write_all(b"pong").expect("server write");
+                        let mut buf = [0u8; 4];
+                        tls.read_exact(&mut buf).expect("client data");
+                        assert_eq!(&buf, b"ping");
+                    }
+                    // Негативный кейс (или неожиданный успех — тогда assert ниже поймает).
+                    _ => {}
+                }
+            }
+        });
+
+        // Позитив: verifier с настоящим node_pub — handshake обязан завершиться.
+        let client_state = reality_client_state(node_pub, Some(0x5EED_0001)).expect("config");
+        let probe = std::net::TcpStream::connect(addr).expect("connect");
+        let mut conn = rustls::ClientConnection::new(
+            client_state.config.clone(),
+            rustls::pki_types::ServerName::try_from("aether".to_string()).expect("name"),
+        )
+        .expect("client connection");
+        let mut sock = probe;
+        let mut client = rustls::Stream::new(&mut conn, &mut sock);
+        client
+            .write_all(b"ping")
+            .expect("client write (handshake прошёл)");
+        client.flush().expect("flush");
+        let mut buf = [0u8; 4];
+        client.read_exact(&mut buf).expect("server data");
+        assert_eq!(&buf, b"pong");
+
+        // Негатив: тот же сервер, verifier с ЧУЖИМ node_pub — handshake обязан упасть.
+        let stranger_priv: [u8; 32] = core::array::from_fn(|i| (i * 13 + 5) as u8);
+        let stranger_pub =
+            crypto_core::X25519Pub(crypto_core::x25519_keypair(&stranger_priv).public);
+        let bad_state = reality_client_state(stranger_pub, Some(0x5EED_0002)).expect("config");
+        let probe = std::net::TcpStream::connect(addr).expect("connect 2");
+        let mut conn = rustls::ClientConnection::new(
+            bad_state.config.clone(),
+            rustls::pki_types::ServerName::try_from("aether".to_string()).expect("name 2"),
+        )
+        .expect("client connection 2");
+        let mut sock = probe;
+        let mut client = rustls::Stream::new(&mut conn, &mut sock);
+        // Ошибка обязана всплыть на любом IO-шаге: верификация сертификата падает
+        // либо при write (rustls прогоняет handshake внутри Stream::write), либо
+        // при read — после того как серверные SH+Cert дошли и были обработаны.
+        let failed = match client.write_all(b"ping") {
+            Err(_) => true,
+            Ok(()) => {
+                let _ = client.flush();
+                let mut buf = [0u8; 4];
+                client.read_exact(&mut buf).is_err()
+            }
+        };
+        assert!(
+            failed,
+            "чужой node_pub обязан провалить handshake (не тихо пройти)"
+        );
+        handle.join().expect("server thread");
     }
 }
