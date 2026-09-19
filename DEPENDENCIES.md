@@ -139,7 +139,12 @@ curl -s https://crates.io/api/v1/crates/<name> \
 
 TTL перепроверки — 180 дней (pre-1.0, активная разработка): **до 2027-03-17**.
 При бампе h3: перечитать факты выше по новой версии (surface менялся между 0.0.4→0.0.8),
-прогнать `masque_lab` — это и есть interop-гейт.
+прогнать `masque_lab` и `masque_receiver_lab` — это и есть interop-гейт.
+
+**Receiver-side (2026-09-19):** `cover-masque` добавил прямую зависимость
+`tokio = { version = "1", default-features = false, features = ["net", "macros"] }`
+(per-CONNECT `UdpSocket` + `select!` в прокси-цикле; tokio 1 уже был в дереве —
+одна копия, `cargo tree` не изменился сверх фиксации версии).
 
 Пины продублированы в `Cargo.toml` → `[workspace.dependencies]`: не «два места на память»,
 а так, что расхождение видно при первом же diff.

@@ -28,6 +28,8 @@ use frame_session::Session;
 #[cfg(feature = "e2e")]
 pub mod masque_lab;
 #[cfg(feature = "e2e")]
+pub mod masque_receiver_lab;
+#[cfg(feature = "e2e")]
 pub mod quic_lab;
 pub mod wire;
 

@@ -28,6 +28,7 @@
 #![deny(unsafe_code)]
 
 pub mod h3_live;
+pub mod receiver;
 
 use frame_session::Record;
 use transport_mux::{

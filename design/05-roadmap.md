@@ -88,9 +88,14 @@ Reality — последним, как самый дорогой).
         Extended CONNECT-UDP (2xx), HTTP/3 DATAGRAM (Quarter Stream ID — h3-datagram),
         вычерпывание `Outbox` каркаса в датаграммы; двусторонний прогон прод-клиент ↔
         лабораторный h3-сервер (`e2e-harness/masque_lab`, живой quinn, 3 капсулы байт в байт).
-        Остаток (не интероп, а прод): приёмная сторона узла — UDP-проксирование вместо эха;
-        no-HOL-клейм остаётся незаявленным (`caps.no_hol = false`) до неё.
         `masque-go`/`h3-masque` — reference-only, не зависимости.
+  - [x] **Receiver-side (2026-09-19)**: прод-приёмник узла — `cover_masque::receiver::
+        serve_connect_udp` (RFC 9298 §4): Extended CONNECT → цель из URI-шаблона path
+        (литералы IPv4/IPv6, percent-decode) → per-CONNECT UDP-сокет → двустороннее
+        проксирование h3-датаграмм ↔ UDP (Context ID 0, срезка/оборачивание прод-функциями;
+        чужой Context ID дропается по §5). Живой interop: прод-клиент → прод-receiver →
+        реальный UDP-эхо-эндпоинт → обратно (`e2e-harness/masque_receiver_lab`, 3 записи
+        байт в байт через полный путь).
 - [ ] Reality/VLESS — последний: либо Go-sidecar с xray-core, либо `boring` с контролем ClientHello.
       uTLS-эквивалента в Rust нет — это самый дорогой пункт Phase 1.
   - [x] **Каркас** (Rust-путь: boring встроенным; sidecar был запасным путём на провал пробы

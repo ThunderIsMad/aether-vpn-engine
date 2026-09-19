@@ -18,6 +18,9 @@ h3-datagram.workspace = true
 h3-quinn.workspace = true
 # Тип входа live-слоя — живое quinn-соединение (тот же workspace-пин, что transport-mux).
 quinn.workspace = true
+# Receiver-side (RFC 9298 §4): async-цикл проксирования h3-датаграмм ↔ UDP-сокет.
+# Тот же tokio 1, что уже в дереве (e2e-harness/транспорт); фичи — net (UdpSocket) + macros (select!).
+tokio = { version = "1", default-features = false, features = ["net", "macros"] }
 bytes.workspace = true
 # Extended CONNECT-запрос: http::Request (тип h3-стека), версия/метод/заголовки.
 http.workspace = true

@@ -365,6 +365,7 @@ dependencies = [
  "h3-quinn",
  "http",
  "quinn",
+ "tokio",
  "transport-mux",
 ]
 

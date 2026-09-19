@@ -73,6 +73,15 @@ Rust-клиента RFC 9298 поверх quinn+h3.
   прогон вскрыл и починил латентный дефект лаборатории: самоподписанный CA-как-leaf сертификат
   отвергается webpki (`CaUsedAsEndEntity`) — лабораторные сертификаты переведены на цепочку
   CA→leaf (тот же урок, что в boring-пробе, находка №3).
+  ⇐ Receiver-side (2026-09-19): **прод-приёмник узла** — `cover_masque::receiver::
+  serve_connect_udp` (RFC 9298 §4): h3-сервер с SETTINGS H3_DATAGRAM/ENABLE_CONNECT_PROTOCOL,
+  один Extended CONNECT-UDP на соединение, цель — литерал из URI-шаблона path
+  (`/.well-known/masque/udp/{host}/{port}/`, IPv6 в скобках percent-encoded; reg-name не
+  резолвим — DNS на клиенте), per-CONNECT connected-UDP-сокет (ядро фильтрует чужие источники),
+  двусторонний прокси-цикл h3-датаграмма ↔ UDP через прод-функции `encode/decode_
+  udp_proxying_payload` (Context ID 0); чужой Context ID/битая капсула дропается (§5).
+  Живой interop-тест полного пути: прод-клиент → прод-receiver → реальный UDP-эхо → обратно
+  (`e2e-harness/masque_receiver_lab`).
 - Reality/TCP-байндинг: length-prefixed frames; HOL tradeoff задокументирован.
   ⇐ Phase 1, кусок 3: реализован в `cover-reality` как **`RealityBinding` — каркас Reality-класса,
   НЕ Reality/VLESS-interop и НЕ «DPI-resistant в смысле живого трафика»**.
