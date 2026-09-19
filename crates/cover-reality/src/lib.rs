@@ -887,7 +887,10 @@ impl RealityBinding {
 
     /// Инжектирует асинхронный отказ — путь к FSM морфа (`02 §4`).
     pub fn inject_failure(&mut self, failure: BindingFailure) {
-        self.failure = Some(failure);
+        // Serious-first политика (Задача 3.2, Q26): даунгрейд не проходит, равная
+        // серьёзность — last-wins. Гвард `closed_reported` НЕ трогается — это
+        // осознанная идемпотентность репорта `Closed`, другой механизм.
+        failure.note_into(&mut self.failure);
     }
 }
 
@@ -918,7 +921,7 @@ impl transport_mux::CoverBinding for RealityBinding {
             // Идемпотентно: событие `Closed` — одно на закрытие канала, повторные send
             // по закрытому каналу его не дублируют.
             if !self.closed_reported {
-                self.failure = Some(BindingFailure::Closed);
+                BindingFailure::Closed.note_into(&mut self.failure);
                 self.closed_reported = true;
             }
             return Err(BindingError::TransportDown);
@@ -1634,6 +1637,34 @@ mod tests {
         assert!(
             binding.take_pending().is_empty(),
             "в закрытый канал ничего не ушло"
+        );
+    }
+
+    /// Задача 3.2 (Q26): менее серьёзный отказ не даунгрейдит `Closed` — серьёзный
+    /// отказ не может быть стёрт до опроса FSM. Гвард `closed_reported` при этом
+    /// не участвует в политике перезаписи: он про идемпотентность репорта закрытия
+    /// (событие `Closed` — одно на закрытие канала), другой механизм.
+    #[test]
+    fn policy_no_downgrade_of_closed_and_guard_intact() {
+        let mut binding = RealityBinding::new(cover(), TargetSite::placeholder());
+        let rec = record(0, b"policy probe");
+
+        binding.mark_closed();
+        assert_eq!(binding.send(&rec), Err(BindingError::TransportDown));
+        // Гвард: `Closed` записан, но менее серьёзный отказ его не вытесняет.
+        binding.inject_failure(BindingFailure::PeerUnresponsive);
+        assert_eq!(
+            binding.on_failure(),
+            Some(BindingFailure::Closed),
+            "PeerUnresponsive не даунгрейдит Closed"
+        );
+        // Гвард идемпотентности жив: повторный send по закрытому каналу НЕ
+        // дублирует `Closed` — но и не даунгрейдит (слот уже пуст после take).
+        assert_eq!(binding.send(&rec), Err(BindingError::TransportDown));
+        assert_eq!(
+            binding.on_failure(),
+            None,
+            "гвард closed_reported не сломан политикой"
         );
     }
 

@@ -301,7 +301,9 @@ impl MasqueBinding {
 
     /// Инжектирует асинхронный отказ — путь к FSM морфа (`02 §4`).
     pub fn inject_failure(&mut self, failure: BindingFailure) {
-        self.failure = Some(failure);
+        // Serious-first политика (Задача 3.2, Q26): даунгрейд не проходит, равная
+        // серьёзность — last-wins (`BindingFailure::note_into`).
+        failure.note_into(&mut self.failure);
     }
 }
 
@@ -314,7 +316,7 @@ impl Default for MasqueBinding {
 impl CoverBinding for MasqueBinding {
     fn send(&mut self, rec: &Record) -> Result<(), BindingError> {
         if self.closed {
-            self.failure = Some(BindingFailure::Closed);
+            BindingFailure::Closed.note_into(&mut self.failure);
             return Err(BindingError::TransportDown);
         }
         // UDP payload капсулы — сама запись frame-слоя (`rec.encode()`): обложка
@@ -587,6 +589,24 @@ mod tests {
         binding.inject_failure(BindingFailure::Probed);
         assert_eq!(binding.on_failure(), Some(BindingFailure::Probed));
         assert_eq!(binding.on_failure(), None);
+    }
+
+    /// Задача 3.2 (Q26): инжектированный менее серьёзный отказ не затирает `Closed`
+    /// (serious-first политика `BindingFailure::note_into`).
+    #[test]
+    fn inject_never_downgrades_closed() {
+        let mut binding = MasqueBinding::new();
+        binding.mark_closed();
+        assert_eq!(
+            binding.send(&record(1, b"x")),
+            Err(BindingError::TransportDown)
+        );
+        binding.inject_failure(BindingFailure::Probed);
+        assert_eq!(
+            binding.on_failure(),
+            Some(BindingFailure::Closed),
+            "Probed не даунгрейдит Closed"
+        );
     }
 
     /// Очередь: капсулы вынимаются и вскрываются; порядок сохранён; переполнение —

@@ -30,7 +30,10 @@
 //!    переполнение — `BindingError::WouldBlock`, а не рост памяти (тот же выбор, что и
 //!    «буфер фолбэка ≤ 16 МБ или ≤ 5 с» из `05-roadmap`, но локально на байндинг).
 //! 4. **Асинхронный отказ отдаётся ровно один раз** (`on_failure` = `take`): FSM морфинга
-//!    обязана получить событие, но не обязана получать его на каждом poll.
+//!    обязана получить событие, но не обязана получать его на каждом poll. Слот отказа —
+//!    single-slot с приоритетом серьёзности (Задача 3.2, Q26): между опросами хранится
+//!    доминирующее событие (`Closed` > `PeerUnresponsive` > `Probed`), даунгрейд исключён
+//!    по построению, равная серьёзность — last-wins (`BindingFailure::note_into`).
 //! 5. **`MemBinding` — не тестовый хак, а мок из `03`:** `frame-session` тестируется на моках
 //!    байндингов, а интеграционный крейт `rotation-tests` — на двух in-memory байндингах со
 //!    счётчиками и журналом `(stream_id, seq)`. Мок живёт рядом с трейтом, потому что им
@@ -105,6 +108,36 @@ pub enum BindingFailure {
     PeerUnresponsive,
     /// Транспорт снят цензором (RST/spike) — повод для морфа.
     Probed,
+}
+
+impl BindingFailure {
+    /// Приоритет серьёзности события (Задача 3.2, Q26): обрыв канала > молчание пира >
+    /// снятие цензором. Единый источник порядка — приоритет не проверяется в точках
+    /// записи, а задаётся здесь: даунгрейд события исключён по построению (ветка
+    /// `note_into` для менее серьёзного просто не пишет).
+    pub fn severity(self) -> u8 {
+        match self {
+            BindingFailure::Closed => 2,
+            BindingFailure::PeerUnresponsive => 1,
+            BindingFailure::Probed => 0,
+        }
+    }
+
+    /// Политика записи в single-slot отказа (Задача 3.2, Q26): слот хранит
+    /// **доминирующее** событие между опросами `on_failure`.
+    ///
+    /// Правила: пустой слот — пишем; серьёзность выше — пишем (апгрейд); равная —
+    /// пишем (last-wins, свежайшее свидетельство самой серьёзной группы); ниже —
+    /// не пишем (даунгрейд исключён по построению приоритета). Сравнение — eager,
+    /// в момент записи: `on_failure` остаётся голым `take()` без скрытой логики,
+    /// контракт «ровно один раз» не меняется — политика решает только, какое событие
+    /// остаётся в слоте, а не сколько раз вызывается обработчик.
+    pub fn note_into(self, slot: &mut Option<BindingFailure>) {
+        match slot {
+            Some(existing) if self.severity() < existing.severity() => {}
+            _ => *slot = Some(self),
+        }
+    }
 }
 
 /// Контракт байндинга (`03-components.md`, контракты) — скопирован дословно.
@@ -229,8 +262,10 @@ impl BindingCore {
     }
 
     /// Отмечает асинхронный отказ — его заберёт `on_failure` (ровно один раз).
+    /// Политика serious-first (Задача 3.2): даунгрейд не проходит, равная серьёзность —
+    /// last-wins (см. `BindingFailure::note_into`).
     pub fn note(&mut self, failure: BindingFailure) {
-        self.failure = Some(failure);
+        failure.note_into(&mut self.failure);
     }
 
     /// Отдаёт накопленный отказ и снимает его: FSM морфинга получает событие один раз.
@@ -527,6 +562,64 @@ mod tests {
             "вычерпывание освобождает очередь"
         );
         assert_eq!(tight.enqueue(&small), Ok(()), "место освободилось");
+    }
+
+    /// Задача 3.2 (Q26): single-slot с приоритетом серьёзности — даунгрейд не проходит,
+    /// апгрейд проходит, равная серьёзность — last-wins; порядок `Closed` >
+    /// `PeerUnresponsive` > `Probed` зафиксирован явно (защита от переворота при
+    /// добавлении новых вариантов).
+    #[test]
+    fn contract_failure_note_never_downgrades() {
+        // Порядок серьёзности — сам контракт.
+        assert!(
+            BindingFailure::Closed.severity() > BindingFailure::PeerUnresponsive.severity()
+                && BindingFailure::PeerUnresponsive.severity() > BindingFailure::Probed.severity(),
+            "порядок: обрыв > молчание пира > снятие цензором (Задача 3.2)"
+        );
+
+        // Даунгрейд блокирован: Closed, затем Probed — слот остаётся Closed.
+        let mut slot = Some(BindingFailure::Closed);
+        BindingFailure::Probed.note_into(&mut slot);
+        assert_eq!(
+            slot,
+            Some(BindingFailure::Closed),
+            "менее серьёзное событие не затирает более серьёзное"
+        );
+
+        // Апгрейд проходит: Probed, затем Closed — слот становится Closed.
+        let mut slot = Some(BindingFailure::Probed);
+        BindingFailure::Closed.note_into(&mut slot);
+        assert_eq!(slot, Some(BindingFailure::Closed));
+
+        // Равная серьёзность — last-wins: свежайшее свидетельство группы.
+        let mut slot = Some(BindingFailure::PeerUnresponsive);
+        BindingFailure::PeerUnresponsive.note_into(&mut slot);
+        assert_eq!(slot, Some(BindingFailure::PeerUnresponsive));
+
+        // Пустой слот принимает всё.
+        let mut slot = None;
+        BindingFailure::Probed.note_into(&mut slot);
+        assert_eq!(slot, Some(BindingFailure::Probed));
+    }
+
+    /// Реальный кейс Q26: `Closed` отмечен, между опросами пришёл `PeerUnresponsive` —
+    /// FSM морфа обязана увидеть `Closed`, а не менее серьёзное событие.
+    #[test]
+    fn contract_closed_survives_peer_unresponsive_between_polls() {
+        let mut binding = MemBinding::new(BindingCaps::QUIC);
+        binding.mark_closed();
+        assert_eq!(
+            binding.send(&record(0, 0, b"late")),
+            Err(BindingError::TransportDown)
+        );
+        // Между опросами кто-то инжектирует менее серьёзный отказ.
+        binding.inject_failure(BindingFailure::PeerUnresponsive);
+        assert_eq!(
+            binding.on_failure(),
+            Some(BindingFailure::Closed),
+            "FSM видит доминирующее событие, а не последний записанный"
+        );
+        assert_eq!(binding.on_failure(), None, "событие отдаётся один раз");
     }
 
     /// Контракт caps: QUIC-байндинг обязан заявлять `no_hol = true` и `datagram = true`,

@@ -249,7 +249,7 @@ enum ResumeError {
 trait CoverBinding {
     fn send(&mut self, rec: &Record) -> Result<(), BindingError>;  // синхронный отказ
     fn supports(&self) -> BindingCaps; // { NO_HOL, DATAGRAM, DPI_PROFILE }
-    fn on_failure(&mut self) -> Option<BindingFailure>;            // асинхронный отказ
+    fn on_failure(&mut self) -> Option<BindingFailure>;            // асинхронный отказ (single-slot, serious-first: даунгрейд исключён — Задача 3.2)
 }
 
 trait Classifier {

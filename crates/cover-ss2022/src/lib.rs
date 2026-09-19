@@ -225,7 +225,9 @@ impl SsPaddedBinding {
 
     /// Инжектирует асинхронный отказ — путь к FSM морфа (`02 §4`).
     pub fn inject_failure(&mut self, failure: BindingFailure) {
-        self.failure = Some(failure);
+        // Serious-first политика (Задача 3.2, Q26): даунгрейд не проходит, равная
+        // серьёзность — last-wins (`BindingFailure::note_into`).
+        failure.note_into(&mut self.failure);
     }
 }
 
@@ -252,7 +254,7 @@ fn deterministic_fill(counter: u64, index: u64) -> impl FnMut(&mut [u8]) {
 impl CoverBinding for SsPaddedBinding {
     fn send(&mut self, rec: &Record) -> Result<(), BindingError> {
         if self.closed {
-            self.failure = Some(BindingFailure::Closed);
+            BindingFailure::Closed.note_into(&mut self.failure);
             return Err(BindingError::TransportDown);
         }
         // Nonce и padding — из системного CSPRNG (F-01): AEAD probabilistic, без
@@ -419,6 +421,24 @@ mod tests {
         binding.inject_failure(BindingFailure::Probed);
         assert_eq!(binding.on_failure(), Some(BindingFailure::Probed));
         assert_eq!(binding.on_failure(), None);
+    }
+
+    /// Задача 3.2 (Q26): инжектированный менее серьёзный отказ не затирает `Closed`
+    /// (serious-first политика `BindingFailure::note_into`).
+    #[test]
+    fn inject_never_downgrades_closed() {
+        let mut binding = SsPaddedBinding::new(cover());
+        binding.mark_closed();
+        assert_eq!(
+            binding.send(&record(1, b"x")),
+            Err(BindingError::TransportDown)
+        );
+        binding.inject_failure(BindingFailure::Probed);
+        assert_eq!(
+            binding.on_failure(),
+            Some(BindingFailure::Closed),
+            "Probed не даунгрейдит Closed"
+        );
     }
 
     /// Капы не врут: stream-класс, без no-HOL и datagram (02 §2.2 tradeoff).
