@@ -221,6 +221,116 @@ RNG-стека RustCrypto, уже в дереве через `ed25519-dalek`/`ch
 
 ---
 
+## cargo-deny: автоматический контроль advisory/license/bans/sources (2026-09-19)
+
+Внедрение TODO-абзаца выше (решение F-11). **Статус:** конфиг `deny.toml` в корне + job
+`deps-deny` в `ci.yml`; локальный прогон cargo-deny 0.20.2 зелёный целиком
+(`advisories ok, bans ok, licenses ok, sources ok`). TODO-абзац помечается закрытым
+**отдельным коммитом** — после зелёного `deps-deny` на CI, с номером run и SHA (тот же
+git-based паттерн подтверждения, что у boring-записи выше).
+
+**Почему cargo-deny, а не cargo-audit:** набор проверок cargo-audit — подмножество:
+RUSTSEC-advisories по lockfile. cargo-deny даёт те же advisories плюс политики лицензий,
+дублей, запрещённых крейтов и источников — для приватного прод-репозитория это основной
+ценность: license/source-нарушения не видны advisories вообще.
+
+### Решения конфигурации (все — по факту первого прогона, не из шаблона)
+
+| Политика | Значение | Почему |
+|---|---|---|
+| `[advisories] yanked` | `warn` | yank существующего `--locked`-пина лечится бампом в плановом порядке, а не красным CI на каждый пуш |
+| `[advisories] unmaintained/unsound` | `none` | в 0.20.x это селектор Scope (`all\|workspace\|transitive\|none`), а не lint-level: вне scope advisory не эмитится, внутри — падение (warn-уровня для informational-адизоризов больше нет). Политика: unmaintained/unsound ловятся TTL-перепроверками пинов (этот файл), где кейс разбирается по существу |
+| `[graph] all-features` | не включать (дефолт action `--all-features` переопределён `--locked`) | раскрывает `clatter/use-rust-crypto-ml-kem` — комбинацию, исключённую решением Q8 (транзитивный `ml-kem 0.2.1` не собирается). Граф проверяется в заявленном наборе фич — ровно тот, что уезжает в прод |
+| `[bans] multiple-versions` | `warn` | см. политику дублей ниже; флип на `deny` — когда список стабилизируется и станет коротким (ревью на TTL-перепроверке пинов, до 2026-12-15) |
+| `[bans] wildcards` | `deny` + `allow-wildcard-paths = true` | наследование `foo.workspace = true` cargo-deny считает wildcard'ом (версия не указана на месте использования) — а это правило проекта для всех 16 внутренних крейтов. `allow-wildcard-paths` разрешает **только** path-wildcards приватных крейтов (исходник 0.20.2, `bans.rs:960`: `!is_registry() && is_private`); registry-wildcard (`foo = "*"`) остаётся deny |
+| `[bans] deny` | `openssl-sys`, `aws-lc-rs` | крипто-инвариант: только boring/ring (риск двух libcrypto — F11), второй rustls-провайдер не используется (путь `quinn __rustls-post-quantum-test` закрыт Q7) |
+| `[sources]` | `unknown-registry/git = deny`, allow: crates.io | git-зависимостей в дереве нет (проверено по `Cargo.lock`: все 228 registry-блоков без git-источников); новая git-зависимость требует явной правки `deny.toml`, видимой в ревью |
+| `[licenses.private] ignore` | `true` | 16 workspace-крейтов: `publish = false`, поля license не имеют |
+
+### Лицензии: allow-list снят с дерева, не из шаблона
+
+База: registry-исходники всех 228 registry-пакетов `Cargo.lock` (242 блока минус
+14 workspace-крейтов), поле `license` каждого — 2026-09-19. Итоговое множество
+выражений: `MIT OR Apache-2.0` (130), `MIT` (22), `Apache-2.0 OR MIT` (31),
+`MIT/Apache-2.0` (11), `BSD-3-Clause` (7), `ISC` (3), `Unlicense OR MIT` (5),
+`Apache-2.0` (2), плюс единичные выражения ниже.
+
+Неочевидные случаи — разбор по существу:
+
+- **`Apache-2.0 WITH LLVM-exception`** — `wit-bindgen 0.57` ← `wasip2 1.0` ←
+  **наш прямой пин `getrandom 0.3`** (wasi-цели getrandom). Занесён в allow целиком:
+  исключение (`exceptions`) дало бы то же самое, но с шумом; wasip2 — build-time
+  декларации wasi-интерфейсов, в прод-линковку на Windows/GNU/Linux не попадает.
+- **`CDLA-Permissive-2.0`** — `webpki-root-certs 1.0` ← `rustls-platform-verifier 0.7`
+  ← default-фича quinn **`platform-verifier`**, которая нам не нужна: в коде используется
+  кастомный `ServerCertVerifier` (cover-reality T1) и явный `ring::default_provider`
+  (лаборатория). Разрешено как есть; **опция зачистки** (`quinn default-features = false`)
+  зафиксирована как отдельная будущая задача — здесь прод-пины не трогаются
+  (правило «lock в одном коммите с пинами»). Не путать с CDLA-Strict — Permissive-2.0
+  не имеет copyleft-условий.
+- **`boring-sys 4.22` = `MIT`** — поле license; в крейте единственный файл
+  `LICENSE-MIT`, вендоренный BoringSSL несёт собственные лицензии (Apache/ISC/MIT/openssl-derivative)
+  внутри `deps/`, но SPDX-выражением крейта не объявляются — фиксируем как известное
+  ограничение машинной проверки, вердикт не меняет (вендоренные лицензии пермиссивные).
+  `boring 4.22` — `Apache-2.0`. **`ring 0.17` = `Apache-2.0 AND ISC`** (LICENSE-BoringSSL
+  в составе) — обе лицензии в allow.
+- **OR-выражения покрыты разрешёнными ветками** — идентификаторы сознательно
+  не занесены: `fiat-crypto` (`… OR BSD-1-Clause`), `r-efi` (`… OR LGPL-2.1-or-later`),
+  `aho-corasick`/`same-file`/`walkdir` (`Unlicense OR MIT`), `dunce`
+  (`CC0-1.0 OR MIT-0 OR Apache-2.0`). Разрешаем фактический выбор, а не весь набор:
+  если будущий бамп переключит ветку на LGPL/BSD-1-Clause/Unlicense, licenses
+  честно станет красной и это будет осознанное решение, а не тихий приезд.
+
+### Дубли версий (bans: warn) — фактический список и атрибуция
+
+21 крейт-дубль на 2026-09-19, сгруппированы по причине:
+
+1. **Поколения RustCrypto от clatter** (факты Q8/F-10, уже задокументированы выше):
+   `aead 0.5.2/0.6.1`, `block-buffer 0.10.4/0.12.1`, `chacha20 0.9.1/0.10.2`,
+   `chacha20poly1305 0.10.1/0.11.0`, `cipher 0.4.4/0.5.2`, `crypto-common 0.1.7/0.2.2`,
+   `cpufeatures 0.2.17/0.3.1`, `curve25519-dalek 4.1.3/5.0.0`, `digest 0.10.7/0.11.3`,
+   `fiat-crypto 0.2.9/0.3.0`, `inout 0.1.4/0.2.2`, `poly1305 0.8.0/0.9.1`,
+   `rand_core 0.6.4/0.10.1`, `sha2 0.10.9/0.11.0`, `universal-hash 0.5.1/0.6.1`,
+   `x25519-dalek 2.0.1/3.0.0` — младшая копия каждого через `clatter 2.3.0`
+   (`sha2`/`cpufeatures`/`rand_core`/`fiat-crypto` проверены `cargo tree -i` отдельно).
+2. **`getrandom` ×3** — `0.2.17` (транзит `ring`), `0.3.4` (наш пин), `0.4.3`
+   (транзит `crypto-common 0.2`) — факт F-10.
+3. **Build-инфра `boring-sys`**: `shlex 1.3.0` (bindgen) / `2.0.1` (cc);
+   `syn 1.0.109` (`thiserror-impl-no-std` ← clatter) / `2.0.119` (bindgen) /
+   `3.0.5` (displaydoc ← clatter, tokio-macros, quinn-proto).
+4. **Целевые/прочие**: `windows-sys 0.52.0` (ring; windows-цели) / `0.61.2`
+   (tokio, mio, quinn-udp и пр.); `r-efi 5.3.0` (getrandom 0.3) / `6.0.0`
+   (getrandom 0.4) — uefi-цели.
+
+**Правило:** новый дубль, не объяснимый существующими фактами, разбирается по существу
+до мержа (кто тянет, что с ним делать) — но CI на дублях механически не падает
+(`warn`). Флип на `deny` — когда список стабилизируется и станет коротким; ревью —
+на TTL-перепроверке пинов (до 2026-12-15).
+
+### Инфраструктура прогона
+
+- **Action:** `EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25`
+  = v2.1.1 (cargo-deny **0.20.2** — та же версия, что в локальном прогоне, чтобы
+  семантика проверок не расходилась). SHA — peeled-коммит тега (`v2.1.1^{}`), снят
+  `git ls-remote`; SHA tag-объекта (`c3bbe7e4…`, аннотация "Release 2.1.1") для
+  `uses` не годится — ловушка задокументирована в комментарии job'а.
+- **Отдельный job** (`deps-deny`, не rust-job): cargo-deny работает на `cargo metadata`
+  и прод-крейты (boring-sys, PQClean) не собирает — ни toolchain-пина, ни apt-пакетов
+  rust-job'а не тянет. Docker-action: тулчейн ставит сам внутри контейнера
+  (entrypoint резолвит `rust-toolchain.toml` через `rustup show` в каталоге манифеста).
+- **Аргументы:** action компонует `cargo-deny [arguments] [command]` — глобальный
+  `--locked` обязан идти **до** subcommand (`arguments: --locked, command: check`).
+  Дефолт `arguments` у action — `--all-features`: для этого репо запрещён (Q8, см.
+  таблицу выше).
+- **Локально:** `cargo install --locked cargo-deny@0.20.2` (на Windows/GNU — под
+  `source scripts/local-env.sh`: build-script `getrandom` требует gcc, без окружения
+  установка падает), затем `cargo deny --locked check`.
+
+`Cargo.lock` этой задачей не менялся (пины не трогались) — правило «lock в одном
+коммите с пинами» не задействовалось.
+
+---
+
 ## Local Rust toolchain (Windows/GNU) (2026-09-17)
 
 Локальная машина прогона — Windows с тулчейном `stable-x86_64-pc-windows-gnu` (rustup).

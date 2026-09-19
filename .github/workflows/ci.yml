@@ -198,3 +198,31 @@ jobs:
 
       - name: run probe
         run: ci-probes/boring-linux/target/debug/boring-linux-probe
+
+  # TODO DEPENDENCIES.md: автоматический контроль advisory/license/bans/sources по
+  # lockfile. Отдельный job (не rust-job), потому что cargo-deny работает на
+  # cargo metadata и прод-крейты (boring-sys, PQClean) не собирает: ни тулчейн,
+  # ни apt-пакеты rust-job'а здесь не нужны — action приносит свой cargo-deny.
+  deps-deny:
+    name: cargo-deny (advisories + licenses + bans + sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (node24)
+        with:
+          persist-credentials: false
+
+      # v2.1.1 (cargo-deny 0.20.2 — та же версия, что в локальном прогоне).
+      # SHA — peeled-коммит тега (v2.1.1^{}), снят git ls-remote; c3bbe7e4… — SHA
+      # аннотированного tag-объекта ("Release 2.1.1"), для uses не годится — пинить коммит.
+      # Docker-action: тулчейн ставит сам внутри контейнера (entrypoint резолвит
+      # rust-toolchain.toml через `rustup show` в каталоге манифеста) — на раннере
+      # ничего ставить не нужно.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          # action компонует: cargo-deny [arguments] [command] — глобальные флаги
+          # (--locked) обязаны идти до subcommand `check`. Дефолт arguments у
+          # action — --all-features: для этого репо запрещён (раскрывает
+          # clatter/use-rust-crypto-ml-kem, не собирающийся набор — Q8), поэтому
+          # arguments задан явно.
+          arguments: --locked
+          command: check
