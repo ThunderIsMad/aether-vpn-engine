@@ -366,12 +366,16 @@ impl DedupWindow {
 
     /// Восстановление окна из подписанного клиентом `last_seq` (`§3.5`, строка «Потеря состояния»).
     ///
-    /// Всё, что `≤ last_seq`, считается уже доставленным: клиент подписал этот `last_seq`, значит
-    /// узел подтвердил continuity point по нему. Поэтому в восстановленном окне повтор `≤ hi`
-    /// — `Duplicate`, а не новая запись: это и есть at-most-once (`§3.5`) без глобального
-    /// exactly-once.
-    pub fn restore_from_signed_last_seq(last_seq: Seq) -> Self {
-        let mut window = Self::new(Seq(0), last_seq);
+    /// **Семантика `last_seq` (Q26/F-12): «выданный потолок», не «факт приёма»** — клиент
+    /// подписывает в RESUME последний **выданный** seq своего отправителя; рестартовавший
+    /// узел факт приёма не проверяет и не заявляет. Всё, что `≤ last_seq`, считается уже
+    /// доставленным (повтор `≤ hi` — `Duplicate`): at-most-once сохранён, зазор между
+    /// реально принятым узлом и потолком теряется из доставки — осознанная потеря
+    /// availability при рестарте, не целостности (`§3.5`). `floor` — пол из ticket:
+    /// `window_lo = max(пол из ticket, last_seq − 4096)`; раньше пол терялся здесь
+    /// (принудительный ноль), что противоречило `§3.5` (Q26/F-12).
+    pub fn restore_from_signed_last_seq(floor: Seq, last_seq: Seq) -> Self {
+        let mut window = Self::new(floor, last_seq);
         window.restored = true;
         window
     }
@@ -625,6 +629,9 @@ pub struct Session {
     session_id: SessionId,
     /// База членов `K_record`: `K_session` текущего поколения (`K_session'` после re-key).
     chain_base: [u8; 32],
+    /// Следующий выделяемый seq отправителя (Q26/F-12): монотонен, откат запрещён —
+    /// продолжение живого sid возможно только через `resume_as_sender` с явным счётчиком
+    /// (персистится клиентом рядом с `K_session`; sync-запись на каждый seal).
     next_seq: u64,
     streams: Vec<(FlowId, StreamId)>,
     crypto: Box<dyn SessionCrypto>,
@@ -837,12 +844,16 @@ impl Session {
     }
 
     /// Восстанавливает окно дедупа из подписанного клиентом `last_seq` (`02 §3.5`, строка
-    /// «Потеря состояния»): у узла, потерявшего состояние сессии, нет лучшего источника —
-    /// клиент подписал этот `last_seq` в `RESUME`, значит узел его когда-то подтвердил.
-    /// Все записи `≤ last_seq` считаются уже доставленными (повтор `≤ hi` — `Duplicate`),
-    /// продолжение нумерации `> hi` принимается.
-    pub fn restore_dedup_from_signed_last_seq(&mut self, last_seq: Seq) {
-        self.dedup = DedupWindow::restore_from_signed_last_seq(last_seq);
+    /// «Потеря состояния»): у узла, потерявшего состояние сессии, нет лучшего источника.
+    ///
+    /// Q26/F-12: `last_seq` здесь — **«выданный потолок»** отправителя, не «последний
+    /// принятый узлом»: у рестартовавшего узла нет способа проверить факт приёма, и он его
+    /// не заявляет (в ACK уходит потолок — `key-coordinator::build_resume_ack`, `02 §3.3`).
+    /// Всё `≤ last_seq` — `Duplicate` (at-most-once сохранён, зазор до факта приёма теряется
+    /// из доставки — availability); продолжение нумерации `> last_seq` принимается. `floor` —
+    /// пол из ticket (`§3.5`: `window_lo = max(пол из ticket, last_seq − 4096)`).
+    pub fn restore_dedup_from_signed_last_seq(&mut self, floor: Seq, last_seq: Seq) {
+        self.dedup = DedupWindow::restore_from_signed_last_seq(floor, last_seq);
     }
 
     /// Перезапускает цепочку `K_record` от пост-ротационного `K_session'` (`02 §3.3`).
@@ -858,6 +869,49 @@ impl Session {
     pub fn ratchet_from(&mut self, k_session_prime: &[u8; 32]) {
         self.chain_base = *k_session_prime;
         self.ratchet_restarts = self.ratchet_restarts.saturating_add(1);
+    }
+
+    /// Продолжает отправку по живому sid после рестарта владельца сессии (Q26/F-12).
+    ///
+    /// **Fail-closed на уровне API:** это единственный путь продолжить нумерацию отправителя,
+    /// и он принимает счётчик **явно** — `next_seq` (следующий невыданный seq), сохранённый
+    /// в session-store рядом с `K_session`. Продолжить живой sid «с нуля» нельзя: нумерация
+    /// начнёт выдавать уже выданные seq, и повторный seal под тем же `(sid, seq)` при той же
+    /// базе переиспользовал бы и `K_record[seq]`, и nonce `seq ‖ sid` — криптокатастрофу.
+    /// Поэтому `next_seq = 0` отвергается assert'ом: сторона, не знающая своего счётчика,
+    /// продолжает не сессию, а консервативную переоценку — новую сессию с новым sid
+    /// (новые salt и база вывода ⇒ для любого seq и ключ, и nonce попарно различны; старые
+    /// записи не попадают в новое окно — дедуп по `(sid, seq)`).
+    ///
+    /// `dedup_floor`/`resume_from` восстанавливают окно дедупа этой стороны так же, как на
+    /// узле: пол из ticket и подписанный «выданный потолок» (см.
+    /// `DedupWindow::restore_from_signed_last_seq`). Свежий узел, принявший RESUME из
+    /// клиентского claim, остаётся валидным приёмником — консервативное правило касается
+    /// только отправителя и его собственного счётчика (ротация и морф не ломаются).
+    pub fn resume_as_sender(
+        session_id: SessionId,
+        k_session: [u8; 32],
+        next_seq: u64,
+        dedup_floor: Seq,
+        resume_from: Seq,
+        crypto: Box<dyn SessionCrypto>,
+    ) -> Self {
+        assert!(
+            next_seq > 0,
+            "продолжение живой сессии требует ненулевого счётчика отправителя: next_seq = 0 — потеря состояния, нужна новая сессия с новым sid (Q26/F-12)",
+        );
+        Self {
+            session_id,
+            chain_base: k_session,
+            next_seq,
+            streams: Vec::new(),
+            crypto,
+            dedup: DedupWindow::restore_from_signed_last_seq(dedup_floor, resume_from),
+            overlap: None,
+            ack: None,
+            nak: None,
+            ratchet_restarts: 0,
+        }
     }
 }
 
@@ -1084,7 +1138,7 @@ mod tests {
         assert_eq!(fresh.anomalies(), 1, "seq ниже пола считается аномалией");
 
         // Восстановление из подписанного last_seq (`§3.5`, строка «Потеря состояния»).
-        let mut restored = DedupWindow::restore_from_signed_last_seq(Seq(10_000));
+        let mut restored = DedupWindow::restore_from_signed_last_seq(Seq(0), Seq(10_000));
         assert_eq!(restored.continuity_point(), Seq(10_000));
         assert_eq!(
             restored.window().lo,
@@ -1281,5 +1335,93 @@ mod tests {
             Ok(None),
             "повтор той же записи отброшен дедупом после коммита"
         );
+    }
+
+    /// Q26/F-12: инвариант восстановленного окна — пол тикета входит в окно,
+    /// «выданный потолок» дедупится, продолжение за потолком принимается.
+    #[test]
+    fn contract_restore_window_floor_and_ceiling() {
+        // Пол из ticket 9_500, подписанный клиентом потолок 10_000.
+        let mut restored = DedupWindow::restore_from_signed_last_seq(Seq(9_500), Seq(10_000));
+        assert_eq!(
+            restored.window(),
+            DuplicateWindow { lo: Seq(9_500), hi: Seq(10_000) },
+            "window_lo = max(пол из ticket, last_seq − 4096): пол выше слайда задаёт нижнюю границу",
+        );
+        assert_eq!(
+            restored.accept(Seq(9_499)),
+            DedupOutcome::BelowWindow,
+            "seq ниже пола тикета — аномалия (§3.7), а не приём",
+        );
+        assert_eq!(restored.anomalies(), 1);
+        assert_eq!(
+            restored.accept(Seq(9_800)),
+            DedupOutcome::Duplicate,
+            "всё ≤ выданного потолка дедупится: зазор до факта приёма не переоткрывается",
+        );
+        assert_eq!(
+            restored.accept(Seq(10_001)),
+            DedupOutcome::Accepted,
+            "продолжение нумерации — строго выше выданного потолка",
+        );
+        assert_eq!(
+            restored.continuity_point(),
+            Seq(10_001),
+            "continuity_point двигает только запись за потолком",
+        );
+
+        // Пол 0: окно от слайда last_seq − 4096 (§3.5).
+        let far = DedupWindow::restore_from_signed_last_seq(Seq(0), Seq(50_000));
+        assert_eq!(
+            far.window().lo,
+            Seq(50_000 + 1 - u64::from(DUPLICATE_WINDOW_RECORDS)),
+            "пол 0 ниже слайда: window_lo = last_seq − 4096",
+        );
+    }
+
+    /// Q26/F-12: fail-closed отправителя — продолжение живой сессии требует явного
+    /// ненулевого счётчика; нулевой (потеря состояния) отвергается на уровне API.
+    #[test]
+    #[should_panic(expected = "продолжение живой сессии требует ненулевого счётчика")]
+    fn contract_resume_sender_rejects_zero_counter() {
+        Session::resume_as_sender(
+            SessionId([0x77; 16]),
+            [0x78; 32],
+            0,
+            Seq(0),
+            Seq(0),
+            Box::new(MockCrypto),
+        );
+    }
+
+    /// Q26/F-12: продолжение с сохранённым счётчиком выдаёт seq строго выше подписанного
+    /// потолка; окно дедупа стороны восстановлено с полом тикета и потолком.
+    #[test]
+    fn contract_resume_sender_continues_numbering_above_ceiling() {
+        // Отправитель выдал seq 0..=5000 (потолок 5000), сохранил next_seq = 5001 рядом
+        // с K_session, рестарт: продолжение — только с явным счётчиком.
+        let mut resumed = Session::resume_as_sender(
+            SessionId([0x79; 16]),
+            [0x7a; 32],
+            5_001,
+            Seq(1_000),
+            Seq(5_000),
+            Box::new(MockCrypto),
+        );
+        let stream = resumed.open_stream(FlowId(1));
+        let record = resumed.seal_record(stream, b"after restart");
+        assert_eq!(
+            record.seq,
+            Seq(5_001),
+            "первый seq после рестарта — сохранённый счётчик, не ноль и не потолок",
+        );
+        assert_eq!(resumed.last_seq(), Seq(5_001));
+
+        // Приёмная сторона с тем же восстановленным окном (пол 1000, потолок 5000):
+        // ниже пола — аномалия, внутри окна — дубль, за потолком — новая запись.
+        let mut dedup = DedupWindow::restore_from_signed_last_seq(Seq(1_000), Seq(5_000));
+        assert_eq!(dedup.accept(Seq(999)), DedupOutcome::BelowWindow);
+        assert_eq!(dedup.accept(Seq(2_000)), DedupOutcome::Duplicate);
+        assert_eq!(dedup.accept(Seq(5_001)), DedupOutcome::Accepted);
     }
 }

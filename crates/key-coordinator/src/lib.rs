@@ -107,7 +107,9 @@ pub struct Ticket {
 /// половин, одну из которых (`sig_node`) до Q17 вообще никто не отдавал.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AcceptedAck {
-    /// Подтверждённый `continuity_point`.
+    /// Подтверждённый `continuity_point`. Семантика (Q26/F-12): «выданный потолок»
+    /// отправителя — echo подписанного клиентом `last_seq`; узел после рестарта факт
+    /// приёма не заявляет, клиент продолжает отправку с `seq > continuity_point`.
     pub continuity_point: u64,
     /// Нижняя граница окна нового узла.
     pub window_lo: u64,
@@ -126,7 +128,8 @@ pub struct AcceptedAck {
 /// самому, чтобы дотащить `sig_node`/`eph_node` до `frame-session::on_resume_ack`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Continuity {
-    /// Подтверждённый `continuity_point`.
+    /// Подтверждённый `continuity_point` — «выданный потолок» отправителя (Q26/F-12),
+    /// не «последний принятый узлом»; клиент продолжает с `seq > point`.
     pub point: u64,
     /// Нижняя граница окна нового узла.
     pub window_lo: u64,
@@ -354,6 +357,10 @@ pub fn build_resume_nak(reason: ResumeNak) -> Vec<u8> {
 /// (AAD), `client_resume_ctx` — контекст клиента из RESUME (нужен для транскрипта подписи),
 /// `node_window` — окно дедупа, посчитанное узлом (`02 §3.5`), `eph_node` — публичный
 /// эфемерный ключ узла этой попытки, `node_identity_priv` — ключ подписи `sig_node`.
+///
+/// Q26/F-12: `continuity_point` в ACK — «выданный потолок» (echo клиентского `last_seq`
+/// из транскрипта), не «последний принятый узлом»: рестартовавший узел факт приёма не
+/// заявляет; семантика зафиксирована в `02 §3.3`.
 #[allow(clippy::too_many_arguments)]
 pub fn build_resume_ack(
     k_resume: [u8; 32],

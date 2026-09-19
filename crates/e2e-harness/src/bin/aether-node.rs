@@ -459,9 +459,11 @@ fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
             .0;
 
             // Зеркало сессии N2: тот же `K_session'`, окно дедупа — из подписанного
-            // клиентом `last_seq` (`02 §3.5`, «Потеря состояния»).
+            // клиентом `last_seq` (`02 §3.5`, «Потеря состояния»). Q26/F-12: `last_seq` —
+            // «выданный потолок» отправителя (не «факт приёма»); пол окна — из ticket
+            // (`§3.5`: window_lo = max(пол из ticket, last_seq − 4096)).
             let mut session = new_session(ticket.sid.0, k_session_prime);
-            session.restore_dedup_from_signed_last_seq(Seq(ctx.last_seq));
+            session.restore_dedup_from_signed_last_seq(Seq(ticket.window.lo), Seq(ctx.last_seq));
             session.open_stream(frame_session::FlowId(1));
             st.session = Some(session);
             st.k_session = Some(k_session_prime);

@@ -37,6 +37,14 @@
 //!    значений backend'а (`values`) и доступ к самому backend'у (`ClientSessionStore::backend`)
 //!    гейтятся `#[cfg(test)]` — прод-код не умеет одной строкой скопировать весь набор секретов
 //!    (закрытие аудита F-SEC).
+//! 7. **Счётчик отправителя персистится в дескрипторе** (Q26/F-12): `SessionState.next_seq`
+//!    (следующий невыданный seq) лежит рядом с `K_session`; продолжение живого sid после
+//!    рестарта возможно только с явным счётчиком (`frame_session::Session::resume_as_sender`),
+//!    продолжить «с нуля» нельзя — инвариант против отката нумерации и переиспользования
+//!    `K_record[seq]`/nonce. Каденция записи фиксируется уже сейчас: Phase 0 (in-memory
+//!    backend) — sync-запись на каждый `seal_record` бесплатна; правило Phase 1 (OS store) —
+//!    sync-запись на каждый seal, краш между seal и записью = счётчик мог откатиться =
+//!    новая сессия, не resume.
 
 #![deny(unsafe_code)]
 
@@ -105,6 +113,12 @@ pub struct SessionState {
     pub session_id: [u8; 16],
     /// Мастер-ключ сессии (в at-rest — только через OS secure store).
     pub k_session: [u8; 32],
+    /// Счётчик отправителя сессии (Q26/F-12): следующий невыданный `seq`. Персистится в
+    /// дескрипторе рядом с `K_session`; sync-запись на каждый `seal_record` (Phase 0 —
+    /// in-memory backend; правило Phase 1 — sync, краш между seal и записью = новая
+    /// сессия, не resume). Откат запрещён: продолжение живого sid — только через
+    /// `frame_session::Session::resume_as_sender` с этим явным счётчиком.
+    pub next_seq: u64,
     /// Tickets, выданные узлами (только in-memory).
     pub tickets: Vec<Vec<u8>>,
     /// Chain descriptor для Federated Egress Mesh (Phase 3, `02 §3.4`).
@@ -120,6 +134,7 @@ impl fmt::Debug for SessionState {
             .field("uuid", &"<redacted>")
             .field("session_id", &"<redacted>")
             .field("k_session", &"<redacted>")
+            .field("next_seq", &self.next_seq)
             .field("tickets", &self.tickets.len())
             .field("chain", &self.chain.len())
             .field("secrets", &"<redacted>")
@@ -297,6 +312,7 @@ fn encode_descriptor(state: &SessionState) -> Result<Vec<u8>, StoreError> {
     for hop in &state.chain {
         out.extend_from_slice(hop);
     }
+    out.extend_from_slice(&state.next_seq.to_be_bytes());
     Ok(out)
 }
 
@@ -328,6 +344,8 @@ struct SessionDescriptor {
     uuid: [u8; 16],
     session_id: [u8; 16],
     chain: Vec<[u8; 16]>,
+    /// Счётчик отправителя (Q26/F-12) — следующий невыданный `seq`.
+    next_seq: u64,
 }
 
 /// Обратный разбор дескриптора. Обрезанный или неверный вход — `Corrupt`.
@@ -343,6 +361,7 @@ fn decode_descriptor(bytes: &[u8]) -> Result<SessionDescriptor, StoreError> {
     for _ in 0..chain_len {
         chain.push(take_arr::<16>(bytes, &mut cursor)?);
     }
+    let next_seq = u64::from_be_bytes(take_arr::<8>(bytes, &mut cursor)?);
     if cursor != bytes.len() {
         return Err(StoreError::Corrupt);
     }
@@ -351,6 +370,7 @@ fn decode_descriptor(bytes: &[u8]) -> Result<SessionDescriptor, StoreError> {
         uuid,
         session_id,
         chain,
+        next_seq,
     })
 }
 
@@ -371,6 +391,7 @@ impl<S: SecureStore> SessionStore for ClientSessionStore<S> {
             uuid: descriptor.uuid,
             session_id: descriptor.session_id,
             k_session: secret32(k_session)?,
+            next_seq: descriptor.next_seq,
             tickets: Vec::new(),
             chain: descriptor.chain,
             secrets: ClientSecrets::new(secret32(identity)?, secret32(statics)?),
@@ -419,6 +440,7 @@ mod tests {
             uuid: [0x11; 16],
             session_id: [0x22; 16],
             k_session: K_SESSION,
+            next_seq: 7,
             tickets: vec![vec![0xd4; 161]],
             chain: vec![[0x33; 16], [0x44; 16]],
             secrets: ClientSecrets::new(IDENTITY, STATIC),
@@ -478,6 +500,10 @@ mod tests {
         assert_eq!(loaded.uuid, [0x11; 16]);
         assert_eq!(loaded.session_id, [0x22; 16]);
         assert_eq!(loaded.k_session, K_SESSION);
+        assert_eq!(
+            loaded.next_seq, 7,
+            "счётчик отправителя переживает хранилище рядом с K_session (Q26/F-12)"
+        );
         assert_eq!(loaded.chain, vec![[0x33; 16], [0x44; 16]]);
         assert_eq!(loaded.secrets.identity(), &IDENTITY);
         assert_eq!(loaded.secrets.statics(), &STATIC);
@@ -574,6 +600,7 @@ mod tests {
             SubscriptionId("sub-42".to_string())
         );
         assert_eq!(restored.session_id, [0x22; 16]);
+        assert_eq!(restored.next_seq, 7, "счётчик отправителя в дескрипторе");
         assert_eq!(restored.chain.len(), 2);
         assert_eq!(restored.secrets.statics(), &STATIC);
         assert!(
