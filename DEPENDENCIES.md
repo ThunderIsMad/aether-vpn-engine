@@ -214,10 +214,14 @@ RNG-стека RustCrypto, уже в дереве через `ed25519-dalek`/`ch
 не задокументировать отдельно нечем: отследены `cargo tree -i getrandom@…` 2026-09-18;
 это нормальное состояние lockfile, а не дрейф пинов.
 
-**TODO (не блокирует, отдельная задача):** внедрить `cargo-audit`/`cargo-deny` для
-автоматического контроля advisory по lockfile. Сейчас уязвимости отслеживаются вручную
-при TTL-перепроверках; внедрение требует выбора полемики (deny list, лицензии) и
-отдельного прогона — не делалось в рамках фикса F-11.
+**ВЫПОЛНЕНО** (2026-09-19, выбран `cargo-deny` — обоснование выбора и все политики —
+в разделе «cargo-deny» ниже): автоматический контроль advisory/license/bans/sources
+по lockfile внедрён — `deny.toml` в корне + job `deps-deny` в `ci.yml`
+(EmbarkStudios/cargo-deny-action v2.1.1, пин по peeled-коммиту `3c63498`).
+Подтверждение git-based: CI run **35438476733** на SHA `a4add0f96b18cb8ab7d154033061bcb20b3eb666`,
+job «cargo-deny (advisories + licenses + bans + sources)» (id 105885096147) = **success**
+(conclusion по Actions API; полный текст лога требует admin-прав, которых у среды
+прогона нет).
 
 ---
 
