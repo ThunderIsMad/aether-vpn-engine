@@ -184,12 +184,15 @@ pub enum ResumeError {
 pub enum ResumeNak {
     /// `sig_client` неверна: ticket не консумируется, инцидент в телеметрию узла.
     BadPop,
-    /// Повтор ticket на том же узле (`consumed-set` эпохи, `02 §3.6`).
+    /// Байт-в-байт повтор уже принятой попытки (consumed-запись, `02 §3.6`; Задача 3.1).
     Replay,
     /// `epoch_id` не совпал → фолбэк: полный IK-handshake (`02 §5`).
     Epoch,
     /// `exp` истёк → фолбэк: полный handshake.
     Expired,
+    /// Бюджет попыток по тикету исчерпан (Задача 3.1, Q26): откат на старый канал,
+    /// ретраи по этому тикету прекращаются (без фолбэка на полный handshake).
+    Budget,
 }
 
 impl ResumeNak {
@@ -200,6 +203,7 @@ impl ResumeNak {
             ResumeNak::Replay => NAK_REPLAY,
             ResumeNak::Epoch => NAK_EPOCH,
             ResumeNak::Expired => NAK_EXPIRED,
+            ResumeNak::Budget => NAK_BUDGET,
         }
     }
 
@@ -210,6 +214,7 @@ impl ResumeNak {
             NAK_REPLAY => Some(ResumeNak::Replay),
             NAK_EPOCH => Some(ResumeNak::Epoch),
             NAK_EXPIRED => Some(ResumeNak::Expired),
+            NAK_BUDGET => Some(ResumeNak::Budget),
             _ => None,
         }
     }
@@ -258,6 +263,9 @@ pub const NAK_BAD_POP: u8 = 0x01;
 pub const NAK_REPLAY: u8 = 0x02;
 pub const NAK_EPOCH: u8 = 0x03;
 pub const NAK_EXPIRED: u8 = 0x04;
+/// Бюджет попыток `RESUME` по тикету исчерпан (Задача 3.1, Q26): consumed-запись узла
+/// несёт счётчик санкционированных попыток (`02 §3.6`), лимит — `MAX_RESUME_ATTEMPTS`.
+pub const NAK_BUDGET: u8 = 0x05;
 
 const NONCE_LABEL_RESUME: [u8; 8] = *b"resume\x00\x00";
 const NONCE_LABEL_ACK: [u8; 8] = *b"resumeak";
@@ -485,6 +493,13 @@ impl<C: RotationChannel> ClientRotation<C> {
     /// Сколько попыток `RESUME` **дошло до сети** (потолок — `02 §3.7`, Q18: первая плюс
     /// одна повторная). Локальные `Malformed` (нет identity/eph, пустой/битый ticket)
     /// бюджет не расходуют (аудит F-CORR).
+    ///
+    /// Задача 3.1 (Q26): это **зеркало локального поведения клиента**, не источник правды.
+    /// Авторитетный счётчик — consumed-запись тикета на узле: несколько инстансов
+    /// координатора (морф, мультибайндинг) держат независимые зеркала, а бюджет один —
+    /// per-node consumed-set. Локальное зеркало может только **опережать** узел
+    /// (`NAK budget` → `ResumeError::Nacked(ResumeNak::Budget)` придёт раньше третьей
+    /// попытки); перетереть узловой бюджет оно не может.
     pub fn attempts(&self) -> u8 {
         self.attempts
     }

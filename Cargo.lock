@@ -1899,6 +1899,7 @@ version = "0.0.0"
 dependencies = [
  "chacha20poly1305 0.11.0",
  "ed25519-dalek",
+ "frame-session",
  "getrandom 0.3.4",
  "sha2 0.11.0",
 ]

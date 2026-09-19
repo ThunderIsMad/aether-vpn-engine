@@ -15,3 +15,7 @@ ed25519-dalek.workspace = true
 sha2.workspace = true
 # Случайный nonce тикета (24 B): AEAD обязан быть probabilistic (закрытие аудита F-SEC).
 getrandom.workspace = true
+# Спека-константа бюджета RESUME: `MAX_RESUME_ATTEMPTS` дублируется в ticket-mint сознательно
+# (см. доку константы), консистентность трёх копий проверяет контракт-тест rotation-tests
+# (кросс-крейт чекер, единственное место, где все три крейта легальны одновременно).
+frame-session.workspace = true

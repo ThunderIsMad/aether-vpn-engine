@@ -406,23 +406,34 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
     );
 
     // 2. Ретрай: новый `client_nonce` и новый `eph_client`, ticket тот же.
+    //    Задача 3.1 (Q26): санкционированный ретрай с новым транскриптом при остатке
+    //    бюджета consumed-записи → второй `RESUME_ACK` (`§3.7` Q18). Замещение зеркала
+    //    сессии узла — точка RESUME-Accept (`Option<Session>`), второй экземпляр не
+    //    возникает (`02 §3.6`, инвариант «ровно один живой экземпляр на sid»).
     let (eph_b, eph_b_priv) = fresh_eph();
     rotation.set_eph_client(eph_b_priv, eph_b);
-    assert_eq!(
-        rotation.resume(&manifest, &ticket, eph_b),
-        Err(ResumeError::Nacked(KcResumeNak::Replay)),
-        "тот же ticket на том же узле → `RESUME_NAK replay` (`02 §3.7`), причина доходит (F-06)"
-    );
+    let ack2 = rotation
+        .resume(&manifest, &ticket, eph_b)
+        .expect("ретрай с новым nonce принимается при остатке бюджета (Задача 3.1)");
     assert_eq!(rotation.attempts(), 2);
     assert_eq!(
         network.borrow().nodes[&2].consumed_tickets(),
         1,
-        "вторая сессия из повтора не появляется (`02 §3.5`: at-most-once на узел)"
+        "ретрай НЕ заводит вторую consumed-запись (`02 §3.6`)"
     );
-    assert_eq!(rotation.k_session_prime(), None, "NAK не даёт `K_session'`");
-    assert_eq!(rotation.confirmed_eph_node(), None);
+    assert_eq!(
+        network.borrow().nodes[&2].accepted,
+        2,
+        "узел принял обе санкционированные попытки (первая + повторная, Q18)"
+    );
+    assert_eq!(
+        ack2.point, ack2.window_hi,
+        "второй `RESUME_ACK` — echo `last_seq` попытки («выданный потолок», Q26/F-12)"
+    );
 
-    // 4. Replay детектится по ticket, а не по nonce: тот же ticket с исходным nonce — тоже replay.
+    // 3. Байт-в-байт повтор УЖЕ ПРИНЯТОЙ попытки → replay без траты бюджета: тот же
+    //    ticket с исходным nonce даёт тот же транскрипт, счётчик не двигается. Бюджет
+    //    при этом исчерпан (2/2), поэтому вердикт узла — `budget`, идемпотентный.
     let (same_nonce_request, _) = rotation
         .build_resume(&ticket, CLIENT_NONCE)
         .expect("RESUME собран");
@@ -432,11 +443,18 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
         .expect("ответ узла");
     assert_eq!(
         replay,
-        vec![WIRE_NAK, NAK_REPLAY],
-        "ключ consumed-set — `epoch_id ‖ sha256(ticket_blob)` (`02 §3.6`)"
+        vec![WIRE_NAK, NAK_BUDGET],
+        "байт-повтор при исчерпанном бюджете — идемпотентный `budget` (Задача 3.1)"
+    );
+    assert_eq!(
+        network.borrow().nodes[&2].consumed_tickets(),
+        1,
+        "повтор не заводит запись (`02 §3.6`)"
     );
 
-    // 3. Потолок ретраев: третьей попытки нет, откат на старый канал.
+    // 4. Потолок ретраев узла: бюджет consumed-записи исчерпан (2/2) — третья валидная
+    //    попытка сверх бюджета получает `RESUME_NAK budget` (Задача 3.1), но клиентский
+    //    локальный потолок (Q18) срабатывает раньше: откат на старый канал без сети.
     let sent_before = network.borrow().requests.len();
     assert_eq!(
         rotation.resume(&manifest, &ticket, eph_b),
@@ -449,6 +467,29 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
         "откат на старый канал — без нового RESUME"
     );
 
+    // 5. Узловая ветка бюджета напрямую: свежий координатор (независимое зеркало),
+    //    тот же тикет — третья валидная попытка доходит до узла и получает `budget`.
+    //    (Разделение зеркал клиента и авторитета узла — суть Задачи 3.1.)
+    let (eph_d, eph_d_priv) = fresh_eph();
+    let mut budget_probe = coordinator(
+        network.clone(),
+        &client_identity_priv,
+        eph_d,
+        eph_d_priv,
+        last_seq,
+        (0, 0),
+    );
+    assert_eq!(
+        budget_probe.resume(&manifest, &ticket, eph_d),
+        Err(ResumeError::Nacked(KcResumeNak::Budget)),
+        "третья валидная попытка сверх бюджета узла — `RESUME_NAK budget` (Задача 3.1)"
+    );
+    assert_eq!(
+        last_response(&network),
+        vec![WIRE_NAK, NAK_BUDGET],
+        "код 0x05 доходит до клиента (F-06), причина — `budget`"
+    );
+
     // 6. Сессия не рвётся: старый канал жив, `seq` продолжается, потоков столько же.
     let during = driver.emit(streams[1], b"during", 0);
     assert!(delivered(&driver.old).contains(&(streams[1].0, during.seq.0)));
@@ -459,7 +500,7 @@ fn rotation_retry_after_lost_ack_new_nonce_same_ticket_accepted_once() {
         "NAK не перезапускает ratchet"
     );
 
-    // 5. `K_session'` выводится от `eph_client` успешной попытки: новая попытка — новый ticket.
+    // 7. `K_session'` выводится от `eph_client` успешной попытки: новая попытка — новый ticket.
     let (client2, client2_priv) = ed25519_genkey();
     let network2 = SharedNetwork::new(ClientCreds {
         auth: client2,

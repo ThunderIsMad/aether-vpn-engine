@@ -47,7 +47,9 @@ use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
 use ed25519_dalek::{Signature as DalekSignature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
-use std::collections::HashSet;
+use std::collections::HashMap;
+
+// Спека-константа бюджета RESUME: копия `MAX_RESUME_ATTEMPTS` (см. доку ниже).
 use std::fmt;
 
 /// Идентификатор сессии (`sid`).
@@ -219,6 +221,10 @@ pub enum ResumeVerdict {
     NakEpoch,
     /// `exp` истёк → фолбэк на полный handshake (`§3.7`).
     NakExpired,
+    /// Бюджет попыток `RESUME` по тикету исчерпан (Задача 3.1, Q26): consumed-запись
+    /// несёт счётчик санкционированных попыток, лимит — `MAX_RESUME_ATTEMPTS`.
+    /// Запись не меняется (идемпотентный отказ), PoP-брутфорс бюджетом не оплачивается.
+    NakBudget,
     /// Blob не разбирается нашим `TFK_epoch`/версией: это не NAK, а drop.
     Drop,
 }
@@ -246,18 +252,43 @@ pub trait TicketMint {
     fn verify_pop(&self, ticket: &TicketPlain, sig: &Signature, ctx: &ResumeCtx) -> bool;
 }
 
+/// Всего попыток `RESUME` на один ticket (первая + одна повторная) — копия
+/// `frame_session::MAX_RESUME_ATTEMPTS` (`02 §3.7`, Q18). Дубликат сознательный: крейт
+/// стороны узла не тянет клиентские крейты, а билет живёт у узла, где бюджет и
+/// считается (consumed-запись). Консистентность трёх копий (frame-session /
+/// ticket-mint / key-coordinator) — контракт-тест в `rotation-tests`.
+pub use frame_session::MAX_RESUME_ATTEMPTS;
+
 /// Узел-минтер: флотский ключ эпохи, набор узлов, TTL тикета и consumed-set эпохи.
 ///
 /// Часы — обязательный параметр конструктора (`now`), не дефолт: стартовое `now: 0` без
 /// явной установки — источник «тикетов из 1970-го» при забытой `set_now` (аудит F-12).
 /// Прод-код обязан передать реальные часы; `set_now` остаётся для сдвига времени в тестах.
+/// Запись consumed-set тикета (Задача 3.1, Q26): счётчик **санкционированных** попыток
+/// `RESUME` (PoP валиден) и хеш транскрипта последней из них (`sha256(resume_signing_payload)`,
+/// «aether-resume-v3» — см. `key_coordinator::LABEL_RESUME`).
+///
+/// Транскрипт различает байт-в-байт повтор кадра (тот же `client_nonce` ⇒ тот же
+/// транскрипт) от честного ретрая `§3.6` (новый nonce/eph ⇒ новый транскрипт).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumedEntry {
+    /// Сколько валидных (PoP пройден) попыток уже принял этот узел.
+    pub attempts: u8,
+    /// Хеш транскрипта последней попытки — ключ различения повтора от ретрая.
+    pub last_transcript: [u8; 32],
+}
+
 pub struct TicketFactory {
     tfk_epoch: [u8; 32],
     epoch_id: u32,
     node_set_id: u32,
     ttl_seconds: u64,
     now: u64,
-    consumed: HashSet<Vec<u8>>,
+    /// Ключ — `epoch_id ‖ sha256(blob)` (`consumed_key`, не меняется); значение —
+    /// `{attempts, last_transcript}` (Задача 3.1). Ограничение Phase 0: per-node
+    /// in-memory до персистентного consumed-set (Q20) — формулировка класса
+    /// ограничения `gen_bases` из Q25.
+    consumed: HashMap<Vec<u8>, ConsumedEntry>,
 }
 
 impl TicketFactory {
@@ -275,7 +306,7 @@ impl TicketFactory {
             node_set_id,
             ttl_seconds,
             now,
-            consumed: HashSet::new(),
+            consumed: HashMap::new(),
         }
     }
 
@@ -400,10 +431,18 @@ impl TicketFactory {
         })
     }
 
-    /// Полный разбор `RESUME` на стороне узла: unwrap → consumed-set → PoP → консумирование.
+    /// Полный разбор `RESUME` на стороне узла: unwrap → PoP → consumed-запись → вердикт.
     ///
     /// Порядок веток — `§3.7`; ticket консумируется **только** при `Accept`, поэтому неверная
     /// подпись не «съедает» билет и легитимный резюм после неё проходит.
+    ///
+    /// Инвариант замещения зеркала (Задача 3.1, разведка Q26): Accept по **повторному**
+    /// RESUME того же тикета (санкционированный ретрай) обязан проходить через
+    /// существующую точку замещения зеркала сессии узла — единственный слот
+    /// `Option<Session>` (`e2e-harness::aether-node`, `handle_resume`), присваивание
+    /// которому дропает предыдущий экземпляр. Mint-слой сессий не создаёт: двух живых
+    /// `Session` с одинаковым `(sid, K_session)` не существует по построению —
+    /// инвариант «ровно один живой экземпляр на sid» (`02 §3.6`).
     pub fn handle_resume(
         &mut self,
         blob: &TicketBlob,
@@ -420,17 +459,56 @@ impl TicketFactory {
             Err(TicketError::BadWrap | TicketError::BadLayout) => return ResumeVerdict::Drop,
         };
         let key = consumed_key(self.epoch_id, blob);
-        if self.consumed.contains(&key) {
-            return ResumeVerdict::NakReplay;
-        }
         // Подпись покрывает sha256(ticket_blob): сверяем, что предъявлен именно тот билет,
-        // для которого подпись выдана (`§3.3`).
+        // для которого подпись выдана (`§3.3`). Проверка стоит ДО любого касания
+        // consumed-записи: невалидная подпись бюджет владельца не тратит (анти-DoS),
+        // инцидент — в телеметрию узла (`§3.7`).
         if ctx.ticket_hash != sha256(&blob.0) || !self.verify_pop(&ticket, sig, ctx) {
             return ResumeVerdict::NakBadPop;
         }
+        // PoP валиден ⇒ попытка санкционирована держателем `client_auth` тикета. Дальше
+        // consumed-запись решает: байт-повтор, санкционированный ретрай или исчерпание.
+        let transcript = sha256(&resume_signing_payload(ctx));
         let anomaly = ctx.last_seq < ticket.window.lo;
-        self.consumed.insert(key);
-        ResumeVerdict::Accept { ticket, anomaly }
+        match self.consumed.get(&key) {
+            None => {
+                // Первая попытка по тикету (`§3.6`): консумирование.
+                self.consumed.insert(
+                    key,
+                    ConsumedEntry {
+                        attempts: 1,
+                        last_transcript: transcript,
+                    },
+                );
+                ResumeVerdict::Accept { ticket, anomaly }
+            }
+            Some(entry) if entry.last_transcript == transcript => {
+                // Байт-в-байт повтор уже принятой попытки (`§3.6` replay): у ретрая по
+                // `§3.6` всегда новый `client_nonce` ⇒ другой транскрипт. Слот НЕ
+                // сдвигается и счётчик НЕ тратится — поддельная/сетевая копия не сжигает
+                // бюджет владельца, повторный Accept не выдаётся.
+                ResumeVerdict::NakReplay
+            }
+            Some(entry) if entry.attempts < MAX_RESUME_ATTEMPTS => {
+                // Санкционированный ретрай с новым транскриптом при остатке бюджета
+                // (`§3.7` Q18: первая + не более одной повторной). Замещение зеркала
+                // сессии — обязанность узловой точки RESUME-Accept (см. доку метода);
+                // mint-слой второй экземпляр сессии не создаёт.
+                self.consumed.insert(
+                    key,
+                    ConsumedEntry {
+                        attempts: entry.attempts + 1,
+                        last_transcript: transcript,
+                    },
+                );
+                ResumeVerdict::Accept { ticket, anomaly }
+            }
+            Some(_) => {
+                // Бюджет исчерпан: идемпотентный отказ, запись не меняется (повторные
+                // попытки отвечают тем же `NakBudget` и не двигают счётчик).
+                ResumeVerdict::NakBudget
+            }
+        }
     }
 }
 
@@ -649,12 +727,33 @@ mod tests {
             "ticket консумирован ровно один раз"
         );
 
+        // Санкционированный ретрай (Задача 3.1): новый `client_nonce` ⇒ новый транскрипт,
+        // PoP валиден, бюджет (2) не исчерпан → второй Accept по тому же тикету (`§3.7`).
+        let retry_ctx = ResumeCtx {
+            client_nonce: [0x77; 16],
+            ..good_ctx.clone()
+        };
+        let retry_sig = Signature(client.sign(&resume_signing_payload(&retry_ctx)).to_bytes());
+        match factory.handle_resume(&blob, &retry_sig, &retry_ctx, 1_150) {
+            ResumeVerdict::Accept { anomaly, .. } => assert!(!anomaly),
+            verdict => panic!("ожидался Accept на ретрае, получено {verdict:?}"),
+        }
+        assert_eq!(factory.consumed_len(), 1, "ретрай НЕ заводит вторую запись");
+
         // Повтор того же ticket на том же узле → replay, второй сессии нет (`§3.6`).
+        // Здесь бюджет уже исчерпан (первая попытка и ретрай выше исчерпали
+        // {attempts: 2}), поэтому повтор попадает в ветку `NakBudget` — вердикт
+        // тот же, счётчик не двигается.
         assert_eq!(
             factory.handle_resume(&blob, &good_sig, &good_ctx, 1_200),
-            ResumeVerdict::NakReplay
+            ResumeVerdict::NakBudget
         );
         assert_eq!(factory.consumed_len(), 1);
+        assert_eq!(
+            factory.handle_resume(&blob, &good_sig, &good_ctx, 1_200),
+            ResumeVerdict::NakBudget,
+            "NakBudget идемпотентен: повторные попытки не двигают запись"
+        );
 
         // `last_seq` ниже пола из ticket — аномалия, но резюм принимается (`§3.7`).
         let (client2, pub2) = identity(0xcc);
@@ -689,6 +788,145 @@ mod tests {
         assert_eq!(
             factory.handle_resume(&TicketBlob(vec![0x00; 8]), &sig4, &ctx4, 1_400),
             ResumeVerdict::Drop
+        );
+    }
+
+    /// Задача 3.1 (Q26): истощение бюджета **честным клиентом** — первая попытка Accept,
+    /// ретрай с новым nonce Accept, третья валидная попытка → `NakBudget`. Запись одна,
+    /// NakBudget идемпотентен, попытки чужой подписью бюджет не тратят.
+    #[test]
+    fn contract_budget_exhaustion_honest_client_nak_budget() {
+        let mut factory = TicketFactory::new(TFK, 7, 3, 3_600, 1_000);
+        let (client, client_pub) = identity(0xaa);
+        let window = Window { lo: 0, hi: 0 };
+        let blob = factory.mint_at(SID, client_pub, window, &K_SESSION, 1_000);
+        let (sig1, ctx1) = context(&blob, &client);
+        let ctx2 = ResumeCtx {
+            client_nonce: [0x66; 16],
+            ..ctx1.clone()
+        };
+        let sig2 = Signature(client.sign(&resume_signing_payload(&ctx2)).to_bytes());
+        let ctx3 = ResumeCtx {
+            client_nonce: [0x88; 16],
+            ..ctx1.clone()
+        };
+        let sig3 = Signature(client.sign(&resume_signing_payload(&ctx3)).to_bytes());
+
+        assert!(matches!(
+            factory.handle_resume(&blob, &sig1, &ctx1, 1_100),
+            ResumeVerdict::Accept { .. }
+        ));
+        assert!(matches!(
+            factory.handle_resume(&blob, &sig2, &ctx2, 1_150),
+            ResumeVerdict::Accept { .. }
+        ));
+        assert_eq!(
+            factory.handle_resume(&blob, &sig3, &ctx3, 1_200),
+            ResumeVerdict::NakBudget,
+            "третья валидная попытка сверх бюджета — `RESUME_NAK budget` (0x05)"
+        );
+        assert_eq!(factory.consumed_len(), 1, "запись по тикету одна");
+        assert_eq!(
+            factory.handle_resume(&blob, &sig3, &ctx3, 1_250),
+            ResumeVerdict::NakBudget,
+            "NakBudget идемпотентен: запись не меняется"
+        );
+    }
+
+    /// Задача 3.1 (Q26): попытка с чужой/невалидной `sig_client` НЕ декрементирует бюджет
+    /// владельца — ни на неконсумированном тикете (запись не заводится), ни на
+    /// консумированном (счётчик `{attempts}` не двигается); после чужих попыток
+    /// санкционированный ретрай владельца проходит.
+    #[test]
+    fn contract_invalid_signature_does_not_burn_budget() {
+        let mut factory = TicketFactory::new(TFK, 7, 3, 3_600, 1_000);
+        let (client, client_pub) = identity(0xaa);
+        let (attacker, _) = identity(0xbb);
+        let window = Window { lo: 0, hi: 0 };
+        let blob = factory.mint_at(SID, client_pub, window, &K_SESSION, 1_000);
+        let (sig1, ctx1) = context(&blob, &client);
+        let (bad_sig, _) = context(&blob, &attacker);
+
+        // Чужая подпись на неконсумированном тикете: запись НЕ заводится (0 попыток).
+        assert_eq!(
+            factory.handle_resume(&blob, &bad_sig, &ctx1, 1_100),
+            ResumeVerdict::NakBadPop
+        );
+        assert_eq!(factory.consumed_len(), 0, "bad_pop не консумирует тикет");
+
+        // Владелец тратит первую попытку и ретрай — бюджет исчерпан (2/2).
+        assert!(matches!(
+            factory.handle_resume(&blob, &sig1, &ctx1, 1_150),
+            ResumeVerdict::Accept { .. }
+        ));
+        let attacker_retry = ResumeCtx {
+            client_nonce: [0x99; 16],
+            ..ctx1.clone()
+        };
+        assert_eq!(
+            factory.handle_resume(&blob, &bad_sig, &attacker_retry, 1_200),
+            ResumeVerdict::NakBadPop,
+            "чужой nonce с чужой подписью — bad_pop, не расход бюджета"
+        );
+        let (sig2, ctx2) = {
+            let ctx = ResumeCtx {
+                client_nonce: [0x66; 16],
+                ..ctx1.clone()
+            };
+            let sig = Signature(client.sign(&resume_signing_payload(&ctx)).to_bytes());
+            (sig, ctx)
+        };
+        assert!(matches!(
+            factory.handle_resume(&blob, &sig2, &ctx2, 1_250),
+            ResumeVerdict::Accept { .. }
+        ));
+
+        // Владелец проверяет: чужие попытки не сдвинули счётчик — бюджет ровно 2/2,
+        // следующая валидная попытка — уже NakBudget.
+        let ctx3 = ResumeCtx {
+            client_nonce: [0x88; 16],
+            ..ctx1.clone()
+        };
+        let sig3 = Signature(client.sign(&resume_signing_payload(&ctx3)).to_bytes());
+        assert_eq!(
+            factory.handle_resume(&blob, &sig3, &ctx3, 1_300),
+            ResumeVerdict::NakBudget,
+            "чужие попытки не дали владельцу лишних попыток (2/2, не 2/3)"
+        );
+    }
+
+    /// Задача 3.1 (Q26): байт-в-байт повтор принятой попытки → `NakReplay` БЕЗ траты
+    /// бюджета: после него санкционированный ретрай владельца всё ещё принимается.
+    #[test]
+    fn contract_byte_identical_replay_preserves_budget() {
+        let mut factory = TicketFactory::new(TFK, 7, 3, 3_600, 1_000);
+        let (client, client_pub) = identity(0xaa);
+        let window = Window { lo: 0, hi: 0 };
+        let blob = factory.mint_at(SID, client_pub, window, &K_SESSION, 1_000);
+        let (sig1, ctx1) = context(&blob, &client);
+        let ctx2 = ResumeCtx {
+            client_nonce: [0x66; 16],
+            ..ctx1.clone()
+        };
+        let sig2 = Signature(client.sign(&resume_signing_payload(&ctx2)).to_bytes());
+
+        assert!(matches!(
+            factory.handle_resume(&blob, &sig1, &ctx1, 1_100),
+            ResumeVerdict::Accept { .. }
+        ));
+        // Байт-повтор первой попытки (тот же nonce ⇒ тот же транскрипт) — replay.
+        assert_eq!(
+            factory.handle_resume(&blob, &sig1, &ctx1, 1_150),
+            ResumeVerdict::NakReplay,
+            "байт-повтор — replay, счётчик не тратится"
+        );
+        // Санкционированный ретрай прошёл — бюджет не был сожжён повтором.
+        assert!(
+            matches!(
+                factory.handle_resume(&blob, &sig2, &ctx2, 1_200),
+                ResumeVerdict::Accept { .. }
+            ),
+            "replay не сжёг бюджет: ретрай владельца принимается"
         );
     }
 

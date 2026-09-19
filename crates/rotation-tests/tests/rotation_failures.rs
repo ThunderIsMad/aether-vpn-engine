@@ -235,7 +235,8 @@ fn rotation_replay_same_ticket_is_idempotent_nak_not_second_session() {
         "ticket принят один раз (`02 §3.6`)"
     );
 
-    // 1/2. Повтор того же запроса и повтор того же ticket с другим nonce — оба replay.
+    // 1. Байт-в-байт повтор того же запроса (тот же nonce ⇒ тот же транскрипт) — replay.
+    //    Задача 3.1: replay НЕ тратит бюджет consumed-записи (счётчик не двигается).
     assert_eq!(
         network
             .clone()
@@ -244,16 +245,42 @@ fn rotation_replay_same_ticket_is_idempotent_nak_not_second_session() {
         vec![WIRE_NAK, NAK_REPLAY],
         "ключ consumed-set — `epoch_id ‖ sha256(ticket_blob)`, а не nonce (`02 §3.6`)"
     );
+    assert_eq!(network.borrow().nodes[&2].consumed_tickets(), 1);
+
+    // 2. Повтор того же ticket с другим nonce и валидным PoP владельца — теперь
+    //    санкционированный ретрай (`§3.7` Q18, Задача 3.1): при остатке бюджета это
+    //    второй `RESUME_ACK`, а не replay. Второй сессии не появляется — зеркало
+    //    сессии узла замещается в единственной точке RESUME-Accept (`02 §3.6`).
     let (other_nonce_request, _) = rotation
         .build_resume(&ticket, [0x11; 16])
         .expect("RESUME собран");
+    let ack2 = network
+        .clone()
+        .exchange(NodeId(2), &other_nonce_request)
+        .expect("ответ узла");
+    assert_eq!(
+        ack2.first(),
+        Some(&WIRE_ACK),
+        "новый nonce с валидным PoP при остатке бюджета — санкционированный ретрай (Задача 3.1)"
+    );
+    assert_eq!(
+        network.borrow().nodes[&2].consumed_tickets(),
+        1,
+        "ретрай НЕ заводит вторую consumed-запись (`02 §3.6`)"
+    );
+    assert_eq!(
+        network.borrow().nodes[&2].accepted,
+        2,
+        "узел принял обе санкционированные попытки"
+    );
+    // Бюджет исчерпан (2/2): следующий байт-повтор той же первой попытки — `budget`.
     assert_eq!(
         network
             .clone()
-            .exchange(NodeId(2), &other_nonce_request)
+            .exchange(NodeId(2), &first_request)
             .expect("ответ узла"),
-        vec![WIRE_NAK, NAK_REPLAY],
-        "другой nonce не меняет вердикт: replay детектится по ticket"
+        vec![WIRE_NAK, NAK_BUDGET],
+        "байт-повтор при исчерпанном бюджете — идемпотентный `budget` (Задача 3.1)"
     );
     assert_eq!(network.borrow().nodes[&2].consumed_tickets(), 1);
 

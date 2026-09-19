@@ -446,6 +446,9 @@ fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
                 if anomaly { " [ANOMALY]" } else { "" },
                 st.factory.consumed_len(),
             ));
+            // Задача 3.1: повторный Accept (санкционированный ретрай) проходит через ЭТУ
+            // точку замещения зеркала: `st.session = Some(session)` ниже дропает прежний
+            // экземпляр — двух живых Session на один sid не возникает (`02 §3.6`).
             // Пост-ротационный re-key на узле (`02 §3.3`): DH(eph_node_priv, eph_client)
             // и тот же `derive_rotated_session`, что у клиента.
             let shared =
@@ -506,6 +509,7 @@ fn handle_resume(st: &mut NodeState, request: &[u8]) -> Vec<u8> {
                 ResumeVerdict::NakBadPop => ResumeNak::BadPop,
                 ResumeVerdict::NakEpoch => ResumeNak::Epoch,
                 ResumeVerdict::NakExpired => ResumeNak::Expired,
+                ResumeVerdict::NakBudget => ResumeNak::Budget,
                 ResumeVerdict::Drop | ResumeVerdict::Accept { .. } => {
                     unreachable!("Drop отфильтрован раньше; Accept обработан веткой выше")
                 }

@@ -75,6 +75,7 @@ pub const NAK_BAD_POP: u8 = key_coordinator::NAK_BAD_POP;
 pub const NAK_REPLAY: u8 = key_coordinator::NAK_REPLAY;
 pub const NAK_EPOCH: u8 = key_coordinator::NAK_EPOCH;
 pub const NAK_EXPIRED: u8 = key_coordinator::NAK_EXPIRED;
+pub const NAK_BUDGET: u8 = key_coordinator::NAK_BUDGET;
 
 /// Адаптер `crypto-core` → `frame-session::SessionCrypto`.
 ///
@@ -306,6 +307,10 @@ impl NodeSim {
             ResumeVerdict::NakExpired => {
                 self.nacked += 1;
                 self.nak(NAK_EXPIRED)
+            }
+            ResumeVerdict::NakBudget => {
+                self.nacked += 1;
+                self.nak(NAK_BUDGET)
             }
             ResumeVerdict::Drop => vec![WIRE_UNKNOWN],
         }
